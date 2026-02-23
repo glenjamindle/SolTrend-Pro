@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
           gpsLng,
           projectId,
           inspectorId: session.user.id,
-          pile: { connect: { id: pile.id } }
+          pileIdFull: pile.id
         },
         include: {
           inspector: { select: { id: true, name: true } }
