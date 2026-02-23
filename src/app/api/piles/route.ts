@@ -66,8 +66,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       piles,
-      statusCounts: statusCounts.reduce((acc, { status, _count }) => {
-        acc[status] = _count
+      statusCounts: statusCounts.reduce((acc, item) => {
+        acc[item.status] = item._count.status
         return acc
       }, {} as Record<string, number>)
     })
