@@ -1,0 +1,7 @@
+node_modules/
+.next/
+.env
+*.lock
+skills/
+
+/src/generated/prisma
