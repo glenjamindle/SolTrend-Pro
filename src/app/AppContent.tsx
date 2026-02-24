@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 
 export default function AppContent() {
-  const { status } = useSession({ refetchOnWindowFocus: false })
+  const { status } = useSession()
   const router = useRouter()
   const [hasLoaded, setHasLoaded] = useState(false)
 
