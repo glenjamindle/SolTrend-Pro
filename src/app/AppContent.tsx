@@ -1,21 +1,29 @@
 'use client'
 
-import { useSession } from 'next-auth/react'
-import { useEffect } from 'react'
+import { useSession, signOut } from 'next-auth/react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Script from 'next/script'
 
 export default function AppContent() {
-  const { status } = useSession()
+  const { status } = useSession({ refetchOnWindowFocus: false })
   const router = useRouter()
+  const [hasLoaded, setHasLoaded] = useState(false)
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    if (status === 'authenticated') {
+      setHasLoaded(true)
+    }
+  }, [status])
+
+  useEffect(() => {
+    if (status === 'unauthenticated' && !hasLoaded) {
       router.push('/login')
     }
-  }, [status, router])
+  }, [status, router, hasLoaded])
 
-  if (status === 'loading' || status === 'unauthenticated') {
+  // Only show loading on initial load, not when tab refocuses
+  if (status === 'loading' && !hasLoaded) {
     return (
       <div style={{
         minHeight: '100vh',
@@ -53,6 +61,17 @@ export default function AppContent() {
 
   return (
     <>
+      {/* Expose signOut to vanilla JS */}
+      <script dangerouslySetInnerHTML={{ __html: `
+        window.handleSignOut = async () => {
+          try {
+            await fetch('/api/auth/signout', { method: 'POST' });
+            window.location.href = '/login';
+          } catch (e) {
+            window.location.href = '/login';
+          }
+        };
+      ` }} />
       <style dangerouslySetInnerHTML={{ __html: `
         :root {
           --bg: #0c1222;
@@ -312,7 +331,7 @@ export default function AppContent() {
               '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">' + icon('trending-up', 'w-5 h-5 text-white') + '</div><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-500 uppercase tracking-wider">Pro v2.1</p></div></div></div>' +
               (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + '</option>').join('') + '</select></div>' : '') +
               '<nav class="flex-1 py-3 overflow-y-auto">' + navSections.map(section => '<div class="mb-4"><h3 class="px-5 mb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">' + section.title + '</h3>' + section.items.map(item => '<button onclick="navigateTo(\\'' + item.id + '\\')" class="nav-item w-full flex items-center gap-3 px-5 py-2.5 text-left text-sm ' + (state.currentView === item.id ? 'active' : 'text-slate-400 hover:text-slate-200') + '">' + icon(item.icon, 'w-4 h-4') + '<span>' + item.label + '</span></button>').join('') + '</div>').join('') + '</nav>' +
-              '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">MT</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-500 capitalize">' + state.currentUser.role + '</p></div></div></div>' +
+              '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">MT</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-500 capitalize">' + state.currentUser.role + '</p></div></div><button onclick="window.handleSignOut()" class="w-full py-2 mt-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>Sign Out</button></div>' +
             '</aside>';
           }
 
