@@ -3,5 +3,7 @@ node_modules/
 .env
 *.lock
 skills/
+db/
+*.db
 
 /src/generated/prisma

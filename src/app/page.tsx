@@ -100,6 +100,8 @@ export default function SolTrendApp() {
             sidebarOpen: false,
             isOnline: navigator.onLine,
             analyticsTab: 'production',
+            settingsTab: 'company',
+            editingItem: null, // For modal editing
             reportDates: {
               daily: new Date().toISOString().split('T')[0],
               weekly: new Date().toISOString().split('T')[0],
@@ -107,6 +109,7 @@ export default function SolTrendApp() {
               qcStart: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
               qcEnd: new Date().toISOString().split('T')[0]
             },
+            companyId: null,
             company: null,
             projects: [],
             inspections: [],
@@ -114,6 +117,8 @@ export default function SolTrendApp() {
             production: [],
             crews: [],
             subcontractors: [],
+            rackingProfiles: [],
+            users: [],
             recentActivity: [],
             currentRow: 35, currentPile: 22,
             inspectionPhotos: [], lastInspection: null,
@@ -1539,15 +1544,393 @@ export default function SolTrendApp() {
           function submitProduction() { alert('Production entry submitted!'); state.productionEntry.photos = []; render(); }
 
           function renderSettings() {
-      return '<div class="space-y-6 animate-fade-in">' +
-        '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Settings</h1><p class="text-slate-400">App configuration</p></div></div>' +
-        '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-4">General</h3><div class="space-y-4">' +
-          '<div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"><span class="text-slate-300">Sound Effects</span><button class="w-12 h-6 bg-amber-500 rounded-full relative"><span class="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></span></button></div>' +
-          '<div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"><span class="text-slate-300">Haptic Feedback</span><button class="w-12 h-6 bg-amber-500 rounded-full relative"><span class="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></span></button></div>' +
-          '<div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"><span class="text-slate-300">Auto-sync</span><button class="w-12 h-6 bg-amber-500 rounded-full relative"><span class="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></span></button></div>' +
-        '</div></div>' +
-      '</div>';
-    }
+            const tabs = [
+              { id: 'company', label: 'Company', icon: 'building-2' },
+              { id: 'projects', label: 'Projects', icon: 'folder' },
+              { id: 'crews', label: 'Crews', icon: 'users' },
+              { id: 'racking', label: 'Racking', icon: 'sliders-horizontal' },
+              { id: 'users', label: 'Users', icon: 'user' },
+            ];
+            
+            return '<div class="space-y-6 animate-fade-in">' +
+              '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Settings</h1><p class="text-slate-400">Manage your organization</p></div></div>' +
+              '<div class="flex gap-1 p-1 bg-slate-800/50 rounded-xl overflow-x-auto">' + tabs.map(t => '<button onclick="setSettingsTab(\\'' + t.id + '\\')" class="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all ' + (state.settingsTab === t.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white hover:bg-slate-700/50') + '">' + icon(t.icon, 'w-4 h-4') + t.label + '</button>').join('') + '</div>' +
+              '<div id="settingsContent">' + renderSettingsContent() + '</div>' +
+              (state.editingItem ? renderEditModal() : '') +
+            '</div>';
+          }
+          
+          function setSettingsTab(tab) { state.settingsTab = tab; render(); }
+          
+          function renderSettingsContent() {
+            switch(state.settingsTab) {
+              case 'company': return renderCompanySettings();
+              case 'projects': return renderProjectsSettings();
+              case 'crews': return renderCrewsSettings();
+              case 'racking': return renderRackingSettings();
+              case 'users': return renderUsersSettings();
+              default: return renderCompanySettings();
+            }
+          }
+          
+          function renderCompanySettings() {
+            const company = state.company || { name: 'Loading...', tier: 'starter' };
+            return '<div class="card rounded-xl p-6">' +
+              '<h3 class="font-display font-semibold text-white mb-6">Company Information</h3>' +
+              '<div class="space-y-4">' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Company Name</label>' +
+                '<input type="text" id="companyName" value="' + (company.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white" placeholder="Enter company name"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Subscription Tier</label>' +
+                '<select id="companyTier" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
+                  '<option value="starter" ' + (company.tier === 'starter' ? 'selected' : '') + '>Starter</option>' +
+                  '<option value="professional" ' + (company.tier === 'professional' ? 'selected' : '') + '>Professional</option>' +
+                  '<option value="enterprise" ' + (company.tier === 'enterprise' ? 'selected' : '') + '>Enterprise</option>' +
+                '</select></div>' +
+                '<button onclick="saveCompanySettings()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-semibold">Save Changes</button>' +
+              '</div>' +
+            '</div>';
+          }
+          
+          function renderProjectsSettings() {
+            return '<div class="space-y-4">' +
+              '<div class="flex justify-end">' +
+                '<button onclick="openEditModal(\\'project\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Project</button>' +
+              '</div>' +
+              '<div class="grid gap-4">' +
+                (state.projects.length === 0 ? '<p class="text-slate-400 text-center py-8">No projects yet. Create your first project above.</p>' :
+                state.projects.map(p => '<div class="card rounded-xl p-5">' +
+                  '<div class="flex items-start justify-between mb-3">' +
+                    '<div><h4 class="font-semibold text-white">' + p.name + '</h4>' +
+                    '<p class="text-sm text-slate-400">' + p.location + '</p></div>' +
+                    '<span class="px-2 py-1 text-xs rounded ' + (p.status === 'active' ? 'bg-green-500/20 text-green-400' : p.status === 'completed' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-500/20 text-slate-400') + '">' + p.status + '</span>' +
+                  '</div>' +
+                  '<div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mb-3">' +
+                    '<div><span class="block text-slate-500">Total Piles</span><span class="text-white font-medium">' + (p.totalRows * p.pilesPerRow) + '</span></div>' +
+                    '<div><span class="block text-slate-500">Rows</span><span class="text-white font-medium">' + p.totalRows + '</span></div>' +
+                    '<div><span class="block text-slate-500">Piles/Row</span><span class="text-white font-medium">' + p.pilesPerRow + '</span></div>' +
+                  '</div>' +
+                  '<div class="flex gap-2">' +
+                    '<button onclick="openEditModal(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
+                    '<button onclick="deleteItem(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
+                  '</div>' +
+                '</div>').join('')) +
+              '</div>' +
+            '</div>';
+          }
+          
+          function renderCrewsSettings() {
+            return '<div class="space-y-4">' +
+              '<div class="flex justify-end">' +
+                '<button onclick="openEditModal(\\'crew\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Crew</button>' +
+              '</div>' +
+              '<div class="grid gap-4">' +
+                (state.crews.length === 0 ? '<p class="text-slate-400 text-center py-8">No crews yet. Create your first crew above.</p>' :
+                state.crews.map(c => '<div class="card rounded-xl p-5">' +
+                  '<div class="flex items-start justify-between mb-3">' +
+                    '<div><h4 class="font-semibold text-white">' + c.name + '</h4>' +
+                    '<p class="text-sm text-slate-400">Lead: ' + (c.lead || 'Not assigned') + '</p></div>' +
+                    '<span class="px-2 py-1 text-xs rounded ' + (c.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-slate-500/20 text-slate-400') + '">' + c.status + '</span>' +
+                  '</div>' +
+                  '<p class="text-sm text-slate-400 mb-3">' + (c.workerCount || 8) + ' workers</p>' +
+                  '<div class="flex gap-2">' +
+                    '<button onclick="openEditModal(\\'crew\\', ' + (c.id ? '\\'' + c.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
+                    '<button onclick="deleteItem(\\'crew\\', ' + (c.id ? '\\'' + c.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
+                  '</div>' +
+                '</div>').join('')) +
+              '</div>' +
+            '</div>';
+          }
+          
+          function renderRackingSettings() {
+            return '<div class="space-y-4">' +
+              '<div class="flex justify-end">' +
+                '<button onclick="openEditModal(\\'rackingProfile\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Profile</button>' +
+              '</div>' +
+              '<div class="grid gap-4">' +
+                (state.rackingProfiles.length === 0 ? '<p class="text-slate-400 text-center py-8">No racking profiles yet.</p>' :
+                state.rackingProfiles.map(r => '<div class="card rounded-xl p-5">' +
+                  '<div class="flex items-start justify-between mb-3">' +
+                    '<div><h4 class="font-semibold text-white">' + r.name + '</h4>' +
+                    '<p class="text-sm text-slate-400">' + (r.manufacturer || r.name) + '</p></div>' +
+                    '<span class="px-2 py-1 text-xs rounded ' + (r.isActive ? 'bg-green-500/20 text-green-400' : 'bg-slate-500/20 text-slate-400') + '">' + (r.isActive ? 'Active' : 'Inactive') + '</span>' +
+                  '</div>' +
+                  '<div class="flex gap-2">' +
+                    '<button onclick="openEditModal(\\'rackingProfile\\', ' + (r.id ? '\\'' + r.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
+                    '<button onclick="deleteItem(\\'rackingProfile\\', ' + (r.id ? '\\'' + r.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
+                  '</div>' +
+                '</div>').join('')) +
+              '</div>' +
+            '</div>';
+          }
+          
+          function renderUsersSettings() {
+            return '<div class="space-y-4">' +
+              '<div class="flex justify-end">' +
+                '<button onclick="openEditModal(\\'user\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' Invite User</button>' +
+              '</div>' +
+              '<div class="grid gap-4">' +
+                (state.users.length === 0 ? '<p class="text-slate-400 text-center py-8">No users yet.</p>' :
+                state.users.map(u => '<div class="card rounded-xl p-5">' +
+                  '<div class="flex items-start justify-between mb-3">' +
+                    '<div><h4 class="font-semibold text-white">' + u.name + '</h4>' +
+                    '<p class="text-sm text-slate-400">' + u.email + '</p></div>' +
+                    '<span class="px-2 py-1 text-xs rounded bg-blue-500/20 text-blue-400 capitalize">' + u.role + '</span>' +
+                  '</div>' +
+                  '<div class="flex gap-2">' +
+                    '<button onclick="openEditModal(\\'user\\', ' + (u.id ? '\\'' + u.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
+                    '<button onclick="deleteItem(\\'user\\', ' + (u.id ? '\\'' + u.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
+                  '</div>' +
+                '</div>').join('')) +
+              '</div>' +
+            '</div>';
+          }
+          
+          function renderEditModal() {
+            const item = state.editingItem;
+            if (!item) return '';
+            
+            let formContent = '';
+            let title = '';
+            
+            if (item.type === 'project') {
+              title = item.id ? 'Edit Project' : 'New Project';
+              const p = item.id ? state.projects.find(x => x.id === item.id) || {} : {};
+              formContent = 
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Project Name</label>' +
+                '<input type="text" id="modalName" value="' + (p.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Location</label>' +
+                '<input type="text" id="modalLocation" value="' + (p.location || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Client</label>' +
+                '<input type="text" id="modalClient" value="' + (p.client || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Project Manager</label>' +
+                '<input type="text" id="modalPM" value="' + (p.projectManager || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div class="grid grid-cols-3 gap-3">' +
+                  '<div><label class="text-xs text-slate-500 mb-2 block">Rows</label>' +
+                  '<input type="number" id="modalRows" value="' + (p.totalRows || 50) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                  '<div><label class="text-xs text-slate-500 mb-2 block">Piles/Row</label>' +
+                  '<input type="number" id="modalPilesPerRow" value="' + (p.pilesPerRow || 30) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                  '<div><label class="text-xs text-slate-500 mb-2 block">Daily Target</label>' +
+                  '<input type="number" id="modalTarget" value="' + (p.dailyTarget || 35) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '</div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Status</label>' +
+                '<select id="modalStatus" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
+                  '<option value="active" ' + (p.status === 'active' ? 'selected' : '') + '>Active</option>' +
+                  '<option value="completed" ' + (p.status === 'completed' ? 'selected' : '') + '>Completed</option>' +
+                  '<option value="on_hold" ' + (p.status === 'on_hold' ? 'selected' : '') + '>On Hold</option>' +
+                '</select></div>';
+            } else if (item.type === 'crew') {
+              title = item.id ? 'Edit Crew' : 'New Crew';
+              const c = item.id ? state.crews.find(x => x.id === item.id) || {} : {};
+              formContent = 
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Crew Name</label>' +
+                '<input type="text" id="modalName" value="' + (c.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Crew Lead</label>' +
+                '<input type="text" id="modalLead" value="' + (c.lead || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div class="grid grid-cols-2 gap-3">' +
+                  '<div><label class="text-xs text-slate-500 mb-2 block">Worker Count</label>' +
+                  '<input type="number" id="modalWorkers" value="' + (c.workerCount || 8) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                  '<div><label class="text-xs text-slate-500 mb-2 block">Status</label>' +
+                  '<select id="modalStatus" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
+                    '<option value="active" ' + (c.status === 'active' ? 'selected' : '') + '>Active</option>' +
+                    '<option value="standby" ' + (c.status === 'standby' ? 'selected' : '') + '>Standby</option>' +
+                  '</select></div>' +
+                '</div>';
+            } else if (item.type === 'rackingProfile') {
+              title = item.id ? 'Edit Racking Profile' : 'New Racking Profile';
+              const r = item.id ? state.rackingProfiles.find(x => x.id === item.id) || {} : {};
+              formContent = 
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Profile Name</label>' +
+                '<input type="text" id="modalName" value="' + (r.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Manufacturer</label>' +
+                '<input type="text" id="modalManufacturer" value="' + (r.manufacturer || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Pile Types (comma separated)</label>' +
+                '<input type="text" id="modalPileTypes" value="' + ((r.pileTypes || []).join(', ')) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white" placeholder="interior, exterior, motor"></div>' +
+                '<div class="grid grid-cols-2 gap-3">' +
+                  '<div><label class="text-xs text-slate-500 mb-2 block">Min Embedment (in)</label>' +
+                  '<input type="number" id="modalEmbed" value="' + ((r.tolerances?.interior?.embedmentMin) || 72) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                  '<div><label class="text-xs text-slate-500 mb-2 block">Max Plumb (°)</label>' +
+                  '<input type="number" step="0.5" id="modalPlumb" value="' + ((r.tolerances?.interior?.plumbNS) || 2.0) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '</div>';
+            } else if (item.type === 'user') {
+              title = item.id ? 'Edit User' : 'Invite User';
+              const u = item.id ? state.users.find(x => x.id === item.id) || {} : {};
+              formContent = 
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Full Name</label>' +
+                '<input type="text" id="modalName" value="' + (u.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Email</label>' +
+                '<input type="email" id="modalEmail" value="' + (u.email || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Role</label>' +
+                '<select id="modalRole" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
+                  '<option value="inspector" ' + (u.role === 'inspector' ? 'selected' : '') + '>Inspector</option>' +
+                  '<option value="manager" ' + (u.role === 'manager' ? 'selected' : '') + '>Manager</option>' +
+                  '<option value="admin" ' + (u.role === 'admin' ? 'selected' : '') + '>Admin</option>' +
+                '</select></div>' +
+                (!item.id ? '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Password</label>' +
+                '<input type="password" id="modalPassword" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white" placeholder="Enter password"></div>' : '');
+            }
+            
+            return '<div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onclick="if(event.target === this) closeEditModal()">' +
+              '<div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">' +
+                '<div class="flex items-center justify-between mb-6">' +
+                  '<h3 class="font-display font-semibold text-white text-lg">' + title + '</h3>' +
+                  '<button onclick="closeEditModal()" class="p-2 hover:bg-slate-800 rounded-lg text-slate-400">' + icon('x', 'w-5 h-5') + '</button>' +
+                '</div>' +
+                '<div class="space-y-4">' + formContent + '</div>' +
+                '<div class="flex gap-3 mt-6">' +
+                  '<button onclick="closeEditModal()" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium">Cancel</button>' +
+                  '<button onclick="saveEditModal()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-semibold">Save</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+          }
+          
+          function openEditModal(type, id) { state.editingItem = { type, id }; render(); }
+          function closeEditModal() { state.editingItem = null; render(); }
+          
+          async function saveEditModal() {
+            const item = state.editingItem;
+            if (!item) return;
+            
+            let data = {};
+            
+            if (item.type === 'project') {
+              data = {
+                name: document.getElementById('modalName')?.value || '',
+                location: document.getElementById('modalLocation')?.value || '',
+                client: document.getElementById('modalClient')?.value || '',
+                projectManager: document.getElementById('modalPM')?.value || '',
+                totalRows: parseInt(document.getElementById('modalRows')?.value) || 50,
+                pilesPerRow: parseInt(document.getElementById('modalPilesPerRow')?.value) || 30,
+                dailyTarget: parseInt(document.getElementById('modalTarget')?.value) || 35,
+                status: document.getElementById('modalStatus')?.value || 'active',
+              };
+              data.totalPiles = data.totalRows * data.pilesPerRow;
+            } else if (item.type === 'crew') {
+              data = {
+                name: document.getElementById('modalName')?.value || '',
+                lead: document.getElementById('modalLead')?.value || '',
+                workerCount: parseInt(document.getElementById('modalWorkers')?.value) || 8,
+                status: document.getElementById('modalStatus')?.value || 'active',
+              };
+            } else if (item.type === 'rackingProfile') {
+              const pileTypesStr = document.getElementById('modalPileTypes')?.value || 'interior, exterior';
+              data = {
+                name: document.getElementById('modalName')?.value || '',
+                manufacturer: document.getElementById('modalManufacturer')?.value || '',
+                pileTypes: pileTypesStr.split(',').map(s => s.trim()).filter(s => s),
+                tolerances: {
+                  interior: {
+                    embedmentMin: parseInt(document.getElementById('modalEmbed')?.value) || 72,
+                    plumbNS: parseFloat(document.getElementById('modalPlumb')?.value) || 2.0,
+                  }
+                },
+                isActive: true,
+              };
+            } else if (item.type === 'user') {
+              data = {
+                name: document.getElementById('modalName')?.value || '',
+                email: document.getElementById('modalEmail')?.value || '',
+                role: document.getElementById('modalRole')?.value || 'inspector',
+              };
+              const pw = document.getElementById('modalPassword')?.value;
+              if (pw) data.password = pw;
+            }
+            
+            if (item.id) data.id = item.id;
+            
+            try {
+              const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: item.type, data, companyId: state.companyId })
+              });
+              
+              if (response.ok) {
+                await loadSettings();
+                closeEditModal();
+              } else {
+                alert('Failed to save. Please try again.');
+              }
+            } catch (e) {
+              console.error('Save error:', e);
+              alert('Failed to save. Please try again.');
+            }
+          }
+          
+          async function deleteItem(type, id) {
+            if (!confirm('Are you sure you want to delete this item?')) return;
+            
+            try {
+              const response = await fetch('/api/settings', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type, id })
+              });
+              
+              if (response.ok) {
+                await loadSettings();
+              } else {
+                alert('Failed to delete. Please try again.');
+              }
+            } catch (e) {
+              console.error('Delete error:', e);
+              alert('Failed to delete. Please try again.');
+            }
+          }
+          
+          async function saveCompanySettings() {
+            const name = document.getElementById('companyName')?.value;
+            const tier = document.getElementById('companyTier')?.value;
+            
+            try {
+              const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'company', data: { name, tier }, companyId: state.companyId })
+              });
+              
+              if (response.ok) {
+                await loadSettings();
+                alert('Company settings saved!');
+              }
+            } catch (e) {
+              console.error('Save error:', e);
+              alert('Failed to save company settings.');
+            }
+          }
+          
+          async function loadSettings() {
+            try {
+              const response = await fetch('/api/settings' + (state.companyId ? '?companyId=' + state.companyId : ''));
+              const data = await response.json();
+              
+              if (data.companyId && !state.companyId) {
+                state.companyId = data.companyId;
+                await loadSettings();
+                return;
+              }
+              
+              if (data.company) state.company = data.company;
+              if (data.projects) state.projects = data.projects;
+              if (data.crews) state.crews = data.crews;
+              if (data.subcontractors) state.subcontractors = data.subcontractors;
+              if (data.rackingProfiles) state.rackingProfiles = data.rackingProfiles;
+              if (data.users) state.users = data.users;
+              
+              // Update RACKING_MANUFACTURERS for compatibility
+              if (state.rackingProfiles && state.rackingProfiles.length > 0) {
+                window.RACKING_MANUFACTURERS = state.rackingProfiles;
+              }
+              
+              if (!state.currentProject && state.projects && state.projects.length > 0) {
+                state.currentProject = state.projects.find(p => p.status === 'active') || state.projects[0];
+              }
+              
+              render();
+            } catch (e) {
+              console.error('Load settings error:', e);
+            }
+          }
 
           // MAIN RENDER
           function render() {
@@ -1573,10 +1956,26 @@ export default function SolTrendApp() {
             if (projectSelect) { projectSelect.addEventListener('change', (e) => { state.currentProject = state.projects.find(p => p.id === e.target.value); render(); }); }
           }
 
-          // INITIALIZATION - Seed database and load data
+          // INITIALIZATION - Load data from database
           async function initializeApp() {
-            // Generate demo data first (instant UI)
-            generateDemoData();
+            // Show loading state
+            render();
+            
+            // Try to load settings from database first
+            await loadSettings();
+            
+            // If no data was loaded, fall back to demo data
+            if (!state.company || state.projects.length === 0) {
+              console.log('No data in database, using demo data');
+              generateDemoData();
+            }
+            
+            // Update heatmap config from current project
+            if (state.currentProject) {
+              state.heatmap.totalRows = state.currentProject.totalRows || 50;
+              state.heatmap.pilesPerRow = state.currentProject.pilesPerRow || 30;
+            }
+            
             render();
             setupEventListeners();
             
