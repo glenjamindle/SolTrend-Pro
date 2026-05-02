@@ -1,0 +1,233 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Company - Top level organization
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  tier      String   @default("starter")  // starter, professional, enterprise
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  users     User[]
+  projects  Project[]
+  crews     Crew[]
+  subcontractors Subcontractor[]
+  rackingProfiles RackingProfile[]
+}
+
+// User - Team members
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("inspector")  // admin, manager, inspector
+  companyId String
+  crewId    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  company   Company  @relation(fields: [companyId], references: [id])
+  crew      Crew?    @relation(fields: [crewId], references: [id])
+  inspections Inspection[]
+  refusals  Refusal[]
+  productionEntries ProductionEntry[]
+}
+
+// Project - Solar installation project
+model Project {
+  id                String   @id @default(cuid())
+  name              String
+  location          String
+  status            String   @default("active")  // active, completed, on_hold, archived
+  health            String   @default("green")   // green, yellow, red
+  client            String?
+  startDate         DateTime?
+  plannedEndDate    DateTime?
+  projectManager    String?
+  dailyTarget       Int      @default(35)
+  
+  // Pile map configuration
+  totalRows         Int      @default(50)
+  pilesPerRow       Int      @default(30)
+  totalPiles        Int      @default(1500)
+  pileNamingPrefix  String?  // e.g., "P", "Pile"
+  
+  // Racking
+  rackingProfileId  String?
+  
+  // Stats (computed or cached)
+  installedPiles     Int      @default(0)
+  passedInspections  Int      @default(0)
+  failedInspections  Int      @default(0)
+  refusalCount       Int      @default(0)
+  
+  companyId         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  company           Company           @relation(fields: [companyId], references: [id])
+  rackingProfile    RackingProfile?  @relation(fields: [rackingProfileId], references: [id])
+  inspections       Inspection[]
+  refusals          Refusal[]
+  productionEntries ProductionEntry[]
+}
+
+// Crew - Work crews
+model Crew {
+  id          String   @id @default(cuid())
+  name        String
+  lead        String?  // Crew lead name
+  status      String   @default("active")  // active, standby, inactive
+  workerCount Int      @default(8)
+  companyId   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  company           Company           @relation(fields: [companyId], references: [id])
+  members           User[]
+  productionEntries ProductionEntry[]
+}
+
+// Subcontractor
+model Subcontractor {
+  id            String   @id @default(cuid())
+  name          String
+  contactPerson String?
+  phone         String?
+  email         String?
+  companyId     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  company           Company           @relation(fields: [companyId], references: [id])
+  productionEntries ProductionEntry[]
+}
+
+// RackingProfile - Manufacturer tolerance configurations
+model RackingProfile {
+  id           String   @id @default(cuid())
+  name         String
+  manufacturer String
+  pileTypes    String   // JSON string: ["interior", "exterior", "motor", "corner"]
+  tolerances   String   // JSON string: { interior: { embedmentMin: 72, plumbNS: 1.5 }, ... }
+  isActive     Boolean  @default(true)
+  companyId    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  company   Company?   @relation(fields: [companyId], references: [id])
+  projects  Project[]
+}
+
+// Inspection - QC inspection records
+model Inspection {
+  id         String   @id @default(cuid())
+  pileId     String   // e.g., "35-22"
+  row        Int
+  pile       Int
+  status     String   // pass, fail
+  depth      Int?     // Embedment depth in inches
+  plumbNS    Float?   // Plumb tolerance N-S
+  plumbEW    Float?   // Plumb tolerance E-W
+  failReason String?
+  notes      String?
+  photos     String?  // JSON string: Array of photo URLs
+  gps        String?  // JSON string: { lat, lng }
+  
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+  
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+  
+  @@unique([projectId, pileId])
+}
+
+// Refusal - Pile refusal records
+model Refusal {
+  id            String   @id @default(cuid())
+  pileId        String
+  row           Int
+  pile          Int
+  reason        String   // bedrock, cobble, obstruction, groundwater, etc.
+  targetDepth   Int      // Target embedment
+  achievedDepth Int?     // Actual depth achieved
+  notes         String?
+  photos        String?  // JSON string
+  gps           String?  // JSON string
+  status        String   @default("open")  // open, resolved, redesign_required
+  
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+  
+  @@unique([projectId, pileId])
+}
+
+// ProductionEntry - Daily production logs
+model ProductionEntry {
+  id             String   @id @default(cuid())
+  date           DateTime
+  pilesInstalled Int      @default(0)
+  notes          String?
+  photos         String?  // JSON string
+  
+  projectId       String
+  crewId          String?
+  userId          String
+  subcontractorId String?
+  createdAt       DateTime @default(now())
+  
+  project       Project        @relation(fields: [projectId], references: [id])
+  crew          Crew?          @relation(fields: [crewId], references: [id])
+  user          User           @relation(fields: [userId], references: [id])
+  subcontractor Subcontractor? @relation(fields: [subcontractorId], references: [id])
+  
+  @@unique([projectId, date])
+}
+
+// Session for NextAuth
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+}

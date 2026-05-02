@@ -1,0 +1,206 @@
+import Script from 'next/script'
+
+export default function SolTrendApp() {
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: `
+        :root {
+          --bg: #0c1222;
+          --bg-elevated: #111827;
+          --bg-card: #1a2332;
+          --fg: #f1f5f9;
+          --fg-muted: #94a3b8;
+          --accent: #f59e0b;
+          --accent-hover: #fbbf24;
+          --success: #22c55e;
+          --danger: #ef4444;
+          --warning: #eab308;
+          --border: #1e293b;
+        }
+        * { -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--fg); margin: 0; }
+        .font-display { font-family: 'Space Grotesk', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        .touch-target { min-height: 44px; min-width: 44px; }
+        .btn-action { min-height: 100px; font-size: 1.75rem; font-weight: 700; border-radius: 16px; transition: all 0.1s ease; border: none; cursor: pointer; }
+        .btn-action:active { transform: scale(0.95); }
+        .btn-action-medium { min-height: 80px; font-size: 1.25rem; font-weight: 700; border-radius: 14px; transition: all 0.1s ease; border: none; cursor: pointer; }
+        .btn-action-medium:active { transform: scale(0.95); }
+        .pile-display { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #334155; border-radius: 16px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); }
+        .nav-arrow { width: 56px; height: 56px; border-radius: 12px; display: flex; align-items: center; justify-content: center; transition: all 0.15s ease; cursor: pointer; user-select: none; border: none; }
+        .nav-arrow:active { transform: scale(0.9); }
+        .nav-arrow-large { width: 64px; height: 64px; }
+        .nav-arrow-small { width: 44px; height: 44px; }
+        .mode-btn { flex: 1; padding: 10px 12px; border-radius: 10px; font-weight: 600; font-size: 0.8rem; transition: all 0.15s ease; cursor: pointer; border: none; }
+        .mode-btn-active { background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%); color: white; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3); }
+        .mode-btn-inactive { background: #1e293b; color: #94a3b8; }
+        .badge-pass { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; }
+        .badge-fail { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; }
+        .badge-open { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; }
+        .reason-btn { padding: 14px 10px; border-radius: 12px; background: #1e293b; border: 2px solid transparent; transition: all 0.15s ease; text-align: center; cursor: pointer; }
+        .reason-btn-selected { background: rgba(245, 158, 11, 0.15); border-color: #f59e0b; box-shadow: 0 0 20px rgba(245, 158, 11, 0.2); }
+        .shortfall-critical { background: rgba(239, 68, 68, 0.2); border: 2px solid #ef4444; border-radius: 12px; }
+        .shortfall-warning { background: rgba(234, 179, 8, 0.2); border: 2px solid #eab308; border-radius: 12px; }
+        .shortfall-minor { background: rgba(249, 115, 22, 0.2); border: 2px solid #f97316; border-radius: 12px; }
+        .photo-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+        .photo-thumb { aspect-ratio: 1; border-radius: 8px; overflow: hidden; position: relative; background: #000; border: 1px solid #334155; }
+        .photo-thumb img { width: 100%; height: 100%; object-fit: cover; }
+        .photo-delete { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; background: rgba(0,0,0,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; border: 1px solid rgba(255,255,255,0.2); }
+        .capture-btn { border: 2px dashed #334155; background: rgba(30, 41, 59, 0.5); transition: all 0.15s ease; cursor: pointer; border-radius: 12px; }
+        .capture-btn:hover { border-color: #f59e0b; background: rgba(245, 158, 11, 0.05); }
+        .heat-cell { width: 100%; aspect-ratio: 1; border-radius: 3px; transition: transform 0.15s ease; cursor: pointer; border: 1px solid rgba(0,0,0,0.2); }
+        .heat-cell:hover { transform: scale(1.5); z-index: 10; box-shadow: 0 0 8px rgba(255,255,255,0.3); border-color: white; }
+        .row-label { position: sticky; left: 0; background: linear-gradient(90deg, #111827 80%, transparent 100%); z-index: 5; padding-right: 4px; }
+        .status-pass { background: #22c55e; }
+        .status-fail { background: #ef4444; }
+        .status-refusal { background: #f97316; }
+        .status-notstarted { background: #1e293b; border-color: #334155; }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: slideUp 0.3s ease forwards; }
+        .stagger-children > * { opacity: 0; animation: slideUp 0.4s ease forwards; }
+        .stagger-children > *:nth-child(1) { animation-delay: 0.03s; }
+        .stagger-children > *:nth-child(2) { animation-delay: 0.06s; }
+        .stagger-children > *:nth-child(3) { animation-delay: 0.09s; }
+        .stagger-children > *:nth-child(4) { animation-delay: 0.12s; }
+        .stagger-children > *:nth-child(5) { animation-delay: 0.15s; }
+        .stagger-children > *:nth-child(6) { animation-delay: 0.18s; }
+        button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .modal-backdrop { background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px); }
+        .nav-item { transition: all 0.15s ease; border: none; background: none; cursor: pointer; text-align: left; }
+        .nav-item:hover { background: rgba(255,255,255,0.05); }
+        .nav-item.active { background: rgba(245, 158, 11, 0.1); color: #f59e0b; border-left: 3px solid #f59e0b; }
+        .card { background: linear-gradient(135deg, #1a2332 0%, #111827 100%); border: 1px solid #1e293b; }
+        .card:hover { border-color: #334155; }
+        .activity-item { border-left: 2px solid #334155; position: relative; }
+        .activity-item::before { content: ''; position: absolute; left: -5px; top: 0; bottom: 0; width: 8px; height: 8px; background: #334155; border-radius: 50%; top: 50%; transform: translateY(-50%); }
+        .activity-item.pass::before { background: #22c55e; }
+        .activity-item.fail::before { background: #ef4444; }
+        .activity-item.refusal::before { background: #f97316; }
+        .sparkline { display: flex; align-items: flex-end; gap: 2px; height: 40px; }
+        .sparkline-bar { flex: 1; background: linear-gradient(to top, #f59e0b, #fbbf24); border-radius: 2px; }
+        .chart-bar { transition: all 0.2s ease; }
+        .chart-bar:hover { filter: brightness(1.2); }
+        .s-curve { position: relative; height: 200px; border-left: 2px solid #334155; border-bottom: 2px solid #334155; }
+        .s-curve-line { fill: none; stroke: #f59e0b; stroke-width: 2; }
+        .s-curve-planned { fill: none; stroke: #64748b; stroke-width: 2; stroke-dasharray: 5,5; }
+        @media print {
+          body { background: white; color: black; }
+          .card { background: #f8fafc; border: 1px solid #e2e8f0; }
+        }
+      ` }} />
+      <div id="app" dangerouslySetInnerHTML={{ __html: '<p style="color: white; padding: 20px;">Loading SolTrend Pro...</p>' }} />
+      <Script src="https://cdn.tailwindcss.com" strategy="beforeInteractive" />
+      <Script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" strategy="afterInteractive" />
+      <Script id="soltrend-app" strategy="afterInteractive">
+        {`
+          // STATE MANAGEMENT
+          const state = {
+            currentView: 'company',
+            currentUser: { id: 'user_001', name: 'Marcus Thompson', role: 'admin' },
+            currentProject: null,
+            inspectionMode: 'quick',
+            refusalMode: 'quick',
+            sidebarOpen: false,
+            isOnline: navigator.onLine,
+            analyticsTab: 'production',
+            reportDates: {
+              daily: new Date().toISOString().split('T')[0],
+              weekly: new Date().toISOString().split('T')[0],
+              monthly: new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0'),
+              qcStart: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+              qcEnd: new Date().toISOString().split('T')[0]
+            },
+            company: null,
+            projects: [],
+            inspections: [],
+            refusals: [],
+            production: [],
+            crews: [],
+            subcontractors: [],
+            recentActivity: [],
+            currentRow: 35, currentPile: 22,
+            inspectionPhotos: [], lastInspection: null,
+            session: { passed: 0, failed: 0 },
+            refusalRow: 35, refusalPile: 22,
+            targetDepth: 1800, achievedDepth: null, refusalReason: null, refusalPhotos: [],
+            openRefusals: 8,
+            productionEntry: { crew: null, subcontractor: null, notes: '', photos: [] },
+            isListening: false,
+            heatmap: { zoom: 1, totalRows: 50, pilesPerRow: 30 }
+          };
+
+          // UTILITY FUNCTIONS
+          function formatDate(dateStr) { const date = new Date(dateStr); return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
+          function formatNumber(num) { return num?.toLocaleString() || '0'; }
+          function getPileId(row, pile) { return row + '-' + pile; }
+          function parsePileId(id) { const parts = String(id).split('-'); return { row: parseInt(parts[0]) || 1, pile: parseInt(parts[1]) || 1 }; }
+          function getInspectionStatus(pileId) {
+            const inspection = state.inspections.find(i => i.pileId === pileId);
+            if (inspection) return inspection.status;
+            const refusal = state.refusals.find(r => r.pileId === pileId);
+            if (refusal) return 'refusal';
+            return 'notstarted';
+          }
+          function hapticFeedback() { if ('vibrate' in navigator) navigator.vibrate(10); }
+          function playSound(type) {
+            try {
+              const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+              const oscillator = audioCtx.createOscillator();
+              const gainNode = audioCtx.createGain();
+              oscillator.connect(gainNode);
+              gainNode.connect(audioCtx.destination);
+              oscillator.frequency.value = type === 'pass' ? 880 : 220;
+              gainNode.gain.value = 0.1;
+              oscillator.start();
+              oscillator.stop(audioCtx.currentTime + 0.1);
+            } catch(e) {}
+          }
+          function icon(name, className = '') { return '<i data-lucide="' + name + '" class="' + className + '"></i>'; }
+
+          // PHOTO CAPTURE HANDLING
+          function triggerPhotoInput(context) { document.getElementById('photoInput-' + context).click(); }
+          async function handlePhotoCapture(event, context) {
+            const file = event.target.files[0]; if (!file) return; hapticFeedback();
+            const maxW = 1280, maxH = 720; const img = new Image(); const reader = new FileReader();
+            reader.onload = async (e) => {
+              img.src = e.target.result;
+              img.onload = async () => {
+                const canvas = document.createElement('canvas'); let w = img.width, h = img.height;
+                if (w > maxW || h > maxH) { const ratio = Math.min(maxW / w, maxH / h); w = Math.round(w * ratio); h = Math.round(h * ratio); }
+                canvas.width = w; canvas.height = h; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                let gps = null;
+                if (navigator.geolocation) { try { gps = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2000 })); gps = { lat: gps.coords.latitude, lng: gps.coords.longitude }; } catch(e) {} }
+                const photoObj = { id: 'photo_' + Date.now(), url: dataUrl, timestamp: new Date().toISOString(), gps: gps };
+                if (context === 'production') state.productionEntry.photos.push(photoObj);
+                else if (context === 'inspection') state.inspectionPhotos.push(photoObj);
+                else if (context === 'refusal') state.refusalPhotos.push(photoObj);
+                render();
+              };
+            };
+            reader.readAsDataURL(file); event.target.value = '';
+          }
+          function removePhoto(context, id) {
+            hapticFeedback();
+            if (context === 'production') state.productionEntry.photos = state.productionEntry.photos.filter(p => p.id !== id);
+            else if (context === 'inspection') state.inspectionPhotos = state.inspectionPhotos.filter(p => p.id !== id);
+            else if (context === 'refusal') state.refusalPhotos = state.refusalPhotos.filter(p => p.id !== id);
+            render();
+          }
+          function renderPhotoCapture(context) {
+            let photos = [];
+            if (context === 'production') photos = state.productionEntry.photos;
+            else if (context === 'inspection') photos = state.inspectionPhotos;
+            else if (context === 'refusal') photos = state.refusalPhotos;
+            return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><div class="flex items-center gap-3"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photo</span></button><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn w-12 h-12 rounded-xl flex items-center justify-center text-slate-400 hover:text-white">' + icon('image', 'w-5 h-5') + '</button></div>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
+          }
+
+          // RACKING MANUFACTURERS
+          const RACKING_MANUFACTURERS = [
+            { id: 'gamechange', name: 'GameChange Solar', pileTypes: ['interior', 'exterior', 'motor', 'corner'], tolerances: { interior: { embedmentMin: 72, plumbNS: 1.5 }, motor: { embedmentMin: 96, plumbNS: 0.5 } } },
+            { id: 'nextracker', name: 'NEXTracker', pileTypes: ['interior', 'exterior', 'motor', 'boundary'], tolerances: { interior: { embedmentMin: 78, plumbNS: 2.0 } } },
+            { id: 'arraytech', name: 'Array Technologies', pileTypes: ['interior', 'exterior', 'motor'], tolerances: { interior: { embedmentMin: 72, plumbNS: 1.75 } } },
+            { id: 'ftc', name: 'FTC Solar', pileTypes: ['interior', 'exterior'], tolerances: { interior: { embedmentMin: 72, plumbNS: 2.0 } } },
+          ];
