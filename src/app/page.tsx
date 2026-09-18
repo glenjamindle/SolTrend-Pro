@@ -1,8 +1,22 @@
 import Script from 'next/script'
+import { getServerSession } from 'next-auth/next'
+import { authOptions } from '@/lib/auth'
 
-export default function SolTrendApp() {
+export default async function SolTrendApp() {
+  const session = await getServerSession(authOptions)
+  const sessionUser = session?.user
+    ? {
+        id: session.user.id,
+        name: session.user.name || 'User',
+        role: session.user.role || 'inspector',
+      }
+    : null
+
   return (
     <>
+      <script
+        dangerouslySetInnerHTML={{ __html: `window.__SESSION_USER__ = ${JSON.stringify(sessionUser)};` }}
+      />
       <style dangerouslySetInnerHTML={{ __html: `
         :root {
           --bg: #0c1222;
@@ -93,7 +107,7 @@ export default function SolTrendApp() {
           // STATE MANAGEMENT
           const state = {
             currentView: 'company',
-            currentUser: { id: 'user_001', name: 'Marcus Thompson', role: 'admin' },
+            currentUser: window.__SESSION_USER__ || { id: 'user_001', name: 'Marcus Thompson', role: 'admin' },
             currentProject: null,
             inspectionMode: 'quick',
             refusalMode: 'quick',
@@ -267,7 +281,7 @@ export default function SolTrendApp() {
               '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">' + icon('trending-up', 'w-5 h-5 text-white') + '</div><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-500 uppercase tracking-wider">Pro v2.1</p></div></div></div>' +
               (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + '</option>').join('') + '</select></div>' : '') +
               '<nav class="flex-1 py-3 overflow-y-auto">' + navSections.map(section => '<div class="mb-4"><h3 class="px-5 mb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">' + section.title + '</h3>' + section.items.map(item => '<button onclick="navigateTo(\\'' + item.id + '\\')" class="nav-item w-full flex items-center gap-3 px-5 py-2.5 text-left text-sm ' + (state.currentView === item.id ? 'active' : 'text-slate-400 hover:text-slate-200') + '">' + icon(item.icon, 'w-4 h-4') + '<span>' + item.label + '</span></button>').join('') + '</div>').join('') + '</nav>' +
-              '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">MT</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-500 capitalize">' + state.currentUser.role + '</p></div></div></div>' +
+              '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">' + (state.currentUser.name || '?').split(' ').map(function(n){return n[0]||'';}).join('').slice(0,2).toUpperCase() + '</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-500 capitalize">' + state.currentUser.role + '</p></div><a href="/api/auth/signout" title="Sign out" class="text-slate-500 hover:text-red-400 transition-colors p-1">' + icon('log-out', 'w-4 h-4') + '</a></div></div>' +
             '</aside>';
           }
 
