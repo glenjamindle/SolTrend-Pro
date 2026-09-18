@@ -287,6 +287,9 @@ export default async function SolTrendApp() {
 
           // COMPANY DASHBOARD
           function renderCompanyDashboard() {
+            if (!state.company) {
+              return '<div class="flex items-center justify-center min-h-[50vh]"><div class="text-center"><div class="animate-pulse text-amber-400 mb-2">' + icon('loader', 'w-6 h-6 mx-auto') + '</div><p class="text-slate-400 text-sm">Loading SolTrend Pro...</p></div></div>';
+            }
             const activeProjects = state.projects.filter(p => p.status === 'active');
             const totalPiles = state.projects.reduce((sum, p) => sum + p.totalPiles, 0);
             const installedPiles = state.projects.reduce((sum, p) => sum + p.installedPiles, 0);
