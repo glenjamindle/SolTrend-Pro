@@ -29,6 +29,8 @@ export async function GET(request: NextRequest) {
       plumbNS: i.plumbNS,
       plumbEW: i.plumbEW,
       failReason: i.failReason,
+      photos: i.photos ? JSON.parse(i.photos) : [],
+      gps: i.gps ? JSON.parse(i.gps) : null,
     }))
 
     return NextResponse.json(shaped)
@@ -39,11 +41,11 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/inspections
-// body: { projectId, pileId, status, inspectedBy, depth?, plumbNS?, plumbEW?, failReason? }
+// body: { projectId, pileId, status, inspectedBy, depth?, plumbNS?, plumbEW?, failReason?, photos?, gps? }
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { projectId, pileId, status, inspectedBy, depth, plumbNS, plumbEW, failReason } = body
+    const { projectId, pileId, status, inspectedBy, depth, plumbNS, plumbEW, failReason, photos, gps } = body
 
     if (!projectId || !pileId || !status) {
       return NextResponse.json({ error: 'projectId, pileId and status are required' }, { status: 400 })
@@ -76,6 +78,8 @@ export async function POST(request: NextRequest) {
         plumbNS: plumbNS ?? undefined,
         plumbEW: plumbEW ?? undefined,
         failReason: failReason ?? undefined,
+        photos: Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : undefined,
+        gps: gps ? JSON.stringify(gps) : undefined,
         userId,
       },
       create: {
@@ -88,6 +92,8 @@ export async function POST(request: NextRequest) {
         plumbNS: plumbNS ?? undefined,
         plumbEW: plumbEW ?? undefined,
         failReason: failReason ?? undefined,
+        photos: Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : undefined,
+        gps: gps ? JSON.stringify(gps) : undefined,
         userId,
       },
     })

@@ -1409,6 +1409,7 @@ export default async function SolTrendApp() {
           function recordInspection(status) { 
             hapticFeedback(); 
             playSound(status); 
+            const photos = state.inspectionPhotos;
             const inspection = { 
               pileId: getPileId(state.currentRow, state.currentPile), 
               status, 
@@ -1418,9 +1419,10 @@ export default async function SolTrendApp() {
             state.inspections.push(inspection);
             state.session[status === 'pass' ? 'passed' : 'failed']++;
             state.currentPile++;
+            state.inspectionPhotos = [];
             render();
             // Save to database
-            saveInspection(inspection);
+            saveInspection(inspection, photos);
           }
           
           // API FUNCTIONS - DATA PERSISTENCE
@@ -1488,9 +1490,32 @@ export default async function SolTrendApp() {
             } catch (e) { console.error('Load refusals error:', e); }
           }
           
-          async function saveInspection(inspection) {
+          // Uploads each captured photo (still a local data: URL at this point)
+          // to /api/upload, which stores it in the private bucket and hands
+          // back a same-origin URL. Returns the array to persist alongside
+          // the inspection/refusal record. A photo that fails to upload is
+          // dropped rather than blocking the whole save.
+          async function uploadPendingPhotos(photos, context, pileId) {
+            const uploaded = [];
+            for (const p of (photos || [])) {
+              try {
+                const res = await fetch('/api/upload', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ dataUrl: p.url, context, pileId })
+                });
+                const data = await res.json();
+                if (data.url) uploaded.push({ key: data.key, url: data.url, timestamp: p.timestamp, gps: p.gps });
+              } catch (e) { console.error('Photo upload error:', e); }
+            }
+            return uploaded;
+          }
+
+          async function saveInspection(inspection, photos) {
             try {
               const projectId = state.currentProject?.id || 'proj_001';
+              const uploadedPhotos = await uploadPendingPhotos(photos, 'inspection', inspection.pileId);
+              const gps = uploadedPhotos.find(p => p.gps)?.gps || null;
               await fetch('/api/inspections', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1498,15 +1523,19 @@ export default async function SolTrendApp() {
                   projectId,
                   pileId: inspection.pileId,
                   status: inspection.status,
-                  inspectedBy: state.currentUser.id
+                  inspectedBy: state.currentUser.id,
+                  photos: uploadedPhotos,
+                  gps
                 })
               });
             } catch (e) { console.error('Save inspection error:', e); }
           }
           
-          async function saveRefusal(refusal) {
+          async function saveRefusal(refusal, photos) {
             try {
               const projectId = state.currentProject?.id || 'proj_001';
+              const uploadedPhotos = await uploadPendingPhotos(photos, 'refusal', refusal.pileId);
+              const gps = uploadedPhotos.find(p => p.gps)?.gps || null;
               await fetch('/api/refusals', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1516,7 +1545,9 @@ export default async function SolTrendApp() {
                   reason: refusal.reason,
                   targetDepth: refusal.targetDepth,
                   achievedDepth: refusal.achievedDepth,
-                  reportedBy: state.currentUser.id
+                  reportedBy: state.currentUser.id,
+                  photos: uploadedPhotos,
+                  gps
                 })
               });
             } catch (e) { console.error('Save refusal error:', e); }
@@ -1535,6 +1566,7 @@ export default async function SolTrendApp() {
           function setRefusalReason(reason) { state.refusalReason = reason; render(); }
           function submitRefusal() { 
             hapticFeedback(); 
+            const photos = state.refusalPhotos;
             const refusal = { 
               pileId: getPileId(state.refusalRow, state.refusalPile), 
               reason: state.refusalReason, 
@@ -1551,7 +1583,7 @@ export default async function SolTrendApp() {
             state.refusalPhotos = []; 
             render();
             // Save to database
-            saveRefusal(refusal);
+            saveRefusal(refusal, photos);
           }
 
           // PRODUCTION - WITH PHOTO CAPTURE
