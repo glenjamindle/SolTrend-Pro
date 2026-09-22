@@ -67,6 +67,13 @@ export async function POST(request: NextRequest) {
 
     const { row, pile } = parsePileId(pileId)
 
+    // Only a genuinely new pile should move refusalCount - re-logging a
+    // refusal for a pile that already has one (e.g. updating the achieved
+    // depth) previously incremented the count again every time.
+    const existing = await prisma.refusal.findUnique({
+      where: { projectId_pileId: { projectId, pileId } },
+    })
+
     const refusal = await prisma.refusal.upsert({
       where: { projectId_pileId: { projectId, pileId } },
       update: {
@@ -91,7 +98,9 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    await prisma.project.update({ where: { id: projectId }, data: { refusalCount: { increment: 1 } } })
+    if (!existing) {
+      await prisma.project.update({ where: { id: projectId }, data: { refusalCount: { increment: 1 } } })
+    }
 
     return NextResponse.json(refusal)
   } catch (error) {

@@ -293,13 +293,19 @@ export default async function SolTrendApp() {
             const activeProjects = state.projects.filter(p => p.status === 'active');
             const totalPiles = state.projects.reduce((sum, p) => sum + p.totalPiles, 0);
             const installedPiles = state.projects.reduce((sum, p) => sum + p.installedPiles, 0);
-            const todayProd = state.production[state.production.length - 1];
+            const todayStr = new Date().toISOString().split('T')[0];
+            const todayProd = state.production.find(p => p.date === todayStr);
             const weekProd = state.production.slice(-7).reduce((s, p) => s + p.piles, 0);
+            // Was a hardcoded "94.2%" / "+2.1% from last month" literal -
+            // now computed from the real pass/fail counts across projects.
+            const totalPassed = state.projects.reduce((sum, p) => sum + (p.passedInspections || 0), 0);
+            const totalFailed = state.projects.reduce((sum, p) => sum + (p.failedInspections || 0), 0);
+            const companyPassRate = (totalPassed + totalFailed) > 0 ? Math.round((totalPassed / (totalPassed + totalFailed)) * 100) : 0;
             return '<div class="space-y-6 stagger-children">' +
               '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">' + state.company.name + '</h1><p class="text-slate-400 text-sm">' + activeProjects.length + ' active projects · ' + state.users.length + ' team members</p></div></div>' +
               '<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">' +
                 '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Total Piles</span>' + icon('database', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-white">' + formatNumber(installedPiles) + '</p><p class="text-xs text-slate-500 mt-1">of ' + formatNumber(totalPiles) + ' planned</p></div>' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Pass Rate</span>' + icon('check-circle', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-blue-400">94.2%</p><p class="text-xs text-slate-500 mt-1">+2.1% from last month</p></div>' +
+                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Pass Rate</span>' + icon('check-circle', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-blue-400">' + companyPassRate + '%</p><p class="text-xs text-slate-500 mt-1">' + formatNumber(totalPassed + totalFailed) + ' inspections total</p></div>' +
                 '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Refusals</span>' + icon('alert-triangle', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-orange-400">' + state.refusals.length + '</p><p class="text-xs text-slate-500 mt-1">total logged</p></div>' +
                 '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Active Crews</span>' + icon('users', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-green-400">' + state.crews.length + '</p><p class="text-xs text-slate-500 mt-1">' + (state.crews.length * 8) + ' workers</p></div>' +
               '</div>' +
@@ -325,7 +331,10 @@ export default async function SolTrendApp() {
             const project = state.currentProject; if(!project) return '';
             const completionPct = Math.round((project.installedPiles / project.totalPiles) * 100);
             const passRate = project.passedInspections > 0 ? Math.round((project.passedInspections / (project.passedInspections + project.failedInspections)) * 100) : 0;
-            const todayActual = 28;
+            // Was a hardcoded "28" - now the real total logged for today
+            // via Production Entry (0 if nothing's been logged yet today).
+            const todayStr = new Date().toISOString().split('T')[0];
+            const todayActual = state.production.find(p => p.date === todayStr)?.piles || 0;
             const todayTarget = project.dailyTarget || 35;
             const openIssues = project.failedInspections + project.refusals;
             return '<div class="space-y-6 stagger-children">' +
@@ -1401,24 +1410,42 @@ export default async function SolTrendApp() {
             const pid = getPileId(state.currentRow, state.currentPile);
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">QC Inspection</h1></div><div class="flex items-center gap-2"><span class="badge-pass px-3 py-1.5 rounded-full text-sm">' + state.session.passed + ' Pass</span><span class="badge-fail px-3 py-1.5 rounded-full text-sm">' + state.session.failed + ' Fail</span></div></div><div class="flex gap-2"><button onclick="setInspectionMode(\\'quick\\')" class="mode-btn ' + (state.inspectionMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">quick</button><button onclick="setInspectionMode(\\'detailed\\')" class="mode-btn ' + (state.inspectionMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">detailed</button></div><div class="pile-display p-6"><p class="text-xs text-slate-500 uppercase tracking-wider text-center mb-3">INSPECTING</p><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.currentRow + '</span><button onclick="incRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div><div class="grid grid-cols-2 gap-3"><button onclick="recordInspection(\\'pass\\')" class="btn-action bg-green-600 text-white flex flex-col items-center justify-center gap-2">' + icon('check-circle', 'w-12 h-12') + '<span>PASS</span></button><button onclick="recordInspection(\\'fail\\')" class="btn-action bg-red-600 text-white flex flex-col items-center justify-center gap-2">' + icon('x-circle', 'w-12 h-12') + '<span>FAIL</span></button></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('inspection') + '</div></div>';
           }
-          function incPile() { hapticFeedback(); state.currentPile++; render(); }
+          function incPile() { hapticFeedback(); if (state.currentPile < state.heatmap.pilesPerRow) state.currentPile++; render(); }
           function decPile() { hapticFeedback(); if (state.currentPile > 1) state.currentPile--; render(); }
-          function incRow() { hapticFeedback(); state.currentRow++; render(); }
+          function incRow() { hapticFeedback(); if (state.currentRow < state.heatmap.totalRows) state.currentRow++; render(); }
           function decRow() { hapticFeedback(); if (state.currentRow > 1) state.currentRow--; render(); }
           function setInspectionMode(mode) { state.inspectionMode = mode; render(); }
-          function recordInspection(status) { 
-            hapticFeedback(); 
-            playSound(status); 
+          function recordInspection(status) {
+            hapticFeedback();
+            playSound(status);
             const photos = state.inspectionPhotos;
-            const inspection = { 
-              pileId: getPileId(state.currentRow, state.currentPile), 
-              status, 
-              timestamp: Date.now(), 
-              user: state.currentUser.name 
+            const pileId = getPileId(state.currentRow, state.currentPile);
+            const inspection = {
+              pileId,
+              status,
+              timestamp: Date.now(),
+              user: state.currentUser.name
             };
-            state.inspections.push(inspection);
+            // Replace, don't append: an earlier local record for this pile
+            // (from initial load, or an earlier reinspect this session)
+            // would otherwise leave two entries for the same pile, and
+            // Array.find() always finds the OLDER one - the pile would
+            // keep showing its previous status forever.
+            const existingIdx = state.inspections.findIndex(i => i.pileId === pileId);
+            const prevStatus = existingIdx >= 0 ? state.inspections[existingIdx].status : null;
+            if (existingIdx >= 0) state.inspections[existingIdx] = inspection; else state.inspections.push(inspection);
+            // Keep the project's cached pass/fail counts in sync with what
+            // actually changed - mirrors the server-side logic in
+            // /api/inspections, so a reinspect moves a pile between
+            // buckets instead of counting it twice.
+            if (state.currentProject) {
+              if (prevStatus === 'pass') state.currentProject.passedInspections = Math.max(0, (state.currentProject.passedInspections || 0) - 1);
+              else if (prevStatus === 'fail') state.currentProject.failedInspections = Math.max(0, (state.currentProject.failedInspections || 0) - 1);
+              if (status === 'pass') state.currentProject.passedInspections = (state.currentProject.passedInspections || 0) + 1;
+              else if (status === 'fail') state.currentProject.failedInspections = (state.currentProject.failedInspections || 0) + 1;
+            }
             state.session[status === 'pass' ? 'passed' : 'failed']++;
-            state.currentPile++;
+            if (state.currentPile < state.heatmap.pilesPerRow) state.currentPile++;
             state.inspectionPhotos = [];
             render();
             // Save to database
@@ -1430,14 +1457,26 @@ export default async function SolTrendApp() {
             try {
               const res = await fetch('/api/seed', { method: 'POST' });
               const data = await res.json();
-              if (data.success) {
-                console.log('Database seeded:', data.stats);
-                await loadInspections();
-                await loadRefusals();
-              }
+              if (data.success) console.log('Database seeded:', data.stats);
             } catch (e) { console.error('Seed error:', e); }
+            await loadProjectData();
           }
-          
+
+          // Loads inspections, refusals, and production entries for the
+          // CURRENT project only, clearing whatever was loaded before.
+          // Called on boot and whenever the active project changes -
+          // without the clear+reload, switching projects left the
+          // previous project's piles/refusals/production numbers showing
+          // under the new one, since none of those arrays were ever
+          // filtered by project on the client.
+          async function loadProjectData() {
+            state.inspections = [];
+            state.refusals = [];
+            state.production = [];
+            await Promise.all([loadInspections(), loadRefusals(), loadProduction()]);
+            render();
+          }
+
           async function loadInspections() {
             try {
               const projectId = state.currentProject?.id || 'proj_001';
@@ -1489,7 +1528,25 @@ export default async function SolTrendApp() {
               }
             } catch (e) { console.error('Load refusals error:', e); }
           }
-          
+
+          // Loads this project's real daily production log. Previously
+          // there was no such route and nothing ever called it - every
+          // dashboard/analytics number derived from state.production was
+          // reading an array that stayed empty in production (the fake
+          // Math.random() figures only ever appeared in the local demo-data
+          // fallback, never against a real database).
+          async function loadProduction() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/production?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) {
+                state.production = data;
+                render();
+              }
+            } catch (e) { console.error('Load production error:', e); }
+          }
+
           // Uploads each captured photo (still a local data: URL at this point)
           // to /api/upload, which stores it in the private bucket and hands
           // back a same-origin URL. Returns the array to persist alongside
@@ -1558,29 +1615,40 @@ export default async function SolTrendApp() {
             const pid = getPileId(state.refusalRow, state.refusalPile);
             const sh = state.achievedDepth ? state.targetDepth - state.achievedDepth : null;
             const sc = sh ? (sh > 500 ? 'shortfall-critical' : sh > 200 ? 'shortfall-warning' : 'shortfall-minor') : '';
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Pile Refusals</h1><span class="badge-open px-3 py-1.5 rounded-full text-sm">' + state.openRefusals + ' Open</span></div><div class="flex gap-2"><button onclick="setRefusalMode(\\'quick\\')" class="mode-btn ' + (state.refusalMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">Quick</button><button onclick="setRefusalMode(\\'detailed\\')" class="mode-btn ' + (state.refusalMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">Detailed</button></div><div class="pile-display p-6"><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Target (mm)</label><input type="number" value="' + state.targetDepth + '" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div><div><label class="text-xs text-slate-500 mb-1 block">Achieved (mm)</label><input type="number" id="refusalDepth" value="' + (state.achievedDepth||'') + '" onchange="state.achievedDepth=parseInt(this.value);render()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div></div>' + (sh !== null ? '<div class="' + sc + ' rounded-xl p-4 text-center"><span class="text-sm text-slate-400">Shortfall: ' + sh + ' mm</span></div>' : '') + '<div><label class="text-xs text-slate-500 mb-2 block">Reason</label><div class="grid grid-cols-4 gap-2">' + ['bedrock', 'cobble', 'obstruction', 'other'].map(r => '<button onclick="setRefusalReason(\\'' + r + '\\')" class="reason-btn ' + (state.refusalReason===r?'reason-btn-selected':'') + '"><span class="text-xs text-white capitalize">' + r + '</span></button>').join('') + '</div></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('refusal') + '</div><button onclick="submitRefusal()" class="w-full py-4 bg-red-600 text-white rounded-xl font-bold mt-4">LOG REFUSAL</button></div>';
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Pile Refusals</h1><span class="badge-open px-3 py-1.5 rounded-full text-sm">' + state.openRefusals + ' Open</span></div><div class="flex gap-2"><button onclick="setRefusalMode(\\'quick\\')" class="mode-btn ' + (state.refusalMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">Quick</button><button onclick="setRefusalMode(\\'detailed\\')" class="mode-btn ' + (state.refusalMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">Detailed</button></div><div class="pile-display p-6"><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.refusalRow + '</span><button onclick="incRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Target (mm)</label><input type="number" id="refusalTarget" value="' + state.targetDepth + '" onchange="state.targetDepth=parseInt(this.value)||0;render()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div><div><label class="text-xs text-slate-500 mb-1 block">Achieved (mm)</label><input type="number" id="refusalDepth" value="' + (state.achievedDepth||'') + '" onchange="state.achievedDepth=parseInt(this.value);render()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div></div>' + (sh !== null ? '<div class="' + sc + ' rounded-xl p-4 text-center"><span class="text-sm text-slate-400">Shortfall: ' + sh + ' mm</span></div>' : '') + '<div><label class="text-xs text-slate-500 mb-2 block">Reason</label><div class="grid grid-cols-4 gap-2">' + ['bedrock', 'cobble', 'obstruction', 'other'].map(r => '<button onclick="setRefusalReason(\\'' + r + '\\')" class="reason-btn ' + (state.refusalReason===r?'reason-btn-selected':'') + '"><span class="text-xs text-white capitalize">' + r + '</span></button>').join('') + '</div></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('refusal') + '</div><button onclick="submitRefusal()" class="w-full py-4 bg-red-600 text-white rounded-xl font-bold mt-4">LOG REFUSAL</button></div>';
           }
-          function incRefusalPile() { hapticFeedback(); state.refusalPile++; render(); }
+          function incRefusalPile() { hapticFeedback(); if (state.refusalPile < state.heatmap.pilesPerRow) state.refusalPile++; render(); }
           function decRefusalPile() { hapticFeedback(); if (state.refusalPile > 1) state.refusalPile--; render(); }
+          function incRefusalRow() { hapticFeedback(); if (state.refusalRow < state.heatmap.totalRows) state.refusalRow++; render(); }
+          function decRefusalRow() { hapticFeedback(); if (state.refusalRow > 1) state.refusalRow--; render(); }
           function setRefusalMode(mode) { state.refusalMode = mode; render(); }
           function setRefusalReason(reason) { state.refusalReason = reason; render(); }
-          function submitRefusal() { 
-            hapticFeedback(); 
+          function submitRefusal() {
+            hapticFeedback();
             const photos = state.refusalPhotos;
-            const refusal = { 
-              pileId: getPileId(state.refusalRow, state.refusalPile), 
-              reason: state.refusalReason, 
-              timestamp: Date.now(), 
-              user: state.currentUser.name, 
-              targetDepth: state.targetDepth, 
-              achievedDepth: state.achievedDepth 
+            const pileId = getPileId(state.refusalRow, state.refusalPile);
+            const refusal = {
+              pileId,
+              reason: state.refusalReason,
+              timestamp: Date.now(),
+              user: state.currentUser.name,
+              targetDepth: state.targetDepth,
+              achievedDepth: state.achievedDepth
             };
-            state.refusals.push(refusal);
-            state.openRefusals++; 
-            state.refusalPile++; 
-            state.achievedDepth = null; 
-            state.refusalReason = null; 
-            state.refusalPhotos = []; 
+            // Replace, don't append, for the same reason as recordInspection:
+            // re-logging a refusal for a pile that already has one shouldn't
+            // leave two local entries with the older one winning lookups.
+            const existingIdx = state.refusals.findIndex(r => r.pileId === pileId);
+            const isNew = existingIdx < 0;
+            if (existingIdx >= 0) state.refusals[existingIdx] = refusal; else state.refusals.push(refusal);
+            if (isNew) {
+              state.openRefusals++;
+              if (state.currentProject) state.currentProject.refusalCount = (state.currentProject.refusalCount || 0) + 1;
+            }
+            if (state.refusalPile < state.heatmap.pilesPerRow) state.refusalPile++;
+            state.achievedDepth = null;
+            state.refusalReason = null;
+            state.refusalPhotos = [];
             render();
             // Save to database
             saveRefusal(refusal, photos);
@@ -1588,9 +1656,65 @@ export default async function SolTrendApp() {
 
           // PRODUCTION - WITH PHOTO CAPTURE
           function renderProduction() {
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div><h1 class="font-display text-xl font-bold text-white">Production Entry</h1></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-5 space-y-4"><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Crew</label><select class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('') + '</select></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Subcontractor</label><select class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('') + '</select></div><div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Piles</label><input type="number" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Tables</label><input type="number" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Modules</label><input type="number" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea rows="2" placeholder="Any issues or notes..." class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm"></textarea></div><div>' + renderPhotoCapture('production') + '</div><button onclick="submitProduction()" class="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-lg">Submit</button></div></div>';
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div><h1 class="font-display text-xl font-bold text-white">Production Entry</h1></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-5 space-y-4"><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Crew</label><select id="prodCrew" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('') + '</select></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Subcontractor</label><select id="prodSubcontractor" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('') + '</select></div><div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Piles</label><input type="number" id="prodPiles" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Tables</label><input type="number" id="prodTables" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Modules</label><input type="number" id="prodModules" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea id="prodNotes" rows="2" placeholder="Any issues or notes..." class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm"></textarea></div><div>' + renderPhotoCapture('production') + '</div><button onclick="submitProduction()" class="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-lg">Submit</button></div></div>';
           }
-          function submitProduction() { alert('Production entry submitted!'); state.productionEntry.photos = []; render(); }
+          // Previously this just showed an alert and threw away everything
+          // typed into the form - nothing was ever read from the inputs or
+          // sent anywhere, and there was no API route to receive it if it
+          // had been. Every "production" figure on every dashboard, report,
+          // and analytics chart was reading an array that could never
+          // contain real data. This now actually reads the form, persists
+          // it per-project via /api/production, and keeps the current
+          // project's cached installedPiles count in sync with the server.
+          async function submitProduction() {
+            hapticFeedback();
+            const pilesInstalled = parseInt(document.getElementById('prodPiles')?.value) || 0;
+            const tables = document.getElementById('prodTables')?.value;
+            const modules = document.getElementById('prodModules')?.value;
+            const crewId = document.getElementById('prodCrew')?.value || null;
+            const subcontractorId = document.getElementById('prodSubcontractor')?.value || null;
+            let notes = (document.getElementById('prodNotes')?.value || '').trim();
+            const extras = [];
+            if (tables) extras.push(tables + ' tables');
+            if (modules) extras.push(modules + ' modules');
+            if (extras.length) notes = notes ? (notes + ' | ' + extras.join(', ')) : extras.join(', ');
+
+            if (pilesInstalled <= 0 && !notes) {
+              alert('Enter a pile count or a note before submitting.');
+              return;
+            }
+
+            const photos = state.productionEntry.photos;
+            const projectId = state.currentProject?.id || 'proj_001';
+            try {
+              const uploadedPhotos = await uploadPendingPhotos(photos, 'production', projectId);
+              const res = await fetch('/api/production', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  projectId,
+                  pilesInstalled,
+                  crewId,
+                  subcontractorId,
+                  notes: notes || undefined,
+                  loggedBy: state.currentUser.id,
+                  photos: uploadedPhotos
+                })
+              });
+              const data = await res.json();
+              if (state.currentProject && typeof data.installedPiles === 'number') {
+                state.currentProject.installedPiles = data.installedPiles;
+                const proj = state.projects.find(p => p.id === projectId);
+                if (proj) proj.installedPiles = data.installedPiles;
+              }
+              state.productionEntry = { crew: null, subcontractor: null, notes: '', photos: [] };
+              await loadProduction();
+              alert('Production entry saved.');
+            } catch (e) {
+              console.error('Save production error:', e);
+              alert('Failed to save production entry - check your connection and try again.');
+            }
+          }
 
           function renderSettings() {
             const tabs = [
@@ -1991,7 +2115,21 @@ export default async function SolTrendApp() {
 
           function navigateTo(view) { state.currentView = view; state.sidebarOpen = false; render(); window.scrollTo(0, 0); }
           function toggleSidebar() { state.sidebarOpen = !state.sidebarOpen; render(); }
-          function openProject(id) { state.currentProject = state.projects.find(p => p.id === id); state.currentView = 'dashboard'; render(); }
+          // Switching projects previously never reloaded inspections/
+          // refusals/production or the heatmap's row/column dimensions for
+          // the newly selected project - it just changed which object
+          // state.currentProject pointed at, while every other piece of
+          // per-project state kept showing whatever the first project
+          // had loaded at boot.
+          function switchToProject(project) {
+            if (!project) return;
+            state.currentProject = project;
+            state.heatmap.totalRows = project.totalRows || 50;
+            state.heatmap.pilesPerRow = project.pilesPerRow || 30;
+            render();
+            loadProjectData();
+          }
+          function openProject(id) { switchToProject(state.projects.find(p => p.id === id)); state.currentView = 'dashboard'; render(); }
 
           document.addEventListener('keydown', (e) => {
             if (state.currentView !== 'inspection') return;
@@ -2002,7 +2140,7 @@ export default async function SolTrendApp() {
 
           function setupEventListeners() {
             const projectSelect = document.getElementById('projectSelect');
-            if (projectSelect) { projectSelect.addEventListener('change', (e) => { state.currentProject = state.projects.find(p => p.id === e.target.value); render(); }); }
+            if (projectSelect) { projectSelect.addEventListener('change', (e) => { switchToProject(state.projects.find(p => p.id === e.target.value)); }); }
           }
 
           // INITIALIZATION - Load data from database
