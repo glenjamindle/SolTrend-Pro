@@ -136,6 +136,7 @@ export default async function SolTrendApp() {
             recentActivity: [],
             currentRow: 35, currentPile: 22,
             inspectionPhotos: [], lastInspection: null,
+            inspectionFailReason: null,
             session: { passed: 0, failed: 0 },
             refusalRow: 35, refusalPile: 22,
             targetDepth: 1800, achievedDepth: null, refusalReason: null, refusalPhotos: [],
@@ -150,6 +151,19 @@ export default async function SolTrendApp() {
           function formatNumber(num) { return num?.toLocaleString() || '0'; }
           function getPileId(row, pile) { return row + '-' + pile; }
           function parsePileId(id) { const parts = String(id).split('-'); return { row: parseInt(parts[0]) || 1, pile: parseInt(parts[1]) || 1 }; }
+
+          // DATE HELPERS FOR REPORTS
+          // localDateStr() renders an epoch-ms timestamp as a YYYY-MM-DD string
+          // in the browser's local timezone - the report date pickers (<input
+          // type="date">) also hand back plain YYYY-MM-DD strings, so comparing
+          // these directly as strings sidesteps the timezone bug you'd otherwise
+          // get from doing new Date('2026-09-22') (parsed as UTC midnight) vs
+          // new Date(timestamp).toDateString() (rendered in local time) - those
+          // two disagree by a day for any timezone west of UTC, e.g. Phoenix.
+          function pad2(n) { return String(n).padStart(2, '0'); }
+          function localDateStr(ms) { const d = new Date(ms); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+          function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+          function addDaysStr(dateStr, days) { const parts = dateStr.split('-').map(Number); const dt = new Date(parts[0], parts[1] - 1, parts[2]); dt.setDate(dt.getDate() + days); return dt.getFullYear() + '-' + pad2(dt.getMonth() + 1) + '-' + pad2(dt.getDate()); }
           function getInspectionStatus(pileId) {
             const inspection = state.inspections.find(i => i.pileId === pileId);
             if (inspection) return inspection.status;
@@ -624,24 +638,39 @@ export default async function SolTrendApp() {
 
           // PDF GENERATION FUNCTIONS
           async function generateDailyReport() {
-            const date = document.getElementById('dailyReportDate')?.value || new Date().toISOString().split('T')[0];
+            const date = document.getElementById('dailyReportDate')?.value || localDateStr(Date.now());
             const project = state.currentProject;
-            const dayProd = state.production[state.production.length - 1];
-            const dayInspections = state.inspections.filter(i => new Date(i.timestamp).toDateString() === new Date(date).toDateString());
+            // Was always state.production[state.production.length - 1] (the
+            // most recent entry) regardless of which date was picked - now
+            // looks up the entry for the actual selected date.
+            const dayProd = state.production.find(p => p.date === date);
+            // Compare via localDateStr() on both sides instead of
+            // new Date(date).toDateString() - the old comparison parsed the
+            // picker's plain date string as UTC midnight while rendering the
+            // record's timestamp in local time, which disagree by a day west
+            // of UTC (e.g. Phoenix) and silently dropped/misattributed rows.
+            const dayInspections = state.inspections.filter(i => localDateStr(i.timestamp) === date);
             const passed = dayInspections.filter(i => i.status === 'pass').length;
             const failed = dayInspections.filter(i => i.status === 'fail').length;
             const totalInspected = passed + failed;
-            const dayRefusals = state.refusals.filter(r => new Date(r.timestamp).toDateString() === new Date(date).toDateString()).length;
+            const dayRefusalsList = state.refusals.filter(r => localDateStr(r.timestamp) === date);
+            const dayRefusals = dayRefusalsList.length;
             const refusalRate = totalInspected > 0 ? ((dayRefusals / (totalInspected + dayRefusals)) * 100).toFixed(1) : '0.0';
             const rackingToday = Math.ceil((dayProd?.piles || 0) / 4);
             const modulesToday = (dayProd?.piles || 0) * 2;
-            const weather = await fetchWeatherData();
+            // Live weather is only meaningful for today's report - fetching it
+            // for a past date previously showed *today's* conditions mislabeled
+            // as if they were that day's weather. For past dates we now show
+            // an honest "not available" note instead of a wrong number.
+            const isToday = date === localDateStr(Date.now());
+            const weather = isToday ? await fetchWeatherData() : null;
             const currentWeather = weather?.current;
-            const weatherIcon = currentWeather ? getWeatherIcon(currentWeather.weather_code) : '☀️';
-            const temp = currentWeather?.temperature_2m || 78;
-            const humidity = currentWeather?.relative_humidity_2m || 24;
-            const windSpeed = currentWeather?.wind_speed_10m || 8;
-            const weatherDesc = currentWeather ? getWeatherDescription(currentWeather.weather_code) : 'Sunny';
+            const weatherIcon = currentWeather ? getWeatherIcon(currentWeather.weather_code) : '📅';
+            const weatherHeading = isToday ? "Today's Weather" : 'Weather';
+            const temp = currentWeather ? Math.round(currentWeather.temperature_2m) : null;
+            const humidity = currentWeather ? currentWeather.relative_humidity_2m : null;
+            const windSpeed = currentWeather ? Math.round(currentWeather.wind_speed_10m) : null;
+            const weatherDesc = currentWeather ? getWeatherDescription(currentWeather.weather_code) : (isToday ? 'Unavailable' : 'Historical data not available');
             
             const reportContent = \`
               <!DOCTYPE html>
@@ -731,13 +760,13 @@ export default async function SolTrendApp() {
                 <div class="weather-section">
                   <div class="weather-icon">\${weatherIcon}</div>
                   <div class="weather-info">
-                    <h3>Today's Weather</h3>
-                    <div class="temp">\${Math.round(temp)}°F</div>
+                    <h3>\${weatherHeading}</h3>
+                    <div class="temp">\${temp !== null ? temp + '°F' : '—'}</div>
                     <div class="conditions">\${weatherDesc}</div>
                   </div>
                   <div class="weather-details">
-                    <div class="weather-detail"><div class="label">Humidity</div><div class="value">\${humidity}%</div></div>
-                    <div class="weather-detail"><div class="label">Wind</div><div class="value">\${Math.round(windSpeed)} mph</div></div>
+                    <div class="weather-detail"><div class="label">Humidity</div><div class="value">\${humidity !== null ? humidity + '%' : '—'}</div></div>
+                    <div class="weather-detail"><div class="label">Wind</div><div class="value">\${windSpeed !== null ? windSpeed + ' mph' : '—'}</div></div>
                     <div class="weather-detail"><div class="label">Location</div><div class="value">Phoenix</div></div>
                   </div>
                 </div>
@@ -769,12 +798,13 @@ export default async function SolTrendApp() {
                 <table class="activity-table">
                   <thead><tr><th>Time</th><th>Pile ID</th><th>Activity</th><th>Crew</th><th>Status</th></tr></thead>
                   <tbody>
-                    \${state.inspections.slice(-10).reverse().map(i => 
+                    \${dayInspections.slice().reverse().map(i =>
                       '<tr><td>' + new Date(i.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) + '</td><td>' + i.pileId + '</td><td>QC Inspection</td><td>' + i.user + '</td><td><span class="status-badge ' + i.status + '">' + i.status + '</span></td></tr>'
                     ).join('')}
-                    \${state.refusals.slice(-3).reverse().map(r => 
+                    \${dayRefusalsList.slice().reverse().map(r =>
                       '<tr><td>' + new Date(r.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) + '</td><td>' + r.pileId + '</td><td>Refusal Logged</td><td>' + r.user + '</td><td><span class="status-badge refusal">Refusal</span></td></tr>'
                     ).join('')}
+                    \${(dayInspections.length + dayRefusalsList.length) === 0 ? '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">No activity recorded for this date</td></tr>' : ''}
                   </tbody>
                 </table>
                 <div class="notes-section">
@@ -803,17 +833,31 @@ export default async function SolTrendApp() {
 
           async function generateWeeklyReport() {
             const project = state.currentProject;
-            const weekProd = state.production.slice(-7).reduce((s, p) => s + p.piles, 0);
-            const prevWeekProd = state.production.slice(-14, -7).reduce((s, p) => s + p.piles, 0);
+            // Was entirely disconnected from the "Week ending" date picker -
+            // always used the most recent 7/14 production entries by array
+            // position and the most recent 50 inspections / 5 refusals by
+            // count, none of which line up with an actual calendar week or
+            // respond to the picked date at all. Now derives a real 7-day
+            // window ending on the selected date.
+            const endStr = document.getElementById('weeklyReportDate')?.value || state.reportDates.weekly;
+            const startStr = addDaysStr(endStr, -6);
+            const prevEndStr = addDaysStr(startStr, -1);
+            const prevStartStr = addDaysStr(prevEndStr, -6);
+            const weekProdEntries = state.production.filter(p => p.date >= startStr && p.date <= endStr);
+            const prevWeekProdEntries = state.production.filter(p => p.date >= prevStartStr && p.date <= prevEndStr);
+            const weekProd = weekProdEntries.reduce((s, p) => s + p.piles, 0);
+            const prevWeekProd = prevWeekProdEntries.reduce((s, p) => s + p.piles, 0);
             const avgDaily = Math.round(weekProd / 7);
-            const bestDay = Math.max(...state.production.slice(-7).map(p => p.piles));
+            const bestDay = weekProdEntries.length > 0 ? Math.max(...weekProdEntries.map(p => p.piles)) : 0;
             const weekChange = prevWeekProd > 0 ? Math.round(((weekProd - prevWeekProd) / prevWeekProd) * 100) : 0;
-            const weekInspections = state.inspections.slice(-50);
+            const weekInspections = state.inspections.filter(i => { const d = localDateStr(i.timestamp); return d >= startStr && d <= endStr; });
             const weekPassed = weekInspections.filter(i => i.status === 'pass').length;
             const weekFailed = weekInspections.filter(i => i.status === 'fail').length;
-            const weekRefusals = state.refusals.slice(-5).length;
+            const weekRefusalsList = state.refusals.filter(r => { const d = localDateStr(r.timestamp); return d >= startStr && d <= endStr; });
+            const weekRefusals = weekRefusalsList.length;
             const passRate = weekInspections.length > 0 ? Math.round((weekPassed / weekInspections.length) * 100) : 0;
-            const weather = await fetchWeatherData();
+            const includesToday = localDateStr(Date.now()) >= startStr && localDateStr(Date.now()) <= endStr;
+            const weather = includesToday ? await fetchWeatherData() : null;
             const dailyWeather = weather?.daily;
             
             const reportContent = \`
@@ -895,8 +939,8 @@ export default async function SolTrendApp() {
                     <h1>Weekly Progress Report</h1>
                   </div>
                   <div class="report-meta">
-                    <div class="report-type">Week \${Math.ceil(new Date().getDate() / 7)} • \${new Date().getFullYear()}</div>
-                    <div class="report-date">\${new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                    <div class="report-type">Weekly Progress Report</div>
+                    <div class="report-date">\${new Date(startStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${new Date(endStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
                   </div>
                 </div>
                 <div class="project-banner">
@@ -906,7 +950,7 @@ export default async function SolTrendApp() {
                   </div>
                   <div class="project-badge">\${weekChange >= 0 ? 'On Track' : 'Behind'}</div>
                 </div>
-                <div class="section-title">Weather Summary (Mon-Fri)</div>
+                <div class="section-title">Weather Summary</div>
                 <div class="weather-week">
                   \${dailyWeather ? dailyWeather.time.slice(0, 5).map((d, i) => {
                     const code = dailyWeather.weather_code[i];
@@ -916,7 +960,7 @@ export default async function SolTrendApp() {
                     const dayName = new Date(d).toLocaleDateString('en-US', { weekday: 'short' });
                     const bgClass = code <= 3 ? 'sunny' : code >= 51 ? 'rainy' : 'cloudy';
                     return '<div class="weather-day ' + bgClass + '"><div class="icon">' + icon + '</div><div class="day">' + dayName + '</div><div class="temp">' + maxT + '°F</div></div>';
-                  }).join('') : '<div class="weather-day sunny"><div class="icon">☀️</div><div class="day">Mon</div><div class="temp">78°</div></div><div class="weather-day sunny"><div class="icon">☀️</div><div class="day">Tue</div><div class="temp">80°</div></div><div class="weather-day sunny"><div class="icon">☀️</div><div class="day">Wed</div><div class="temp">82°</div></div><div class="weather-day cloudy"><div class="icon">⛅</div><div class="day">Thu</div><div class="temp">75°</div></div><div class="weather-day sunny"><div class="icon">☀️</div><div class="day">Fri</div><div class="temp">79°</div></div>'}
+                  }).join('') : '<div class="weather-day" style="background:#e2e8f0;"><div class="icon">📅</div><div class="day" style="color:#475569;">' + (includesToday ? 'Forecast unavailable' : 'Historical weather not available for past date ranges') + '</div></div>'}
                 </div>
                 <div class="section-title">Week at a Glance</div>
                 <div class="week-summary">
@@ -928,10 +972,10 @@ export default async function SolTrendApp() {
                 <div class="section-title">Daily Production Trend</div>
                 <div class="trend-chart">
                   <div class="trend-bars">
-                    \${state.production.slice(-7).map(p => {
+                    \${weekProdEntries.length > 0 ? weekProdEntries.map(p => {
                       const h = Math.max(20, (p.piles / 50) * 100);
                       return '<div class="trend-bar-group"><div class="trend-bar" style="height: ' + h + 'px;"></div><div class="trend-label">' + p.piles + '</div></div>';
-                    }).join('')}
+                    }).join('') : '<p style="color:#94a3b8;font-size:13px;">No production logged for this week</p>'}
                   </div>
                 </div>
                 <div class="section-title">Quality Control Summary</div>
@@ -992,15 +1036,34 @@ export default async function SolTrendApp() {
 
           async function generateMonthlyReport() {
             const project = state.currentProject;
-            const monthProd = state.production.slice(-30).reduce((s, p) => s + p.piles, 0);
-            const prevMonthProd = state.production.slice(-60, -30).reduce((s, p) => s + p.piles, 0);
-            const avgDaily = Math.round(monthProd / 30);
-            const totalInspections = state.inspections.length;
-            const passedInspections = state.inspections.filter(i => i.status === 'pass').length;
-            const failedInspections = state.inspections.filter(i => i.status === 'fail').length;
+            // Was slice(-30)/slice(-60,-30) for production (arbitrary entry
+            // counts, not a real calendar month) and, worse, the QC numbers
+            // were state.inspections.length et al with NO filtering at all -
+            // company-lifetime totals labeled as if they were that month's.
+            // Now derives the actual selected calendar month's boundaries.
+            const monthStr = document.getElementById('monthlyReportMonth')?.value || state.reportDates.monthly;
+            const monthParts = monthStr.split('-').map(Number);
+            const my = monthParts[0], mm = monthParts[1];
+            const monthStartStr = my + '-' + pad2(mm) + '-01';
+            const monthEndStr = my + '-' + pad2(mm) + '-' + pad2(daysInMonth(my, mm));
+            let py = my, pm = mm - 1; if (pm < 1) { pm = 12; py -= 1; }
+            const prevMonthStartStr = py + '-' + pad2(pm) + '-01';
+            const prevMonthEndStr = py + '-' + pad2(pm) + '-' + pad2(daysInMonth(py, pm));
+            const monthProdEntries = state.production.filter(p => p.date >= monthStartStr && p.date <= monthEndStr);
+            const prevMonthProdEntries = state.production.filter(p => p.date >= prevMonthStartStr && p.date <= prevMonthEndStr);
+            const monthProd = monthProdEntries.reduce((s, p) => s + p.piles, 0);
+            const prevMonthProd = prevMonthProdEntries.reduce((s, p) => s + p.piles, 0);
+            const avgDaily = Math.round(monthProd / daysInMonth(my, mm));
+            const monthInspections = state.inspections.filter(i => { const d = localDateStr(i.timestamp); return d >= monthStartStr && d <= monthEndStr; });
+            const totalInspections = monthInspections.length;
+            const passedInspections = monthInspections.filter(i => i.status === 'pass').length;
+            const failedInspections = monthInspections.filter(i => i.status === 'fail').length;
             const passRate = totalInspections > 0 ? Math.round((passedInspections / totalInspections) * 100) : 0;
+            const monthRefusalsList = state.refusals.filter(r => { const d = localDateStr(r.timestamp); return d >= monthStartStr && d <= monthEndStr; });
             const monthChange = prevMonthProd > 0 ? Math.round(((monthProd - prevMonthProd) / prevMonthProd) * 100) : 0;
-            const weather = await fetchWeatherData();
+            const monthLabel = new Date(my, mm - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            const includesTodayMonth = localDateStr(Date.now()) >= monthStartStr && localDateStr(Date.now()) <= monthEndStr;
+            const weather = includesTodayMonth ? await fetchWeatherData() : null;
             
             const reportContent = \`
               <!DOCTYPE html>
@@ -1076,7 +1139,7 @@ export default async function SolTrendApp() {
                   </div>
                   <div class="report-meta">
                     <div class="report-type">Executive Summary</div>
-                    <div class="report-date">\${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
+                    <div class="report-date">\${monthLabel}</div>
                   </div>
                 </div>
                 <div class="project-banner">
@@ -1100,7 +1163,7 @@ export default async function SolTrendApp() {
                   <div class="kpi-card"><div class="value">\${formatNumber(monthProd)}</div><div class="label">Piles Month</div></div>
                   <div class="kpi-card"><div class="value">\${passRate}%</div><div class="label">QC Pass</div></div>
                   <div class="kpi-card"><div class="value">\${avgDaily}</div><div class="label">Daily Avg</div></div>
-                  <div class="kpi-card"><div class="value">\${state.refusals.length}</div><div class="label">Refusals</div></div>
+                  <div class="kpi-card"><div class="value">\${monthRefusalsList.length}</div><div class="label">Refusals</div></div>
                   <div class="kpi-card"><div class="value">\${state.crews.filter(c => c.status === 'active').length}</div><div class="label">Active Crews</div></div>
                 </div>
                 <div class="section-title">Project Progress</div>
@@ -1119,7 +1182,7 @@ export default async function SolTrendApp() {
                         <div class="qc-stat"><div class="value">\${totalInspections}</div><div class="label">Total Inspected</div></div>
                         <div class="qc-stat pass"><div class="value">\${passedInspections}</div><div class="label">Passed</div></div>
                         <div class="qc-stat fail"><div class="value">\${failedInspections}</div><div class="label">Failed</div></div>
-                        <div class="qc-stat refusal"><div class="value">\${state.refusals.length}</div><div class="label">Refusals</div></div>
+                        <div class="qc-stat refusal"><div class="value">\${monthRefusalsList.length}</div><div class="label">Refusals</div></div>
                       </div>
                     </div>
                   </div>
@@ -1134,7 +1197,7 @@ export default async function SolTrendApp() {
                 </div>
                 <div class="notes-section">
                   <h3>Executive Summary</h3>
-                  <div class="notes-content">Performance: \${new Date().toLocaleDateString('en-US', { month: 'long' })} \${monthChange >= 0 ? 'exceeded' : 'missed'} production targets by \${Math.abs(monthChange)}%, with all crews demonstrating strong performance. QC pass rate of \${passRate}% \${passRate >= 92 ? 'exceeds' : 'approaches'} the 92% target. Weather Impact: Weather conditions were largely favorable with only 1 rain day causing minor delays. Month-over-Month: <span class="comparison-badge \${monthChange >= 0 ? 'positive' : 'negative'}">\${monthChange >= 0 ? '+' : ''}\${monthChange}%</span> compared to previous month.</div>
+                  <div class="notes-content">Performance: \${monthLabel.split(' ')[0]} \${monthChange >= 0 ? 'exceeded' : 'missed'} production targets by \${Math.abs(monthChange)}%, with all crews demonstrating strong performance. QC pass rate of \${passRate}% \${passRate >= 92 ? 'exceeds' : 'approaches'} the 92% target. Month-over-Month: <span class="comparison-badge \${monthChange >= 0 ? 'positive' : 'negative'}">\${monthChange >= 0 ? '+' : ''}\${monthChange}%</span> compared to previous month.</div>
                 </div>
                 <div class="report-footer">
                   <div>Report prepared for: \${project?.client || 'NextEra Energy'} | Submitted by: \${state.company?.name || 'Apex Solar'} Project Management</div>
@@ -1153,9 +1216,14 @@ export default async function SolTrendApp() {
             const startDate = document.getElementById('qcStart')?.value || state.reportDates.qcStart;
             const endDate = document.getElementById('qcEnd')?.value || state.reportDates.qcEnd;
             const project = state.currentProject;
-            const total = state.inspections.length;
-            const passed = state.inspections.filter(i => i.status === 'pass').length;
-            const failed = state.inspections.filter(i => i.status === 'fail').length;
+            // Was reading startDate/endDate only to print them in the header -
+            // every number below (total/passed/failed and the failed-pile
+            // table) was the company's all-time inspection history regardless
+            // of what range was picked. Now actually scoped to it.
+            const rangeInspections = state.inspections.filter(i => { const d = localDateStr(i.timestamp); return d >= startDate && d <= endDate; });
+            const total = rangeInspections.length;
+            const passed = rangeInspections.filter(i => i.status === 'pass').length;
+            const failed = rangeInspections.filter(i => i.status === 'fail').length;
             const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
             
             const reportContent = \`
@@ -1197,13 +1265,14 @@ export default async function SolTrendApp() {
                   </div>
                 </div>
                 <div class="section">
-                  <h2>Recent Failed Inspections</h2>
+                  <h2>Failed Inspections in Range</h2>
                   <table>
                     <thead><tr><th>Pile ID</th><th>Reason</th><th>Inspector</th><th>Time</th></tr></thead>
                     <tbody>
-                      \${state.inspections.filter(i => i.status === 'fail').slice(0, 10).map(i => 
+                      \${rangeInspections.filter(i => i.status === 'fail').slice(0, 10).map(i =>
                         '<tr><td>' + i.pileId + '</td><td class="fail">' + (i.failReason || 'N/A') + '</td><td>' + i.user + '</td><td>' + new Date(i.timestamp).toLocaleString() + '</td></tr>'
                       ).join('')}
+                      \${rangeInspections.filter(i => i.status === 'fail').length === 0 ? '<tr><td colspan="4" style="text-align:center;color:#94a3b8;">No failed inspections in this range</td></tr>' : ''}
                     </tbody>
                   </table>
                 </div>
@@ -1408,23 +1477,49 @@ export default async function SolTrendApp() {
           // INSPECTION - WITH PHOTO CAPTURE
           function renderInspection() {
             const pid = getPileId(state.currentRow, state.currentPile);
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">QC Inspection</h1></div><div class="flex items-center gap-2"><span class="badge-pass px-3 py-1.5 rounded-full text-sm">' + state.session.passed + ' Pass</span><span class="badge-fail px-3 py-1.5 rounded-full text-sm">' + state.session.failed + ' Fail</span></div></div><div class="flex gap-2"><button onclick="setInspectionMode(\\'quick\\')" class="mode-btn ' + (state.inspectionMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">quick</button><button onclick="setInspectionMode(\\'detailed\\')" class="mode-btn ' + (state.inspectionMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">detailed</button></div><div class="pile-display p-6"><p class="text-xs text-slate-500 uppercase tracking-wider text-center mb-3">INSPECTING</p><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.currentRow + '</span><button onclick="incRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div><div class="grid grid-cols-2 gap-3"><button onclick="recordInspection(\\'pass\\')" class="btn-action bg-green-600 text-white flex flex-col items-center justify-center gap-2">' + icon('check-circle', 'w-12 h-12') + '<span>PASS</span></button><button onclick="recordInspection(\\'fail\\')" class="btn-action bg-red-600 text-white flex flex-col items-center justify-center gap-2">' + icon('x-circle', 'w-12 h-12') + '<span>FAIL</span></button></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('inspection') + '</div></div>';
+            const detailedPanel = state.inspectionMode === 'detailed' ? (
+              '<div class="card rounded-xl p-4 mb-3"><h3 class="font-display font-semibold text-white text-sm mb-3">Detailed Measurements</h3>' +
+              '<div class="grid grid-cols-3 gap-3 mb-3">' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Depth (in)</label><input type="number" id="inspDepthInput" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Plumb N-S (°)</label><input type="number" step="0.1" id="inspPlumbNSInput" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Plumb E-W (°)</label><input type="number" step="0.1" id="inspPlumbEWInput" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '</div>' +
+              '<label class="text-xs text-slate-500 mb-1.5 block">Fail Reason (if failing)</label>' +
+              '<div class="grid grid-cols-4 gap-2">' +
+              ['plumb', 'depth', 'twist', 'other'].map(function(r) {
+                return '<button onclick="selectInspectionFailReason(\\'' + r + '\\')" class="reason-btn text-xs py-2 ' + (state.inspectionFailReason === r ? 'reason-btn-selected text-white' : 'text-slate-300') + '">' + r.charAt(0).toUpperCase() + r.slice(1) + '</button>';
+              }).join('') +
+              '</div></div>'
+            ) : '';
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">QC Inspection</h1></div><div class="flex items-center gap-2"><span class="badge-pass px-3 py-1.5 rounded-full text-sm">' + state.session.passed + ' Pass</span><span class="badge-fail px-3 py-1.5 rounded-full text-sm">' + state.session.failed + ' Fail</span></div></div><div class="flex gap-2"><button onclick="setInspectionMode(\\'quick\\')" class="mode-btn ' + (state.inspectionMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">quick</button><button onclick="setInspectionMode(\\'detailed\\')" class="mode-btn ' + (state.inspectionMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">detailed</button></div><div class="pile-display p-6"><p class="text-xs text-slate-500 uppercase tracking-wider text-center mb-3">INSPECTING</p><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.currentRow + '</span><button onclick="incRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div>' + detailedPanel + '<div class="grid grid-cols-2 gap-3"><button onclick="recordInspection(\\'pass\\')" class="btn-action bg-green-600 text-white flex flex-col items-center justify-center gap-2">' + icon('check-circle', 'w-12 h-12') + '<span>PASS</span></button><button onclick="recordInspection(\\'fail\\')" class="btn-action bg-red-600 text-white flex flex-col items-center justify-center gap-2">' + icon('x-circle', 'w-12 h-12') + '<span>FAIL</span></button></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('inspection') + '</div></div>';
           }
           function incPile() { hapticFeedback(); if (state.currentPile < state.heatmap.pilesPerRow) state.currentPile++; render(); }
           function decPile() { hapticFeedback(); if (state.currentPile > 1) state.currentPile--; render(); }
           function incRow() { hapticFeedback(); if (state.currentRow < state.heatmap.totalRows) state.currentRow++; render(); }
           function decRow() { hapticFeedback(); if (state.currentRow > 1) state.currentRow--; render(); }
           function setInspectionMode(mode) { state.inspectionMode = mode; render(); }
+          function selectInspectionFailReason(reason) { hapticFeedback(); state.inspectionFailReason = state.inspectionFailReason === reason ? null : reason; render(); }
           function recordInspection(status) {
             hapticFeedback();
             playSound(status);
             const photos = state.inspectionPhotos;
             const pileId = getPileId(state.currentRow, state.currentPile);
+            // In detailed mode, pick up the depth/plumb measurement inputs -
+            // these existed on the API and database already, but the form
+            // never rendered or collected them, so every inspection saved
+            // depth/plumbNS/plumbEW/failReason as null regardless of mode.
+            const depthVal = state.inspectionMode === 'detailed' ? document.getElementById('inspDepthInput')?.value : '';
+            const plumbNSVal = state.inspectionMode === 'detailed' ? document.getElementById('inspPlumbNSInput')?.value : '';
+            const plumbEWVal = state.inspectionMode === 'detailed' ? document.getElementById('inspPlumbEWInput')?.value : '';
             const inspection = {
               pileId,
               status,
               timestamp: Date.now(),
-              user: state.currentUser.name
+              user: state.currentUser.name,
+              depth: depthVal ? parseInt(depthVal, 10) : null,
+              plumbNS: plumbNSVal ? parseFloat(plumbNSVal) : null,
+              plumbEW: plumbEWVal ? parseFloat(plumbEWVal) : null,
+              failReason: status === 'fail' ? state.inspectionFailReason : null
             };
             // Replace, don't append: an earlier local record for this pile
             // (from initial load, or an earlier reinspect this session)
@@ -1447,6 +1542,7 @@ export default async function SolTrendApp() {
             state.session[status === 'pass' ? 'passed' : 'failed']++;
             if (state.currentPile < state.heatmap.pilesPerRow) state.currentPile++;
             state.inspectionPhotos = [];
+            state.inspectionFailReason = null;
             render();
             // Save to database
             saveInspection(inspection, photos);
@@ -1573,6 +1669,10 @@ export default async function SolTrendApp() {
               const projectId = state.currentProject?.id || 'proj_001';
               const uploadedPhotos = await uploadPendingPhotos(photos, 'inspection', inspection.pileId);
               const gps = uploadedPhotos.find(p => p.gps)?.gps || null;
+              // depth/plumbNS/plumbEW/failReason: the API route and schema
+              // already supported these - the form just never collected
+              // them, so they were silently omitted here and saved as null
+              // on every inspection regardless of detailed-mode entries.
               await fetch('/api/inspections', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1581,6 +1681,10 @@ export default async function SolTrendApp() {
                   pileId: inspection.pileId,
                   status: inspection.status,
                   inspectedBy: state.currentUser.id,
+                  depth: inspection.depth,
+                  plumbNS: inspection.plumbNS,
+                  plumbEW: inspection.plumbEW,
+                  failReason: inspection.failReason,
                   photos: uploadedPhotos,
                   gps
                 })
