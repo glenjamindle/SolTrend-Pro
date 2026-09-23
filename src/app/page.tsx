@@ -137,6 +137,7 @@ export default async function SolTrendApp() {
             currentRow: 35, currentPile: 22,
             inspectionPhotos: [], lastInspection: null,
             inspectionFailReason: null,
+            inspectionDepth: '', inspectionPlumbNS: '', inspectionPlumbEW: '',
             session: { passed: 0, failed: 0 },
             refusalRow: 35, refusalPile: 22,
             targetDepth: 1800, achievedDepth: null, refusalReason: null, refusalPhotos: [],
@@ -1480,9 +1481,9 @@ export default async function SolTrendApp() {
             const detailedPanel = state.inspectionMode === 'detailed' ? (
               '<div class="card rounded-xl p-4 mb-3"><h3 class="font-display font-semibold text-white text-sm mb-3">Detailed Measurements</h3>' +
               '<div class="grid grid-cols-3 gap-3 mb-3">' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Depth (in)</label><input type="number" id="inspDepthInput" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Plumb N-S (°)</label><input type="number" step="0.1" id="inspPlumbNSInput" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Plumb E-W (°)</label><input type="number" step="0.1" id="inspPlumbEWInput" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Depth (in)</label><input type="number" id="inspDepthInput" value="' + (state.inspectionDepth||'') + '" oninput="state.inspectionDepth=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Plumb N-S (°)</label><input type="number" step="0.1" id="inspPlumbNSInput" value="' + (state.inspectionPlumbNS||'') + '" oninput="state.inspectionPlumbNS=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Plumb E-W (°)</label><input type="number" step="0.1" id="inspPlumbEWInput" value="' + (state.inspectionPlumbEW||'') + '" oninput="state.inspectionPlumbEW=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
               '</div>' +
               '<label class="text-xs text-slate-500 mb-1.5 block">Fail Reason (if failing)</label>' +
               '<div class="grid grid-cols-4 gap-2">' +
@@ -1508,9 +1509,12 @@ export default async function SolTrendApp() {
             // these existed on the API and database already, but the form
             // never rendered or collected them, so every inspection saved
             // depth/plumbNS/plumbEW/failReason as null regardless of mode.
-            const depthVal = state.inspectionMode === 'detailed' ? document.getElementById('inspDepthInput')?.value : '';
-            const plumbNSVal = state.inspectionMode === 'detailed' ? document.getElementById('inspPlumbNSInput')?.value : '';
-            const plumbEWVal = state.inspectionMode === 'detailed' ? document.getElementById('inspPlumbEWInput')?.value : '';
+            // Read from state (kept in sync via each input's oninput), not
+            // the DOM directly - selecting a fail reason re-renders this
+            // panel, which would otherwise wipe whatever was typed.
+            const depthVal = state.inspectionMode === 'detailed' ? state.inspectionDepth : '';
+            const plumbNSVal = state.inspectionMode === 'detailed' ? state.inspectionPlumbNS : '';
+            const plumbEWVal = state.inspectionMode === 'detailed' ? state.inspectionPlumbEW : '';
             const inspection = {
               pileId,
               status,
@@ -1543,6 +1547,9 @@ export default async function SolTrendApp() {
             if (state.currentPile < state.heatmap.pilesPerRow) state.currentPile++;
             state.inspectionPhotos = [];
             state.inspectionFailReason = null;
+            state.inspectionDepth = '';
+            state.inspectionPlumbNS = '';
+            state.inspectionPlumbEW = '';
             render();
             // Save to database
             saveInspection(inspection, photos);
