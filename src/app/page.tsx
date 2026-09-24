@@ -165,6 +165,26 @@ export default async function SolTrendApp() {
           function localDateStr(ms) { const d = new Date(ms); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
           function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
           function addDaysStr(dateStr, days) { const parts = dateStr.split('-').map(Number); const dt = new Date(parts[0], parts[1] - 1, parts[2]); dt.setDate(dt.getDate() + days); return dt.getFullYear() + '-' + pad2(dt.getMonth() + 1) + '-' + pad2(dt.getDate()); }
+          // Real schedule estimate, not a fixed guess - avgRate is piles/day
+          // since the project's actual startDate, extrapolated forward from
+          // the real installedPiles count. Returns null when there's not yet
+          // enough data (no installs logged, or no startDate) to say anything
+          // meaningful, so callers can show an honest "not available" instead
+          // of a fake number.
+          function estimateDaysRemaining(project) {
+            if (!project || !project.totalPiles) return null;
+            const remaining = project.totalPiles - (project.installedPiles || 0);
+            if (remaining <= 0) return 0;
+            if (!project.installedPiles || !project.startDate) return null;
+            const daysElapsed = Math.max(1, Math.ceil((Date.now() - new Date(project.startDate).getTime()) / 86400000));
+            const avgRate = project.installedPiles / daysElapsed;
+            if (!avgRate || !isFinite(avgRate)) return null;
+            return Math.ceil(remaining / avgRate);
+          }
+          function daysElapsedSince(dateStr) {
+            if (!dateStr) return null;
+            return Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000));
+          }
           function getInspectionStatus(pileId) {
             const inspection = state.inspections.find(i => i.pileId === pileId);
             if (inspection) return inspection.status;
@@ -346,6 +366,12 @@ export default async function SolTrendApp() {
             const project = state.currentProject; if(!project) return '';
             const completionPct = Math.round((project.installedPiles / project.totalPiles) * 100);
             const passRate = project.passedInspections > 0 ? Math.round((project.passedInspections / (project.passedInspections + project.failedInspections)) * 100) : 0;
+            // Was a hardcoded "45 days remaining" regardless of actual
+            // progress - now derived from the real installedPiles count and
+            // the project's actual startDate (avg piles/day so far,
+            // extrapolated forward). Shows "—" rather than a fake number
+            // when there's not yet enough data (no installs logged yet).
+            const daysRemainingEst = estimateDaysRemaining(project);
             // Was a hardcoded "28" - now the real total logged for today
             // via Production Entry (0 if nothing's been logged yet today).
             const todayStr = new Date().toISOString().split('T')[0];
@@ -356,7 +382,7 @@ export default async function SolTrendApp() {
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-start justify-between mb-4"><div><div class="flex items-center gap-2"><h1 class="font-display text-2xl font-bold text-white">' + project.name + '</h1><span class="px-2 py-0.5 text-xs font-medium rounded bg-green-500/10 text-green-400">' + project.status + '</span></div><p class="text-slate-400 text-sm">' + project.client + ' · ' + project.location + '</p></div><div class="text-right"><p class="text-xs text-slate-500">Project Manager</p><p class="text-sm text-white font-medium">' + project.projectManager + '</p></div></div>' +
                 '<div class="h-2 bg-slate-700 rounded-full overflow-hidden mt-4"><div class="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full transition-all" style="width: ' + completionPct + '%"></div></div>' +
-                '<div class="flex justify-between mt-1 text-xs"><span class="text-green-400">' + completionPct + '% Complete</span><span class="text-slate-500">45 days remaining</span></div>' +
+                '<div class="flex justify-between mt-1 text-xs"><span class="text-green-400">' + completionPct + '% Complete</span><span class="text-slate-500">' + (daysRemainingEst === null ? 'Not enough data yet' : daysRemainingEst === 0 ? 'Complete' : daysRemainingEst + ' days remaining (est.)') + '</span></div>' +
               '</div>' +
               '<div class="grid lg:grid-cols-3 gap-4">' +
                 '<div class="lg:col-span-2 card rounded-xl p-5">' +
@@ -481,13 +507,19 @@ export default async function SolTrendApp() {
           }
 
           function renderScheduleAnalytics() {
-            const totalPiles = state.currentProject?.totalPiles || 750;
-            const installed = state.inspections.length;
+            const project = state.currentProject;
+            const totalPiles = project?.totalPiles || 750;
+            // Was state.inspections.length (QC inspections, not installs) -
+            // the project's real installedPiles count, kept in sync with
+            // Production Entry, is what "progress" actually means here.
+            const installed = project?.installedPiles || 0;
             const progress = Math.round((installed / totalPiles) * 100);
-            const daysElapsed = 30;
-            const daysRemaining = Math.ceil((totalPiles - installed) / 35);
-            const expectedEnd = new Date(Date.now() + daysRemaining * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            
+            const daysElapsed = daysElapsedSince(project?.startDate);
+            const daysRemaining = estimateDaysRemaining(project);
+            const expectedEnd = (daysRemaining !== null && daysRemaining > 0)
+              ? new Date(Date.now() + daysRemaining * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              : null;
+
             return '<div class="space-y-6 stagger-children">' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">S-Curve Progress</h3>' +
               '<div class="relative h-32 bg-slate-800 rounded-lg overflow-hidden">' +
@@ -500,14 +532,16 @@ export default async function SolTrendApp() {
               '<div class="absolute top-2 left-1/2 -translate-x-1/2 bg-amber-500 px-2 py-0.5 rounded text-xs text-black font-medium">' + progress + '%</div>' +
               '</div></div>' +
               '<div class="grid grid-cols-2 gap-4">' +
-              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Days Elapsed</p><p class="font-display text-2xl font-bold text-white">' + daysElapsed + '</p></div>' +
-              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Days Remaining</p><p class="font-display text-2xl font-bold text-amber-400">' + daysRemaining + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Days Elapsed</p><p class="font-display text-2xl font-bold text-white">' + (daysElapsed === null ? '—' : daysElapsed) + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Days Remaining</p><p class="font-display text-2xl font-bold text-amber-400">' + (daysRemaining === null ? '—' : daysRemaining) + '</p></div>' +
               '</div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Key Milestones</h3><div class="space-y-3">' +
-              '<div class="flex items-center gap-3"><div class="w-3 h-3 rounded-full bg-green-500"></div><div class="flex-1"><p class="text-sm text-white">25% Complete</p><p class="text-xs text-slate-500">Achieved</p></div></div>' +
-              '<div class="flex items-center gap-3"><div class="w-3 h-3 rounded-full ' + (progress >= 50 ? 'bg-green-500' : 'bg-slate-600') + '"></div><div class="flex-1"><p class="text-sm text-white">50% Complete</p><p class="text-xs text-slate-500">' + (progress >= 50 ? 'Achieved' : 'Pending') + '</p></div></div>' +
-              '<div class="flex items-center gap-3"><div class="w-3 h-3 rounded-full bg-slate-600"></div><div class="flex-1"><p class="text-sm text-white">75% Complete</p><p class="text-xs text-slate-500">Pending</p></div></div>' +
-              '<div class="flex items-center gap-3"><div class="w-3 h-3 rounded-full bg-slate-600"></div><div class="flex-1"><p class="text-sm text-white">Final Completion</p><p class="text-xs text-slate-500">Est. ' + expectedEnd + '</p></div></div>' +
+              [25, 50, 75, 100].map(function(pct) {
+                const achieved = progress >= pct;
+                const label = pct === 100 ? 'Final Completion' : pct + '% Complete';
+                const status = achieved ? 'Achieved' : (pct === 100 && expectedEnd ? 'Est. ' + expectedEnd : 'Pending');
+                return '<div class="flex items-center gap-3"><div class="w-3 h-3 rounded-full ' + (achieved ? 'bg-green-500' : 'bg-slate-600') + '"></div><div class="flex-1"><p class="text-sm text-white">' + label + '</p><p class="text-xs text-slate-500">' + status + '</p></div></div>';
+              }).join('') +
               '</div></div>' +
             '</div>';
           }
