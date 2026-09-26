@@ -138,6 +138,7 @@ export default async function SolTrendApp() {
             inspectionPhotos: [], lastInspection: null,
             inspectionFailReason: null,
             inspectionDepth: '', inspectionPlumbNS: '', inspectionPlumbEW: '',
+            predictiveWeather: null,
             session: { passed: 0, failed: 0 },
             refusalRow: 35, refusalPile: 22,
             targetDepth: 1800, achievedDepth: null, refusalReason: null, refusalPhotos: [],
@@ -171,19 +172,52 @@ export default async function SolTrendApp() {
           // enough data (no installs logged, or no startDate) to say anything
           // meaningful, so callers can show an honest "not available" instead
           // of a fake number.
+          // Shared with the AI Predictions tab, which needs the raw rate
+          // (not just a day count) to show "X piles/day" and compare it
+          // against the project's target.
+          function avgInstallRate(project) {
+            if (!project || !project.installedPiles || !project.startDate) return null;
+            const daysElapsed = Math.max(1, Math.ceil((Date.now() - new Date(project.startDate).getTime()) / 86400000));
+            const rate = project.installedPiles / daysElapsed;
+            return (isFinite(rate) && rate > 0) ? rate : null;
+          }
           function estimateDaysRemaining(project) {
             if (!project || !project.totalPiles) return null;
             const remaining = project.totalPiles - (project.installedPiles || 0);
             if (remaining <= 0) return 0;
-            if (!project.installedPiles || !project.startDate) return null;
-            const daysElapsed = Math.max(1, Math.ceil((Date.now() - new Date(project.startDate).getTime()) / 86400000));
-            const avgRate = project.installedPiles / daysElapsed;
-            if (!avgRate || !isFinite(avgRate)) return null;
+            const avgRate = avgInstallRate(project);
+            if (!avgRate) return null;
             return Math.ceil(remaining / avgRate);
           }
           function daysElapsedSince(dateStr) {
             if (!dateStr) return null;
             return Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000));
+          }
+          // Day of Week Analysis (Analytics > Production) - was two fully
+          // hardcoded arrays (85/92/88/95/82/45/30% and similar) regardless
+          // of any real data. Both now computed from real records; a
+          // weekday with nothing logged yet shows null rather than a fake
+          // value. getDay(): 0=Sun..6=Sat.
+          const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          const DOW_DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon..Sun
+          function dayOfWeekPassRates() {
+            const buckets = [0, 1, 2, 3, 4, 5, 6].map(function() { return { pass: 0, fail: 0 }; });
+            state.inspections.forEach(function(i) {
+              if (i.status !== 'pass' && i.status !== 'fail') return;
+              const dow = new Date(i.timestamp).getDay();
+              buckets[dow][i.status]++;
+            });
+            return buckets.map(function(b) { const total = b.pass + b.fail; return total > 0 ? Math.round((b.pass / total) * 100) : null; });
+          }
+          function dayOfWeekAvgProduction() {
+            const buckets = [0, 1, 2, 3, 4, 5, 6].map(function() { return { sum: 0, count: 0 }; });
+            state.production.forEach(function(p) {
+              const parts = p.date.split('-').map(Number);
+              const dow = new Date(parts[0], parts[1] - 1, parts[2]).getDay();
+              buckets[dow].sum += p.piles;
+              buckets[dow].count++;
+            });
+            return buckets.map(function(b) { return b.count > 0 ? Math.round(b.sum / b.count) : null; });
           }
           function getInspectionStatus(pileId) {
             const inspection = state.inspections.find(i => i.pileId === pileId);
@@ -377,7 +411,12 @@ export default async function SolTrendApp() {
             const todayStr = new Date().toISOString().split('T')[0];
             const todayActual = state.production.find(p => p.date === todayStr)?.piles || 0;
             const todayTarget = project.dailyTarget || 35;
-            const openIssues = project.failedInspections + project.refusals;
+            // Was project.refusals - the real field the API returns is
+            // refusalCount (state.refusals is a separate local array of
+            // refusal records). The typo made this NaN on every real
+            // project, which then propagated into the Needs Attention badge
+            // below since it reuses this same value.
+            const openIssues = project.failedInspections + (project.refusalCount || 0);
             return '<div class="space-y-6 stagger-children">' +
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-start justify-between mb-4"><div><div class="flex items-center gap-2"><h1 class="font-display text-2xl font-bold text-white">' + project.name + '</h1><span class="px-2 py-0.5 text-xs font-medium rounded bg-green-500/10 text-green-400">' + project.status + '</span></div><p class="text-slate-400 text-sm">' + project.client + ' · ' + project.location + '</p></div><div class="text-right"><p class="text-xs text-slate-500">Project Manager</p><p class="text-sm text-white font-medium">' + project.projectManager + '</p></div></div>' +
@@ -438,24 +477,49 @@ export default async function SolTrendApp() {
           }
 
           function renderProductionAnalytics() {
-            const avgDaily = Math.round(state.production.slice(-14).reduce((s, p) => s + p.piles, 0) / 14);
+            const last14 = state.production.slice(-14);
+            // Was dividing by a fixed 14 regardless of how many days
+            // actually have entries - diluted the average for a project
+            // that hasn't been logging long. Divide by the real count.
+            const avgDaily = last14.length > 0 ? Math.round(last14.reduce((s, p) => s + p.piles, 0) / last14.length) : 0;
             const actualWeek = state.production.slice(-7).reduce((s, p) => s + p.piles, 0);
             const prevWeek = state.production.slice(-14, -7).reduce((s, p) => s + p.piles, 0);
-            const bestDay = Math.max(...state.production.slice(-14).map(p => p.piles));
-            const worstDay = Math.min(...state.production.slice(-14).map(p => p.piles));
+            // Math.max(...[]) / Math.min(...[]) are -Infinity/Infinity with
+            // no production logged yet - show "—" instead of a fake extreme.
+            const bestDay = last14.length > 0 ? Math.max(...last14.map(p => p.piles)) : null;
+            const worstDay = last14.length > 0 ? Math.min(...last14.map(p => p.piles)) : null;
             const trendPercent = prevWeek > 0 ? Math.round(((actualWeek - prevWeek) / prevWeek) * 100) : 0;
             
             return '<div class="space-y-6 stagger-children">' +
               '<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">' +
                 '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Avg Daily</p><p class="font-display text-2xl font-bold text-white">' + avgDaily + '</p><p class="text-xs ' + (trendPercent >= 0 ? 'text-green-400' : 'text-red-400') + '">' + (trendPercent >= 0 ? '+' : '') + trendPercent + '% vs last week</p></div>' +
                 '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Weekly Total</p><p class="font-display text-2xl font-bold text-white">' + actualWeek + '</p><p class="text-xs text-slate-400">this week</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Best Day</p><p class="font-display text-2xl font-bold text-green-400">' + bestDay + '</p><p class="text-xs text-slate-400">piles</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Low Day</p><p class="font-display text-2xl font-bold text-red-400">' + worstDay + '</p><p class="text-xs text-slate-400">piles</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Best Day</p><p class="font-display text-2xl font-bold text-green-400">' + (bestDay === null ? '—' : bestDay) + '</p><p class="text-xs text-slate-400">piles</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Low Day</p><p class="font-display text-2xl font-bold text-red-400">' + (worstDay === null ? '—' : worstDay) + '</p><p class="text-xs text-slate-400">piles</p></div>' +
               '</div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-4">14-Day Production Trend</h3><div class="h-48 flex items-end gap-1">' + state.production.slice(-14).map(p => { const h = Math.max(10, (p.piles / 60) * 100); return '<div class="flex-1 relative group"><div class="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-700 px-1.5 py-0.5 rounded text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">' + p.piles + '</div><div class="chart-bar w-full bg-amber-500 rounded-t" style="height: ' + h + '%"></div></div>'; }).join('') + '</div><div class="flex justify-between mt-2 text-xs text-slate-500"><span>14 days ago</span><span>Today</span></div></div>' +
               '<div class="grid lg:grid-cols-2 gap-4">' +
                 '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Crew Performance</h3><div class="space-y-3">' + state.crews.map((c, i) => { const crewPiles = 38 + Math.floor(Math.random() * 12); return '<div><div class="flex justify-between text-sm mb-1"><span class="text-slate-300">' + c.name + '</span><span class="text-white font-medium">' + crewPiles + ' piles/day</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full" style="width: ' + (70 + i * 8) + '%"></div></div></div>'; }).join('') + '</div></div>' +
-                '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Day of Week Analysis</h3><div class="space-y-2">' + ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d, i) => { const pct = [85, 92, 88, 95, 82, 45, 30][i]; return '<div class="flex items-center gap-2"><span class="w-8 text-xs text-slate-500">' + d + '</span><div class="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full ' + (pct > 80 ? 'bg-green-500' : pct > 50 ? 'bg-amber-500' : 'bg-slate-500') + ' rounded-full" style="width: ' + pct + '%"></div></div><span class="text-xs text-slate-400 w-8">' + pct + '%</span></div>'; }).join('') + '</div></div>' +
+                (function() {
+                  const passRates = dayOfWeekPassRates();
+                  const avgProd = dayOfWeekAvgProduction();
+                  const maxAvg = Math.max(1, ...avgProd.filter(function(v) { return v !== null; }));
+                  return '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Day of Week Analysis</h3>' +
+                    '<p class="text-xs text-slate-500 mb-2">Pass Rate</p><div class="space-y-2 mb-4">' +
+                    DOW_DISPLAY_ORDER.map(function(dow) {
+                      const pct = passRates[dow];
+                      const barColor = pct === null ? 'bg-slate-700' : pct > 80 ? 'bg-green-500' : pct > 50 ? 'bg-amber-500' : 'bg-slate-500';
+                      return '<div class="flex items-center gap-2"><span class="w-8 text-xs text-slate-500">' + DOW_LABELS[dow] + '</span><div class="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full ' + barColor + ' rounded-full" style="width: ' + (pct || 0) + '%"></div></div><span class="text-xs text-slate-400 w-8">' + (pct === null ? '—' : pct + '%') + '</span></div>';
+                    }).join('') +
+                    '</div>' +
+                    '<p class="text-xs text-slate-500 mb-2">Avg Piles Installed</p><div class="space-y-2">' +
+                    DOW_DISPLAY_ORDER.map(function(dow) {
+                      const avg = avgProd[dow];
+                      const pctWidth = avg === null ? 0 : Math.round((avg / maxAvg) * 100);
+                      return '<div class="flex items-center gap-2"><span class="w-8 text-xs text-slate-500">' + DOW_LABELS[dow] + '</span><div class="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-indigo-500 rounded-full" style="width: ' + pctWidth + '%"></div></div><span class="text-xs text-slate-400 w-10">' + (avg === null ? '—' : avg) + '</span></div>';
+                    }).join('') +
+                    '</div></div>';
+                })() +
               '</div>' +
             '</div>';
           }
@@ -550,31 +614,71 @@ export default async function SolTrendApp() {
             return '<div class="space-y-6 stagger-children">' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Daily Inspections This Week</h3><div class="h-32 flex items-end gap-2">' + [45, 52, 38, 55, 48, 62, 41].map((v, i) => '<div class="flex-1 flex flex-col items-center"><div class="chart-bar w-full bg-indigo-500 rounded-t" style="height: ' + v + '%"></div><span class="text-[10px] text-slate-500 mt-1">' + ['M','T','W','T','F','S','S'][i] + '</span></div>').join('') + '</div></div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Top Performers</h3><div class="space-y-2">' + state.crews.slice(0, 3).map((c, i) => '<div class="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg"><div class="w-8 h-8 rounded-full flex items-center justify-center ' + (i === 0 ? 'bg-amber-500 text-black' : i === 1 ? 'bg-gray-400 text-black' : 'bg-amber-700 text-white') + ' font-bold">' + (i + 1) + '</div><div class="flex-1"><p class="text-sm text-white">' + c.lead + '</p><p class="text-xs text-slate-500">' + c.name + '</p></div><div class="text-right"><p class="text-lg font-bold text-white">' + (85 - i * 5) + '</p><p class="text-xs text-slate-500">inspections</p></div></div>').join('') + '</div></div>' +
-              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Device Usage</h3><div class="grid grid-cols-2 gap-4">' +
-              '<div class="text-center p-3 bg-slate-800/50 rounded-lg"><p class="text-2xl font-bold text-white">87%</p><p class="text-xs text-slate-500">Mobile</p></div>' +
-              '<div class="text-center p-3 bg-slate-800/50 rounded-lg"><p class="text-2xl font-bold text-white">13%</p><p class="text-xs text-slate-500">Tablet</p></div>' +
-              '</div></div>' +
             '</div>';
           }
 
           function renderPredictiveAnalytics() {
-            const currentRate = 42;
-            const projectedCompletion = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const project = state.currentProject;
+            const rate = avgInstallRate(project);
+            const daysRemaining = estimateDaysRemaining(project);
+            const projectedCompletion = (daysRemaining !== null && daysRemaining > 0)
+              ? new Date(Date.now() + daysRemaining * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : null;
+            const targetRate = project?.dailyTarget || 35;
+
+            // Rule-based checks against real data instead of hardcoded
+            // "On Track"/"Weather Alert" cards and invented recommendations
+            // (the old copy referenced a "Zone C" that doesn't exist
+            // anywhere else in this app).
+            const risks = [];
+            if (rate === null) {
+              risks.push({ level: 'slate', title: 'Not Enough Data', detail: 'Log a few days of production to get a real pace estimate.' });
+            } else if (rate < targetRate * 0.85) {
+              risks.push({ level: 'amber', title: 'Behind Target Pace', detail: 'Averaging ' + rate.toFixed(1) + ' piles/day vs a ' + targetRate + '/day target.' });
+            } else {
+              risks.push({ level: 'green', title: 'On Track', detail: 'Averaging ' + rate.toFixed(1) + ' piles/day against a ' + targetRate + '/day target.' });
+            }
+            const totalInsp = (project?.passedInspections || 0) + (project?.failedInspections || 0);
+            const failRate = totalInsp > 0 ? Math.round(((project.failedInspections || 0) / totalInsp) * 100) : null;
+            if (failRate !== null && failRate > 15) {
+              risks.push({ level: 'amber', title: 'Elevated Fail Rate', detail: failRate + '% of inspections are failing on this project - worth a closer look.' });
+            }
+            if (state.predictiveWeather === null) {
+              risks.push({ level: 'slate', title: 'Loading Forecast…', detail: '' });
+            } else if (state.predictiveWeather && state.predictiveWeather.daily) {
+              const probs = state.predictiveWeather.daily.precipitation_probability_max || [];
+              const dates = state.predictiveWeather.daily.time || [];
+              const badIdx = probs.findIndex(function(p) { return p >= 60; });
+              if (badIdx >= 0 && dates[badIdx]) {
+                const d = new Date(dates[badIdx] + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' });
+                risks.push({ level: 'amber', title: 'Weather Risk', detail: probs[badIdx] + '% chance of rain ' + d + ' - potential install delay.' });
+              }
+            }
+            const dotColor = { green: 'bg-green-500', amber: 'bg-amber-500', slate: 'bg-slate-500' };
+            const cardBg = { green: 'bg-green-500/10 border-green-500/20', amber: 'bg-amber-500/10 border-amber-500/20', slate: 'bg-slate-500/10 border-slate-500/20' };
+
             return '<div class="space-y-6 stagger-children">' +
-              '<div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-5 text-white"><div class="flex items-center gap-2 mb-2">' + icon('brain', 'w-5 h-5') + '<h3 class="font-semibold">AI Predictions</h3></div><p class="text-sm text-indigo-200 mb-3">Based on current performance trends</p>' +
-              '<div class="bg-white/10 rounded-xl p-4"><p class="text-xs text-indigo-200">Estimated Completion</p><p class="text-2xl font-bold">' + projectedCompletion + '</p><p class="text-xs text-indigo-200 mt-1">45 working days remaining</p></div></div>' +
+              '<div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-5 text-white"><div class="flex items-center gap-2 mb-2">' + icon('brain', 'w-5 h-5') + '<h3 class="font-semibold">Schedule Projection</h3></div><p class="text-sm text-indigo-200 mb-3">Based on actual production logged so far</p>' +
+              '<div class="bg-white/10 rounded-xl p-4"><p class="text-xs text-indigo-200">Estimated Completion</p><p class="text-2xl font-bold">' + (projectedCompletion || 'Not enough data yet') + '</p><p class="text-xs text-indigo-200 mt-1">' + (daysRemaining === null ? 'Log production entries to get an estimate' : daysRemaining === 0 ? 'Complete' : daysRemaining + ' working days remaining (est.)') + '</p></div></div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Risk Assessment</h3><div class="space-y-3">' +
-              '<div class="flex items-center gap-3 p-3 bg-green-500/10 border border-green-500/20 rounded-lg"><div class="w-2 h-2 rounded-full bg-green-500"></div><div class="flex-1"><p class="text-sm text-white">On Track</p><p class="text-xs text-slate-500">Project proceeding as planned</p></div></div>' +
-              '<div class="flex items-center gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg"><div class="w-2 h-2 rounded-full bg-amber-500"></div><div class="flex-1"><p class="text-sm text-white">Weather Alert</p><p class="text-xs text-slate-500">Potential delays next week</p></div></div>' +
-              '</div></div>' +
-              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Recommendations</h3><div class="space-y-2">' +
-              '<div class="flex items-start gap-2 p-3 bg-slate-800/50 rounded-lg">' + icon('check-circle', 'w-4 h-4 text-green-500 mt-0.5') + '<p class="text-sm text-slate-300">Increase daily inspection rate by 10% to stay ahead of schedule</p></div>' +
-              '<div class="flex items-start gap-2 p-3 bg-slate-800/50 rounded-lg">' + icon('alert-circle', 'w-4 h-4 text-amber-500 mt-0.5') + '<p class="text-sm text-slate-300">Monitor refusal rate in Zone C - higher than average</p></div>' +
+              risks.map(function(r) {
+                return '<div class="flex items-center gap-3 p-3 ' + (cardBg[r.level] || cardBg.slate) + ' border rounded-lg"><div class="w-2 h-2 rounded-full ' + (dotColor[r.level] || dotColor.slate) + '"></div><div class="flex-1"><p class="text-sm text-white">' + r.title + '</p><p class="text-xs text-slate-500">' + r.detail + '</p></div></div>';
+              }).join('') +
               '</div></div>' +
             '</div>';
           }
 
-          function setAnalyticsTab(tab) { state.analyticsTab = tab; render(); }
+          function setAnalyticsTab(tab) {
+            state.analyticsTab = tab;
+            render();
+            // AI Predictions' weather risk needs a real forecast - fetch it
+            // once when the tab is first opened (fetchWeatherData has its
+            // own 30-minute cache) and re-render when it lands, rather than
+            // blocking the tab switch on a network round trip.
+            if (tab === 'predictive' && state.predictiveWeather === null) {
+              fetchWeatherData().then(function(w) { state.predictiveWeather = w || false; render(); });
+            }
+          }
 
           // REPORTS - FULL IMPLEMENTATION WITH WORKING PDF GENERATION
           function renderReports() {
