@@ -219,6 +219,24 @@ export default async function SolTrendApp() {
             });
             return buckets.map(function(b) { return b.count > 0 ? Math.round(b.sum / b.count) : null; });
           }
+          // Field Ops "Daily Inspections This Week" - was a hardcoded
+          // [45,52,38,55,48,62,41]. Real counts for the current calendar
+          // week (Mon-Sun), so days later in the week that haven't happened
+          // yet just show 0 rather than a fake number.
+          function inspectionsThisWeek() {
+            const now = new Date();
+            const dow = now.getDay();
+            const mondayOffset = dow === 0 ? -6 : 1 - dow;
+            const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset);
+            const counts = [0, 0, 0, 0, 0, 0, 0]; // Mon..Sun
+            state.inspections.forEach(function(i) {
+              const d = new Date(i.timestamp);
+              const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+              const diffDays = Math.round((dayStart.getTime() - monday.getTime()) / 86400000);
+              if (diffDays >= 0 && diffDays < 7) counts[diffDays]++;
+            });
+            return counts;
+          }
           function getInspectionStatus(pileId) {
             const inspection = state.inspections.find(i => i.pileId === pileId);
             if (inspection) return inspection.status;
@@ -611,8 +629,10 @@ export default async function SolTrendApp() {
           }
 
           function renderFieldOpsAnalytics() {
+            const weekCounts = inspectionsThisWeek();
+            const maxCount = Math.max(1, ...weekCounts);
             return '<div class="space-y-6 stagger-children">' +
-              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Daily Inspections This Week</h3><div class="h-32 flex items-end gap-2">' + [45, 52, 38, 55, 48, 62, 41].map((v, i) => '<div class="flex-1 flex flex-col items-center"><div class="chart-bar w-full bg-indigo-500 rounded-t" style="height: ' + v + '%"></div><span class="text-[10px] text-slate-500 mt-1">' + ['M','T','W','T','F','S','S'][i] + '</span></div>').join('') + '</div></div>' +
+              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Daily Inspections This Week</h3><div class="h-32 flex items-end gap-2">' + weekCounts.map((v, i) => { const h = v > 0 ? Math.max(8, Math.round((v / maxCount) * 100)) : 2; return '<div class="flex-1 flex flex-col items-center"><div class="chart-bar w-full bg-indigo-500 rounded-t" style="height: ' + h + '%"></div><span class="text-[10px] text-slate-500 mt-1">' + ['M','T','W','T','F','S','S'][i] + '</span></div>'; }).join('') + '</div></div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Top Performers</h3><div class="space-y-2">' + state.crews.slice(0, 3).map((c, i) => '<div class="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg"><div class="w-8 h-8 rounded-full flex items-center justify-center ' + (i === 0 ? 'bg-amber-500 text-black' : i === 1 ? 'bg-gray-400 text-black' : 'bg-amber-700 text-white') + ' font-bold">' + (i + 1) + '</div><div class="flex-1"><p class="text-sm text-white">' + c.lead + '</p><p class="text-xs text-slate-500">' + c.name + '</p></div><div class="text-right"><p class="text-lg font-bold text-white">' + (85 - i * 5) + '</p><p class="text-xs text-slate-500">inspections</p></div></div>').join('') + '</div></div>' +
             '</div>';
           }
