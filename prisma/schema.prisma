@@ -59,12 +59,20 @@ model Project {
   pilesPerRow       Int      @default(30)
   totalPiles        Int      @default(1500)
   pileNamingPrefix  String?  // e.g., "P", "Pile"
-  
+
+  // Planned totals for the other materials tracked via Production Entry.
+  // Unlike totalPiles (derived from totalRows x pilesPerRow), these are
+  // typed directly in Settings since there's no grid to derive them from.
+  totalTables       Int      @default(0)
+  totalModules      Int      @default(0)
+
   // Racking
   rackingProfileId  String?
-  
+
   // Stats (computed or cached)
   installedPiles     Int      @default(0)
+  tablesInstalled    Int      @default(0)
+  modulesInstalled   Int      @default(0)
   passedInspections  Int      @default(0)
   failedInspections  Int      @default(0)
   refusalCount       Int      @default(0)
@@ -179,9 +187,11 @@ model Refusal {
 
 // ProductionEntry - Daily production logs
 model ProductionEntry {
-  id             String   @id @default(cuid())
-  date           DateTime
-  pilesInstalled Int      @default(0)
+  id                String   @id @default(cuid())
+  date              DateTime
+  pilesInstalled    Int      @default(0)
+  tablesInstalled   Int      @default(0)
+  modulesInstalled  Int      @default(0)
   notes          String?
   photos         String?  // JSON string
   

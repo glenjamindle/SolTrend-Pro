@@ -380,9 +380,21 @@ export default async function SolTrendApp() {
             const activeProjects = state.projects.filter(p => p.status === 'active');
             const totalPiles = state.projects.reduce((sum, p) => sum + p.totalPiles, 0);
             const installedPiles = state.projects.reduce((sum, p) => sum + p.installedPiles, 0);
+            // Tables/Modules mirror the Piles rollup - cached totals on each
+            // project, kept in sync by /api/production's delta update.
+            const totalTables = state.projects.reduce((sum, p) => sum + (p.totalTables || 0), 0);
+            const tablesInstalled = state.projects.reduce((sum, p) => sum + (p.tablesInstalled || 0), 0);
+            const totalModules = state.projects.reduce((sum, p) => sum + (p.totalModules || 0), 0);
+            const modulesInstalled = state.projects.reduce((sum, p) => sum + (p.modulesInstalled || 0), 0);
+            const tablesPct = totalTables > 0 ? Math.round((tablesInstalled / totalTables) * 100) : 0;
+            const modulesPct = totalModules > 0 ? Math.round((modulesInstalled / totalModules) * 100) : 0;
+            const pilesPct = totalPiles > 0 ? Math.round((installedPiles / totalPiles) * 100) : 0;
             const todayStr = new Date().toISOString().split('T')[0];
             const todayProd = state.production.find(p => p.date === todayStr);
-            const weekProd = state.production.slice(-7).reduce((s, p) => s + p.piles, 0);
+            const weekProdEntries = state.production.slice(-7);
+            const monthProdEntries = state.production.slice(-30);
+            const weekProd = weekProdEntries.reduce((s, p) => s + p.piles, 0);
+            const monthProd = monthProdEntries.reduce((s, p) => s + p.piles, 0);
             // Was a hardcoded "94.2%" / "+2.1% from last month" literal -
             // now computed from the real pass/fail counts across projects.
             const totalPassed = state.projects.reduce((sum, p) => sum + (p.passedInspections || 0), 0);
@@ -392,14 +404,23 @@ export default async function SolTrendApp() {
               '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">' + state.company.name + '</h1><p class="text-slate-400 text-sm">' + activeProjects.length + ' active projects · ' + state.users.length + ' team members</p></div></div>' +
               '<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">' +
                 '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Total Piles</span>' + icon('database', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-white">' + formatNumber(installedPiles) + '</p><p class="text-xs text-slate-500 mt-1">of ' + formatNumber(totalPiles) + ' planned</p></div>' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Pass Rate</span>' + icon('check-circle', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-blue-400">' + companyPassRate + '%</p><p class="text-xs text-slate-500 mt-1">' + formatNumber(totalPassed + totalFailed) + ' inspections total</p></div>' +
+                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Pass Rate</span>' + icon('check-circle', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-blue-400">' + companyPassRate + '%</p><p class="text-xs text-slate-500 mt-1"><span class="text-green-400 font-medium">' + formatNumber(totalPassed) + ' passed</span> · <span class="text-red-400 font-medium">' + formatNumber(totalFailed) + ' failed</span></p></div>' +
                 '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Refusals</span>' + icon('alert-triangle', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-orange-400">' + state.refusals.length + '</p><p class="text-xs text-slate-500 mt-1">total logged</p></div>' +
                 '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Active Crews</span>' + icon('users', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-green-400">' + state.crews.length + '</p><p class="text-xs text-slate-500 mt-1">' + (state.crews.length * 8) + ' workers</p></div>' +
               '</div>' +
+              '<div class="card rounded-xl p-5">' +
+                '<h3 class="font-display font-semibold text-white mb-4">Materials Progress</h3>' +
+                '<div class="space-y-4">' +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(installedPiles) + ' / ' + formatNumber(totalPiles) + ' <span class="text-slate-500 font-normal">· ' + pilesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + pilesPct + '%"></div></div></div>' +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(tablesInstalled) + ' / ' + formatNumber(totalTables) + ' <span class="text-slate-500 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(modulesInstalled) + ' / ' + formatNumber(totalModules) + ' <span class="text-slate-500 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
+                (totalTables === 0 && totalModules === 0 ? '<p class="text-xs text-slate-500 pt-1">Set planned Tables/Modules totals per project in Settings to see progress here.</p>' : '') +
+                '</div>' +
+              '</div>' +
               '<div class="grid grid-cols-3 gap-4">' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">Today</p><p class="font-display text-2xl font-bold text-white">' + (todayProd?.piles || 0) + '</p><p class="text-xs text-slate-400">piles installed</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">This Week</p><p class="font-display text-2xl font-bold text-white">' + weekProd + '</p><p class="text-xs text-slate-400">piles installed</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">This Month</p><p class="font-display text-2xl font-bold text-white">' + state.production.slice(-30).reduce((s, p) => s + p.piles, 0) + '</p><p class="text-xs text-slate-400">piles installed</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">Today</p><p class="font-display text-2xl font-bold text-white">' + (todayProd?.piles || 0) + ' <span class="text-sm font-normal text-slate-500">piles</span></p><p class="text-xs text-slate-400 mt-1">' + (todayProd?.tables || 0) + ' tables · ' + (todayProd?.modules || 0) + ' modules</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">This Week</p><p class="font-display text-2xl font-bold text-white">' + weekProd + ' <span class="text-sm font-normal text-slate-500">piles</span></p><p class="text-xs text-slate-400 mt-1">' + weekProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + weekProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">This Month</p><p class="font-display text-2xl font-bold text-white">' + monthProd + ' <span class="text-sm font-normal text-slate-500">piles</span></p><p class="text-xs text-slate-400 mt-1">' + monthProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + monthProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
               '</div>' +
               '<div><h2 class="font-display font-semibold text-white mb-4">Active Projects</h2><div class="grid md:grid-cols-2 gap-4">' + state.projects.filter(p => p.status !== 'archived').map(project => {
                 const completionPct = Math.round((project.installedPiles / project.totalPiles) * 100);
@@ -435,6 +456,10 @@ export default async function SolTrendApp() {
             // project, which then propagated into the Needs Attention badge
             // below since it reuses this same value.
             const openIssues = project.failedInspections + (project.refusalCount || 0);
+            // Tables/Modules progress for this one project - same shape as
+            // the Company Dashboard rollup, just not summed across projects.
+            const tablesPct = project.totalTables > 0 ? Math.round(((project.tablesInstalled || 0) / project.totalTables) * 100) : 0;
+            const modulesPct = project.totalModules > 0 ? Math.round(((project.modulesInstalled || 0) / project.totalModules) * 100) : 0;
             return '<div class="space-y-6 stagger-children">' +
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-start justify-between mb-4"><div><div class="flex items-center gap-2"><h1 class="font-display text-2xl font-bold text-white">' + project.name + '</h1><span class="px-2 py-0.5 text-xs font-medium rounded bg-green-500/10 text-green-400">' + project.status + '</span></div><p class="text-slate-400 text-sm">' + project.client + ' · ' + project.location + '</p></div><div class="text-right"><p class="text-xs text-slate-500">Project Manager</p><p class="text-sm text-white font-medium">' + project.projectManager + '</p></div></div>' +
@@ -457,9 +482,17 @@ export default async function SolTrendApp() {
                   '<button onclick="navigateTo(\\'heatmap\\')" class="w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('map', 'w-5 h-5') + ' View Map</button>' +
                 '</div>' +
               '</div>' +
+              '<div class="card rounded-xl p-5">' +
+                '<h3 class="font-display font-semibold text-white mb-3">Materials Progress</h3>' +
+                '<div class="space-y-4">' +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(project.tablesInstalled || 0) + ' / ' + formatNumber(project.totalTables || 0) + ' <span class="text-slate-500 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(project.modulesInstalled || 0) + ' / ' + formatNumber(project.totalModules || 0) + ' <span class="text-slate-500 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
+                (!project.totalTables && !project.totalModules ? '<p class="text-xs text-slate-500 pt-1">Set planned Tables/Modules totals for this project in Settings to see progress here.</p>' : '') +
+                '</div>' +
+              '</div>' +
               '<div class="grid lg:grid-cols-3 gap-4">' +
                 '<div class="space-y-3">' +
-                  '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-500">Pass Rate</p><p class="font-display text-xl font-bold text-white">' + passRate + '%</p></div><div class="w-12 h-12 rounded-full border-4 border-green-500 flex items-center justify-center text-green-400 font-bold">' + passRate + '</div></div>' +
+                  '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-500">Pass Rate</p><p class="font-display text-xl font-bold text-white">' + passRate + '%</p><p class="text-[11px] text-slate-500 mt-0.5"><span class="text-green-400">' + (project.passedInspections || 0) + ' pass</span> · <span class="text-red-400">' + (project.failedInspections || 0) + ' fail</span></p></div><div class="w-12 h-12 rounded-full border-4 border-green-500 flex items-center justify-center text-green-400 font-bold">' + passRate + '</div></div>' +
                   '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-500">Open Issues</p><p class="font-display text-xl font-bold text-white">' + openIssues + '</p></div><div class="w-12 h-12 rounded-full border-4 border-red-500 flex items-center justify-center text-red-400 font-bold">' + openIssues + '</div></div>' +
                   '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 mb-2">Active Profile</p><p class="text-sm font-medium text-white">' + (RACKING_MANUFACTURERS.find(m => m.id === project.rackingProfile)?.name || 'N/A') + '</p></div>' +
                 '</div>' +
@@ -1938,18 +1971,17 @@ export default async function SolTrendApp() {
           async function submitProduction() {
             hapticFeedback();
             const pilesInstalled = parseInt(document.getElementById('prodPiles')?.value) || 0;
-            const tables = document.getElementById('prodTables')?.value;
-            const modules = document.getElementById('prodModules')?.value;
+            // Was appended into the Notes text as "N tables, N modules" -
+            // now stored as real numeric fields so the dashboards can chart
+            // them the same way they chart piles.
+            const tablesInstalled = parseInt(document.getElementById('prodTables')?.value) || 0;
+            const modulesInstalled = parseInt(document.getElementById('prodModules')?.value) || 0;
             const crewId = document.getElementById('prodCrew')?.value || null;
             const subcontractorId = document.getElementById('prodSubcontractor')?.value || null;
-            let notes = (document.getElementById('prodNotes')?.value || '').trim();
-            const extras = [];
-            if (tables) extras.push(tables + ' tables');
-            if (modules) extras.push(modules + ' modules');
-            if (extras.length) notes = notes ? (notes + ' | ' + extras.join(', ')) : extras.join(', ');
+            const notes = (document.getElementById('prodNotes')?.value || '').trim();
 
-            if (pilesInstalled <= 0 && !notes) {
-              alert('Enter a pile count or a note before submitting.');
+            if (pilesInstalled <= 0 && tablesInstalled <= 0 && modulesInstalled <= 0 && !notes) {
+              alert('Enter a pile, table or module count, or a note, before submitting.');
               return;
             }
 
@@ -1963,6 +1995,8 @@ export default async function SolTrendApp() {
                 body: JSON.stringify({
                   projectId,
                   pilesInstalled,
+                  tablesInstalled,
+                  modulesInstalled,
                   crewId,
                   subcontractorId,
                   notes: notes || undefined,
@@ -1973,8 +2007,14 @@ export default async function SolTrendApp() {
               const data = await res.json();
               if (state.currentProject && typeof data.installedPiles === 'number') {
                 state.currentProject.installedPiles = data.installedPiles;
+                state.currentProject.tablesInstalled = data.tablesInstalled;
+                state.currentProject.modulesInstalled = data.modulesInstalled;
                 const proj = state.projects.find(p => p.id === projectId);
-                if (proj) proj.installedPiles = data.installedPiles;
+                if (proj) {
+                  proj.installedPiles = data.installedPiles;
+                  proj.tablesInstalled = data.tablesInstalled;
+                  proj.modulesInstalled = data.modulesInstalled;
+                }
               }
               state.productionEntry = { crew: null, subcontractor: null, notes: '', photos: [] };
               await loadProduction();
@@ -2154,6 +2194,12 @@ export default async function SolTrendApp() {
                   '<div><label class="text-xs text-slate-500 mb-2 block">Daily Target</label>' +
                   '<input type="number" id="modalTarget" value="' + (p.dailyTarget || 35) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '</div>' +
+                '<div class="grid grid-cols-2 gap-3">' +
+                  '<div><label class="text-xs text-slate-500 mb-2 block">Planned Tables</label>' +
+                  '<input type="number" id="modalTotalTables" value="' + (p.totalTables || 0) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                  '<div><label class="text-xs text-slate-500 mb-2 block">Planned Modules</label>' +
+                  '<input type="number" id="modalTotalModules" value="' + (p.totalModules || 0) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '</div>' +
                 '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Status</label>' +
                 '<select id="modalStatus" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
                   '<option value="active" ' + (p.status === 'active' ? 'selected' : '') + '>Active</option>' +
@@ -2244,6 +2290,8 @@ export default async function SolTrendApp() {
                 totalRows: parseInt(document.getElementById('modalRows')?.value) || 50,
                 pilesPerRow: parseInt(document.getElementById('modalPilesPerRow')?.value) || 30,
                 dailyTarget: parseInt(document.getElementById('modalTarget')?.value) || 35,
+                totalTables: parseInt(document.getElementById('modalTotalTables')?.value) || 0,
+                totalModules: parseInt(document.getElementById('modalTotalModules')?.value) || 0,
                 status: document.getElementById('modalStatus')?.value || 'active',
               };
               data.totalPiles = data.totalRows * data.pilesPerRow;

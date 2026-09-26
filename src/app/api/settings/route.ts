@@ -163,6 +163,8 @@ export async function POST(request: NextRequest) {
               totalRows: data.totalRows,
               pilesPerRow: data.pilesPerRow,
               totalPiles: data.totalRows * data.pilesPerRow,
+              totalTables: data.totalTables || 0,
+              totalModules: data.totalModules || 0,
               rackingProfileId: data.rackingProfileId,
               status: data.status,
             }
@@ -179,6 +181,8 @@ export async function POST(request: NextRequest) {
               totalRows: data.totalRows || 50,
               pilesPerRow: data.pilesPerRow || 30,
               totalPiles: (data.totalRows || 50) * (data.pilesPerRow || 30),
+              totalTables: data.totalTables || 0,
+              totalModules: data.totalModules || 0,
               rackingProfileId: data.rackingProfileId,
               status: data.status || 'active',
               companyId,
