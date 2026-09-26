@@ -323,7 +323,7 @@ export default async function SolTrendApp() {
                 const pileId = row + '-' + pile;
                 const random = Math.random();
                 if (random < 0.65) state.inspections.push({ pileId, status: 'pass', timestamp: Date.now() - Math.random()*3600000*24, user: state.crews[0].lead, depth: Math.floor(72 + Math.random()*8), plumbNS: (Math.random()*2).toFixed(1), plumbEW: (Math.random()*2).toFixed(1) });
-                else if (random < 0.72) state.inspections.push({ pileId, status: 'fail', timestamp: Date.now() - Math.random()*3600000*5, user: state.crews[1].lead, depth: Math.floor(64 + Math.random()*8), plumbNS: (2 + Math.random()*2).toFixed(1), plumbEW: (Math.random()*2).toFixed(1), failReason: ['plumb', 'depth', 'twist'][Math.floor(Math.random()*3)] });
+                else if (random < 0.72) state.inspections.push({ pileId, status: 'fail', timestamp: Date.now() - Math.random()*3600000*5, user: state.crews[1].lead, depth: Math.floor(64 + Math.random()*8), plumbNS: (2 + Math.random()*2).toFixed(1), plumbEW: (Math.random()*2).toFixed(1), failReason: ['plumb', 'twist', 'height', 'alignment', 'spacing'][Math.floor(Math.random()*5)] });
                 else if (random < 0.76) state.refusals.push({ pileId, reason: ['bedrock', 'cobble', 'obstruction'][Math.floor(Math.random()*3)], timestamp: Date.now() - Math.random()*3600000*48, user: state.crews[0].lead, targetDepth: 72, achievedDepth: Math.floor(30 + Math.random()*24) });
               }
             }
@@ -580,7 +580,16 @@ export default async function SolTrendApp() {
             const passed = state.inspections.filter(i => i.status === 'pass').length;
             const failed = state.inspections.filter(i => i.status === 'fail').length;
             const passRate = totalInspections > 0 ? Math.round((passed / totalInspections) * 100) : 0;
-            const failReasons = { plumb: 0, depth: 0, twist: 0 };
+            const failReasonMeta = [
+              { key: 'plumb', label: 'Plumb Failure', color: 'bg-red-500' },
+              { key: 'twist', label: 'Twist Defect', color: 'bg-orange-500' },
+              { key: 'height', label: 'Height Issue', color: 'bg-amber-500' },
+              { key: 'alignment', label: 'Alignment Issue', color: 'bg-indigo-500' },
+              { key: 'spacing', label: 'Spacing Issue', color: 'bg-cyan-500' },
+              { key: 'other', label: 'Other', color: 'bg-slate-500' },
+            ];
+            const failReasons = {};
+            failReasonMeta.forEach(m => { failReasons[m.key] = 0; });
             state.inspections.filter(i => i.status === 'fail').forEach(i => { if(i.failReason) failReasons[i.failReason] = (failReasons[i.failReason] || 0) + 1; });
             
             return '<div class="space-y-6 stagger-children">' +
@@ -594,9 +603,7 @@ export default async function SolTrendApp() {
                 '<div class="text-center"><div class="w-24 h-24 rounded-full border-8 border-red-500 flex items-center justify-center"><div><p class="text-2xl font-bold text-white">' + (100 - passRate) + '%</p><p class="text-xs text-slate-400">Fail</p></div></div></div>' +
               '</div></div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Failure Breakdown</h3><div class="space-y-3">' +
-                '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-red-500"></div><span class="text-slate-300">Plumb Failure</span></div><span class="text-white font-medium">' + (failReasons.plumb || Math.floor(failed * 0.5)) + '</span></div>' +
-                '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-amber-500"></div><span class="text-slate-300">Depth Issue</span></div><span class="text-white font-medium">' + (failReasons.depth || Math.floor(failed * 0.3)) + '</span></div>' +
-                '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-orange-500"></div><span class="text-slate-300">Twist Defect</span></div><span class="text-white font-medium">' + (failReasons.twist || Math.floor(failed * 0.2)) + '</span></div>' +
+                failReasonMeta.map(m => '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded ' + m.color + '"></div><span class="text-slate-300">' + m.label + '</span></div><span class="text-white font-medium">' + failReasons[m.key] + '</span></div>').join('') +
               '</div></div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Inspector Performance</h3><div class="space-y-2">' + state.crews.slice(0, 3).map(c => { const inspCount = Math.floor(50 + Math.random() * 30); const inspRate = 90 + Math.floor(Math.random() * 8); return '<div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-medium">' + c.lead.split(' ').map(n => n[0]).join('') + '</div><div><p class="text-sm text-white">' + c.lead + '</p><p class="text-xs text-slate-500">' + inspCount + ' inspections</p></div></div><div class="text-right"><p class="text-lg font-bold text-green-400">' + inspRate + '%</p><p class="text-xs text-slate-500">pass rate</p></div></div>'; }).join('') + '</div></div>' +
             '</div>';
@@ -1678,8 +1685,8 @@ export default async function SolTrendApp() {
               '<div><label class="text-xs text-slate-500 mb-1 block">Plumb E-W (°)</label><input type="number" step="0.1" id="inspPlumbEWInput" value="' + (state.inspectionPlumbEW||'') + '" oninput="state.inspectionPlumbEW=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
               '</div>' +
               '<label class="text-xs text-slate-500 mb-1.5 block">Fail Reason (if failing)</label>' +
-              '<div class="grid grid-cols-4 gap-2">' +
-              ['plumb', 'depth', 'twist', 'other'].map(function(r) {
+              '<div class="grid grid-cols-3 gap-2">' +
+              ['plumb', 'twist', 'height', 'alignment', 'spacing', 'other'].map(function(r) {
                 return '<button onclick="selectInspectionFailReason(\\'' + r + '\\')" class="reason-btn text-xs py-2 ' + (state.inspectionFailReason === r ? 'reason-btn-selected text-white' : 'text-slate-300') + '">' + r.charAt(0).toUpperCase() + r.slice(1) + '</button>';
               }).join('') +
               '</div></div>'
