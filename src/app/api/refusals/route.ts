@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
       user: r.user,
       targetDepth: r.targetDepth,
       achievedDepth: r.achievedDepth,
+      notes: r.notes,
       status: r.status,
       photos: r.photos ? JSON.parse(r.photos) : [],
       gps: r.gps ? JSON.parse(r.gps) : null,
@@ -40,11 +41,11 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/refusals
-// body: { projectId, pileId, reason, targetDepth, achievedDepth, reportedBy, photos?, gps? }
+// body: { projectId, pileId, reason, targetDepth, achievedDepth, notes?, reportedBy, photos?, gps? }
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { projectId, pileId, reason, targetDepth, achievedDepth, reportedBy, photos, gps } = body
+    const { projectId, pileId, reason, targetDepth, achievedDepth, notes, reportedBy, photos, gps } = body
 
     if (!projectId || !pileId || !reason) {
       return NextResponse.json({ error: 'projectId, pileId and reason are required' }, { status: 400 })
@@ -78,8 +79,9 @@ export async function POST(request: NextRequest) {
       where: { projectId_pileId: { projectId, pileId } },
       update: {
         reason,
-        targetDepth: targetDepth ?? 1800,
+        targetDepth: targetDepth ?? 72,
         achievedDepth: achievedDepth ?? undefined,
+        notes: notes ?? undefined,
         photos: Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : undefined,
         gps: gps ? JSON.stringify(gps) : undefined,
         userId,
@@ -90,8 +92,9 @@ export async function POST(request: NextRequest) {
         row,
         pile,
         reason,
-        targetDepth: targetDepth ?? 1800,
+        targetDepth: targetDepth ?? 72,
         achievedDepth: achievedDepth ?? undefined,
+        notes: notes ?? undefined,
         photos: Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : undefined,
         gps: gps ? JSON.stringify(gps) : undefined,
         userId,

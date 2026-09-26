@@ -110,7 +110,6 @@ export default async function SolTrendApp() {
             currentUser: window.__SESSION_USER__ || { id: 'user_001', name: 'Marcus Thompson', role: 'admin' },
             currentProject: null,
             inspectionMode: 'quick',
-            refusalMode: 'quick',
             sidebarOpen: false,
             isOnline: navigator.onLine,
             analyticsTab: 'production',
@@ -141,7 +140,7 @@ export default async function SolTrendApp() {
             predictiveWeather: null,
             session: { passed: 0, failed: 0 },
             refusalRow: 35, refusalPile: 22,
-            targetDepth: 1800, achievedDepth: null, refusalReason: null, refusalPhotos: [],
+            targetDepth: 72, achievedDepth: null, refusalReason: null, refusalNotes: '', refusalPhotos: [],
             openRefusals: 8,
             productionEntry: { crew: null, subcontractor: null, notes: '', photos: [] },
             isListening: false,
@@ -322,9 +321,9 @@ export default async function SolTrendApp() {
               for (let pile = 1; pile <= state.heatmap.pilesPerRow; pile++) {
                 const pileId = row + '-' + pile;
                 const random = Math.random();
-                if (random < 0.65) state.inspections.push({ pileId, status: 'pass', timestamp: Date.now() - Math.random()*3600000*24, user: state.crews[0].lead, depth: Math.floor(1800 + Math.random()*200), plumbNS: (Math.random()*2).toFixed(1), plumbEW: (Math.random()*2).toFixed(1) });
-                else if (random < 0.72) state.inspections.push({ pileId, status: 'fail', timestamp: Date.now() - Math.random()*3600000*5, user: state.crews[1].lead, depth: Math.floor(1600 + Math.random()*200), plumbNS: (2 + Math.random()*2).toFixed(1), plumbEW: (Math.random()*2).toFixed(1), failReason: ['plumb', 'depth', 'twist'][Math.floor(Math.random()*3)] });
-                else if (random < 0.76) state.refusals.push({ pileId, reason: ['bedrock', 'cobble', 'obstruction'][Math.floor(Math.random()*3)], timestamp: Date.now() - Math.random()*3600000*48, user: state.crews[0].lead, targetDepth: 1800, achievedDepth: Math.floor(800 + Math.random()*600) });
+                if (random < 0.65) state.inspections.push({ pileId, status: 'pass', timestamp: Date.now() - Math.random()*3600000*24, user: state.crews[0].lead, depth: Math.floor(72 + Math.random()*8), plumbNS: (Math.random()*2).toFixed(1), plumbEW: (Math.random()*2).toFixed(1) });
+                else if (random < 0.72) state.inspections.push({ pileId, status: 'fail', timestamp: Date.now() - Math.random()*3600000*5, user: state.crews[1].lead, depth: Math.floor(64 + Math.random()*8), plumbNS: (2 + Math.random()*2).toFixed(1), plumbEW: (Math.random()*2).toFixed(1), failReason: ['plumb', 'depth', 'twist'][Math.floor(Math.random()*3)] });
+                else if (random < 0.76) state.refusals.push({ pileId, reason: ['bedrock', 'cobble', 'obstruction'][Math.floor(Math.random()*3)], timestamp: Date.now() - Math.random()*3600000*48, user: state.crews[0].lead, targetDepth: 72, achievedDepth: Math.floor(30 + Math.random()*24) });
               }
             }
             
@@ -607,17 +606,17 @@ export default async function SolTrendApp() {
             const reasons = {};
             state.refusals.forEach(r => { reasons[r.reason] = (reasons[r.reason] || 0) + 1; });
             const avgDepth = state.refusals.length > 0 ? Math.round(state.refusals.reduce((s, r) => s + (r.achievedDepth || 0), 0) / state.refusals.length) : 0;
-            const avgShortfall = state.refusals.length > 0 ? Math.round(state.refusals.reduce((s, r) => s + ((r.targetDepth || 1800) - (r.achievedDepth || 0)), 0) / state.refusals.length) : 0;
-            
+            const avgShortfall = state.refusals.length > 0 ? Math.round(state.refusals.reduce((s, r) => s + ((r.targetDepth || 72) - (r.achievedDepth || 0)), 0) / state.refusals.length) : 0;
+
             return '<div class="space-y-6 stagger-children">' +
               '<div class="grid grid-cols-2 gap-4">' +
                 '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Total Refusals</p><p class="font-display text-2xl font-bold text-orange-400">' + totalRefusals + '</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Avg Depth</p><p class="font-display text-2xl font-bold text-white">' + avgDepth + ' mm</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Avg Depth</p><p class="font-display text-2xl font-bold text-white">' + avgDepth + '"</p></div>' +
               '</div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Refusal Reasons</h3><div class="space-y-3">' +
                 Object.entries(reasons).map(([reason, count]) => { const pct = Math.round((count / totalRefusals) * 100); return '<div><div class="flex justify-between text-sm mb-1"><span class="text-slate-300 capitalize">' + reason + '</span><span class="text-white">' + count + ' (' + pct + '%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-orange-500 rounded-full" style="width: ' + pct + '%"></div></div></div>'; }).join('') || '<div class="flex justify-between text-sm mb-1"><span class="text-slate-300">Bedrock</span><span class="text-white">' + Math.floor(totalRefusals * 0.5) + ' (50%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-orange-500 rounded-full" style="width: 50%"></div></div><div class="flex justify-between text-sm mb-1 mt-3"><span class="text-slate-300">Cobble</span><span class="text-white">' + Math.floor(totalRefusals * 0.3) + ' (30%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-amber-500 rounded-full" style="width: 30%"></div></div><div class="flex justify-between text-sm mb-1 mt-3"><span class="text-slate-300">Obstruction</span><span class="text-white">' + Math.floor(totalRefusals * 0.2) + ' (20%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-yellow-500 rounded-full" style="width: 20%"></div></div>' +
               '</div></div>' +
-              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Avg Shortfall</h3><div class="flex items-center gap-4"><div class="flex-1 h-4 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-green-500 via-amber-500 to-red-500" style="width: 100%"></div></div><span class="text-lg font-bold text-amber-400">' + avgShortfall + ' mm</span></div><p class="text-xs text-slate-500 mt-2">Average depth shortfall from target</p></div>' +
+              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Avg Shortfall</h3><div class="flex items-center gap-4"><div class="flex-1 h-4 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-green-500 via-amber-500 to-red-500" style="width: 100%"></div></div><span class="text-lg font-bold text-amber-400">' + avgShortfall + '"</span></div><p class="text-xs text-slate-500 mt-2">Average depth shortfall from target</p></div>' +
             '</div>';
           }
 
@@ -1557,7 +1556,8 @@ export default async function SolTrendApp() {
             const refusalCounts = {};
             state.refusals.forEach(r => { refusalCounts[r.reason] = (refusalCounts[r.reason] || 0) + 1; });
             const avgDepth = state.refusals.length > 0 ? Math.round(state.refusals.reduce((s, r) => s + (r.achievedDepth || 0), 0) / state.refusals.length) : 0;
-            
+            const avgShortfallReport = state.refusals.length > 0 ? Math.round(state.refusals.reduce((s, r) => s + ((r.targetDepth || 72) - (r.achievedDepth || 0)), 0) / state.refusals.length) : 0;
+
             const reportContent = \`
               <!DOCTYPE html>
               <html>
@@ -1591,7 +1591,7 @@ export default async function SolTrendApp() {
                   <div class="stats">
                     <div class="stat-box"><div class="value">\${state.refusals.length}</div><div class="label">Total Refusals</div></div>
                     <div class="stat-box"><div class="value">\${avgDepth}"</div><div class="label">Avg Achieved Depth</div></div>
-                    <div class="stat-box"><div class="value">\${1800 - avgDepth}"</div><div class="label">Avg Shortfall</div></div>
+                    <div class="stat-box"><div class="value">\${avgShortfallReport}"</div><div class="label">Avg Shortfall</div></div>
                   </div>
                 </div>
                 <div class="section">
@@ -1658,7 +1658,7 @@ export default async function SolTrendApp() {
             const info = labels[status];
             const timeString = (inspection || refusal)?.timestamp ? new Date((inspection || refusal).timestamp).toLocaleString() : 'N/A';
             const userString = (inspection || refusal)?.user || 'Unknown';
-            content.innerHTML = '<div class="p-5 border-b border-slate-700/50 flex justify-between items-center"><h3 class="font-display text-lg font-bold text-white">Pile ' + pileId + '</h3><button onclick="closePileModal()" class="p-1 text-slate-400 hover:text-white">' + icon('x', 'w-5 h-5') + '</button></div><div class="p-5"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-full ' + info.bg + ' flex items-center justify-center ' + info.color + '">' + icon(info.icon, 'w-5 h-5') + '</div><div><span class="' + info.color + ' font-bold text-lg">' + info.label + '</span><p class="text-xs text-slate-500">' + (status !== 'notstarted' ? 'Recorded' : 'No data') + '</p></div></div>' + (status !== 'notstarted' ? '<div class="space-y-2 mb-4 text-sm"><div class="flex justify-between text-slate-300"><span class="text-slate-500">Inspector:</span><span>' + userString + '</span></div><div class="flex justify-between text-slate-300"><span class="text-slate-500">Timestamp:</span><span>' + timeString + '</span></div>' + (inspection?.depth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Depth:</span><span>' + inspection.depth + ' mm</span></div>' : '') + (inspection?.plumbNS ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Plumb N-S:</span><span>' + inspection.plumbNS + '°</span></div>' : '') + (status === 'refusal' ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Reason:</span><span class="capitalize">' + (refusal?.reason || 'N/A') + '</span></div>' + (refusal?.achievedDepth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Achieved Depth:</span><span>' + refusal.achievedDepth + ' mm</span></div>' : '') : '') + '</div>' : '') + '<div class="grid grid-cols-2 gap-2 mt-4">' + (status === 'fail' || status === 'refusal' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('refresh-cw', 'w-4 h-4') + ' Reinspect</button><button onclick="closePileModal()" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>' : status === 'notstarted' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="col-span-2 w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('plus', 'w-4 h-4') + ' Inspect Now</button>' : '<button onclick="closePileModal()" class="col-span-2 w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>') + '</div></div>';
+            content.innerHTML = '<div class="p-5 border-b border-slate-700/50 flex justify-between items-center"><h3 class="font-display text-lg font-bold text-white">Pile ' + pileId + '</h3><button onclick="closePileModal()" class="p-1 text-slate-400 hover:text-white">' + icon('x', 'w-5 h-5') + '</button></div><div class="p-5"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-full ' + info.bg + ' flex items-center justify-center ' + info.color + '">' + icon(info.icon, 'w-5 h-5') + '</div><div><span class="' + info.color + ' font-bold text-lg">' + info.label + '</span><p class="text-xs text-slate-500">' + (status !== 'notstarted' ? 'Recorded' : 'No data') + '</p></div></div>' + (status !== 'notstarted' ? '<div class="space-y-2 mb-4 text-sm"><div class="flex justify-between text-slate-300"><span class="text-slate-500">Inspector:</span><span>' + userString + '</span></div><div class="flex justify-between text-slate-300"><span class="text-slate-500">Timestamp:</span><span>' + timeString + '</span></div>' + (inspection?.depth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Depth:</span><span>' + inspection.depth + '"</span></div>' : '') + (inspection?.plumbNS ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Plumb N-S:</span><span>' + inspection.plumbNS + '°</span></div>' : '') + (status === 'refusal' ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Reason:</span><span class="capitalize">' + (refusal?.reason || 'N/A') + '</span></div>' + (refusal?.achievedDepth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Achieved Depth:</span><span>' + refusal.achievedDepth + '"</span></div>' : '') + (refusal?.notes ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Notes:</span><span class="text-right">' + refusal.notes + '</span></div>' : '') : '') + '</div>' : '') + '<div class="grid grid-cols-2 gap-2 mt-4">' + (status === 'fail' || status === 'refusal' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('refresh-cw', 'w-4 h-4') + ' Reinspect</button><button onclick="closePileModal()" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>' : status === 'notstarted' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="col-span-2 w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('plus', 'w-4 h-4') + ' Inspect Now</button>' : '<button onclick="closePileModal()" class="col-span-2 w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>') + '</div></div>';
             modal.classList.remove('hidden'); modal.classList.add('flex'); lucide.createIcons();
           }
           function reinspectPile(pileId) { const { row, pile } = parsePileId(pileId); state.currentRow = row; state.currentPile = pile; closePileModal(); navigateTo('inspection'); }
@@ -1813,7 +1813,8 @@ export default async function SolTrendApp() {
                       timestamp: new Date(dbRef.reportedAt).getTime(),
                       user: dbRef.user?.name || 'Unknown',
                       targetDepth: dbRef.targetDepth,
-                      achievedDepth: dbRef.achievedDepth
+                      achievedDepth: dbRef.achievedDepth,
+                      notes: dbRef.notes || ''
                     });
                   }
                 });
@@ -1904,6 +1905,7 @@ export default async function SolTrendApp() {
                   reason: refusal.reason,
                   targetDepth: refusal.targetDepth,
                   achievedDepth: refusal.achievedDepth,
+                  notes: refusal.notes,
                   reportedBy: state.currentUser.id,
                   photos: uploadedPhotos,
                   gps
@@ -1916,14 +1918,20 @@ export default async function SolTrendApp() {
           function renderRefusal() {
             const pid = getPileId(state.refusalRow, state.refusalPile);
             const sh = state.achievedDepth ? state.targetDepth - state.achievedDepth : null;
-            const sc = sh ? (sh > 500 ? 'shortfall-critical' : sh > 200 ? 'shortfall-warning' : 'shortfall-minor') : '';
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Pile Refusals</h1><span class="badge-open px-3 py-1.5 rounded-full text-sm">' + state.openRefusals + ' Open</span></div><div class="flex gap-2"><button onclick="setRefusalMode(\\'quick\\')" class="mode-btn ' + (state.refusalMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">Quick</button><button onclick="setRefusalMode(\\'detailed\\')" class="mode-btn ' + (state.refusalMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">Detailed</button></div><div class="pile-display p-6"><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.refusalRow + '</span><button onclick="incRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Target (mm)</label><input type="number" id="refusalTarget" value="' + state.targetDepth + '" onchange="state.targetDepth=parseInt(this.value)||0;render()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div><div><label class="text-xs text-slate-500 mb-1 block">Achieved (mm)</label><input type="number" id="refusalDepth" value="' + (state.achievedDepth||'') + '" onchange="state.achievedDepth=parseInt(this.value);render()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div></div>' + (sh !== null ? '<div class="' + sc + ' rounded-xl p-4 text-center"><span class="text-sm text-slate-400">Shortfall: ' + sh + ' mm</span></div>' : '') + '<div><label class="text-xs text-slate-500 mb-2 block">Reason</label><div class="grid grid-cols-4 gap-2">' + ['bedrock', 'cobble', 'obstruction', 'other'].map(r => '<button onclick="setRefusalReason(\\'' + r + '\\')" class="reason-btn ' + (state.refusalReason===r?'reason-btn-selected':'') + '"><span class="text-xs text-white capitalize">' + r + '</span></button>').join('') + '</div></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('refusal') + '</div><button onclick="submitRefusal()" class="w-full py-4 bg-red-600 text-white rounded-xl font-bold mt-4">LOG REFUSAL</button></div>';
+            // Thresholds were calibrated for millimeters (500/200mm); now
+            // that depth is in inches, the equivalent cutoffs are ~20/8in.
+            const sc = sh ? (sh > 20 ? 'shortfall-critical' : sh > 8 ? 'shortfall-warning' : 'shortfall-minor') : '';
+            // Notes field always shows now - the old Quick/Detailed toggle
+            // was removed since Notes was the only thing that ever differed
+            // between the two modes.
+            const notesPanel = '<div class="card rounded-xl p-4 mb-3"><h3 class="font-display font-semibold text-white text-sm mb-3">Notes</h3>' +
+              '<textarea id="refusalNotesInput" rows="3" placeholder="What was encountered, crew observations, anything relevant to follow-up..." oninput="state.refusalNotes=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.refusalNotes || '') + '</textarea></div>';
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Pile Refusals</h1><span class="badge-open px-3 py-1.5 rounded-full text-sm">' + state.openRefusals + ' Open</span></div><div class="pile-display p-6"><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.refusalRow + '</span><button onclick="incRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Target (in)</label><input type="number" id="refusalTarget" value="' + state.targetDepth + '" onchange="state.targetDepth=parseInt(this.value)||0;render()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div><div><label class="text-xs text-slate-500 mb-1 block">Achieved (in)</label><input type="number" id="refusalDepth" value="' + (state.achievedDepth||'') + '" onchange="state.achievedDepth=parseInt(this.value);render()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div></div>' + (sh !== null ? '<div class="' + sc + ' rounded-xl p-4 text-center"><span class="text-sm text-slate-400">Shortfall: ' + sh + '"</span></div>' : '') + '<div><label class="text-xs text-slate-500 mb-2 block">Reason</label><div class="grid grid-cols-4 gap-2">' + ['bedrock', 'cobble', 'obstruction', 'other'].map(r => '<button onclick="setRefusalReason(\\'' + r + '\\')" class="reason-btn ' + (state.refusalReason===r?'reason-btn-selected':'') + '"><span class="text-xs text-white capitalize">' + r + '</span></button>').join('') + '</div></div>' + notesPanel + '<div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('refusal') + '</div><button onclick="submitRefusal()" class="w-full py-4 bg-red-600 text-white rounded-xl font-bold mt-4">LOG REFUSAL</button></div>';
           }
           function incRefusalPile() { hapticFeedback(); if (state.refusalPile < state.heatmap.pilesPerRow) state.refusalPile++; render(); }
           function decRefusalPile() { hapticFeedback(); if (state.refusalPile > 1) state.refusalPile--; render(); }
           function incRefusalRow() { hapticFeedback(); if (state.refusalRow < state.heatmap.totalRows) state.refusalRow++; render(); }
           function decRefusalRow() { hapticFeedback(); if (state.refusalRow > 1) state.refusalRow--; render(); }
-          function setRefusalMode(mode) { state.refusalMode = mode; render(); }
           function setRefusalReason(reason) { state.refusalReason = reason; render(); }
           function submitRefusal() {
             hapticFeedback();
@@ -1935,7 +1943,8 @@ export default async function SolTrendApp() {
               timestamp: Date.now(),
               user: state.currentUser.name,
               targetDepth: state.targetDepth,
-              achievedDepth: state.achievedDepth
+              achievedDepth: state.achievedDepth,
+              notes: state.refusalNotes || null
             };
             // Replace, don't append, for the same reason as recordInspection:
             // re-logging a refusal for a pile that already has one shouldn't
@@ -1950,6 +1959,7 @@ export default async function SolTrendApp() {
             if (state.refusalPile < state.heatmap.pilesPerRow) state.refusalPile++;
             state.achievedDepth = null;
             state.refusalReason = null;
+            state.refusalNotes = '';
             state.refusalPhotos = [];
             render();
             // Save to database
