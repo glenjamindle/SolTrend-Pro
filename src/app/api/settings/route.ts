@@ -3,6 +3,15 @@ import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 
+// This route always needs a fresh read of the database - reading
+// searchParams already makes Next.js treat GET as dynamic, but that's an
+// inference, not a guarantee, and there's nothing more disorienting than a
+// company/project rename that saved correctly but keeps showing the old
+// name because some caching layer served a stale copy. Being explicit here
+// costs nothing and rules that class of bug out entirely.
+export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+
 // Role hierarchy for gating writes below. The middleware already requires
 // *some* logged-in session to reach any API route, but until now nothing
 // checked *which* role - any signed-in user (inspector included) could

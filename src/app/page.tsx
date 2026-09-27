@@ -638,7 +638,7 @@ export default async function SolTrendApp() {
               ]}
             ];
             return '<aside class="fixed inset-y-0 left-0 z-50 w-60 bg-slate-900/95 border-r border-slate-700/50 transform transition-transform duration-300 ' + (state.sidebarOpen ? 'translate-x-0' : '-translate-x-full') + ' lg:translate-x-0 flex flex-col">' +
-              '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-9 h-9 rounded-lg shadow-lg shadow-amber-500/20"><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-500 uppercase tracking-wider">Pro v2.1</p></div></div>' + renderNotifBell() + '</div></div>' +
+              '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-9 h-9 rounded-lg shadow-lg shadow-amber-500/20"><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-500 uppercase tracking-wider">Pro v2.1</p></div></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></div>' +
               (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + '</option>').join('') + '</select></div>' : '') +
               '<nav class="flex-1 py-3 overflow-y-auto">' + navSections.map(section => '<div class="mb-4"><h3 class="px-5 mb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">' + section.title + '</h3>' + section.items.map(item => '<button onclick="navigateTo(\\'' + item.id + '\\')" class="nav-item w-full flex items-center gap-3 px-5 py-2.5 text-left text-sm ' + (state.currentView === item.id ? 'active' : 'text-slate-400 hover:text-slate-200') + '">' + icon(item.icon, 'w-4 h-4') + '<span>' + item.label + '</span></button>').join('') + '</div>').join('') + '</nav>' +
               '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">' + (state.currentUser.name || '?').split(' ').map(function(n){return n[0]||'';}).join('').slice(0,2).toUpperCase() + '</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-500 capitalize">' + state.currentUser.role + '</p></div><a href="/api/auth/signout" title="Sign out" class="text-slate-500 hover:text-red-400 transition-colors p-1">' + icon('log-out', 'w-4 h-4') + '</a></div></div>' +
@@ -3680,16 +3680,26 @@ export default async function SolTrendApp() {
                 '<input type="email" id="modalSubEmail" value="' + (s.email || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>';
             }
             
-            return '<div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onclick="if(event.target === this) closeEditModal()">' +
-              '<div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">' +
-                '<div class="flex items-center justify-between mb-6">' +
-                  '<h3 class="font-display font-semibold text-white text-lg">' + title + '</h3>' +
-                  '<button onclick="closeEditModal()" class="p-2 hover:bg-slate-800 rounded-lg text-slate-400">' + icon('x', 'w-5 h-5') + '</button>' +
-                '</div>' +
-                '<div class="space-y-4">' + formContent + '</div>' +
-                '<div class="flex gap-3 mt-6">' +
-                  '<button onclick="closeEditModal()" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium">Cancel</button>' +
-                  '<button onclick="saveEditModal()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-semibold">Save</button>' +
+            // The backdrop itself is the scroll container (not the card),
+            // with a min-h-full centering wrapper inside it - a taller form
+            // (the Project modal especially, which can run to a dozen
+            // fields) simply grows past one screen and the whole overlay
+            // scrolls to reveal it, instead of relying on a fixed max-height
+            // + inner overflow that can end up shorter than it looks once a
+            // mobile on-screen keyboard eats into the visible viewport,
+            // leaving the bottom fields (and the Save button) unreachable.
+            return '<div class="fixed inset-0 z-50 overflow-y-auto modal-backdrop">' +
+              '<div class="min-h-full flex items-center justify-center p-4" onclick="if(event.target === this) closeEditModal()">' +
+                '<div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md my-8">' +
+                  '<div class="flex items-center justify-between mb-6">' +
+                    '<h3 class="font-display font-semibold text-white text-lg">' + title + '</h3>' +
+                    '<button onclick="closeEditModal()" class="p-2 hover:bg-slate-800 rounded-lg text-slate-400">' + icon('x', 'w-5 h-5') + '</button>' +
+                  '</div>' +
+                  '<div class="space-y-4">' + formContent + '</div>' +
+                  '<div class="flex gap-3 mt-6">' +
+                    '<button onclick="closeEditModal()" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium">Cancel</button>' +
+                    '<button onclick="saveEditModal()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-semibold">Save</button>' +
+                  '</div>' +
                 '</div>' +
               '</div>' +
             '</div>';
@@ -3882,7 +3892,7 @@ export default async function SolTrendApp() {
             if (e && e.stopPropagation) e.stopPropagation();
             state.notifPanelOpen = !state.notifPanelOpen;
             if (state.notifPanelOpen) loadNotifications();
-            render();
+            updateNotifUI();
           }
           async function loadNotifications() {
             if (!state.companyId) return;
@@ -3892,7 +3902,7 @@ export default async function SolTrendApp() {
               if (Array.isArray(data.notifications)) {
                 state.notifications = data.notifications;
                 state.unreadCount = data.unreadCount || 0;
-                render();
+                updateNotifUI();
               }
             } catch (e) { console.error('Load notifications error:', e); }
           }
@@ -3901,7 +3911,7 @@ export default async function SolTrendApp() {
             if (!n || n.read) return;
             n.read = true;
             state.unreadCount = Math.max(0, state.unreadCount - 1);
-            render();
+            updateNotifUI();
             try {
               await fetch('/api/notifications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'markRead', id }) });
             } catch (e) { console.error('Mark notification read error:', e); }
@@ -3909,7 +3919,7 @@ export default async function SolTrendApp() {
           async function markAllNotificationsRead() {
             state.notifications.forEach(n => { n.read = true; });
             state.unreadCount = 0;
-            render();
+            updateNotifUI();
             try {
               await fetch('/api/notifications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'markAllRead', companyId: state.companyId }) });
             } catch (e) { console.error('Mark all notifications read error:', e); }
@@ -3919,7 +3929,27 @@ export default async function SolTrendApp() {
           function render() {
             const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
-            document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div>' + renderNotifBell() + '</div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '');
+            document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
+            if (window.lucide) lucide.createIcons();
+          }
+
+          // Notifications poll every 60s (see initializeApp below) and can
+          // also be marked read/opened at any time - none of that should
+          // ever force the *entire* app to re-render, because render()
+          // replaces #app's whole innerHTML, which would blow away
+          // whatever the person is in the middle of typing anywhere else on
+          // the page (cursor position, focus, and on some mobile browsers
+          // in-flight IME/autocorrect text that hasn't committed to the
+          // input's value yet). This updates only the bell badge(s) and the
+          // notification panel/overlay in place, leaving every other node
+          // on the page - including any open form - completely untouched.
+          function updateNotifUI() {
+            const bellSlots = document.querySelectorAll('.notif-bell-slot');
+            bellSlots.forEach(function(el) { el.innerHTML = renderNotifBell(); });
+            const panelHost = document.getElementById('notifPanelHost');
+            if (panelHost) {
+              panelHost.innerHTML = state.notifPanelOpen ? ('<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel()) : '';
+            }
             if (window.lucide) lucide.createIcons();
           }
 
