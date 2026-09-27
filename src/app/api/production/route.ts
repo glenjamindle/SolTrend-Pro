@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
 
     const entries = await prisma.productionEntry.findMany({
       where: { projectId },
-      include: { crew: { select: { name: true } } },
+      include: { crew: { select: { name: true } }, user: { select: { name: true } } },
       orderBy: { date: 'asc' },
     })
 
@@ -23,7 +23,9 @@ export async function GET(request: NextRequest) {
       tables: e.tablesInstalled,
       modules: e.modulesInstalled,
       crew: e.crew?.name || null,
+      user: e.user?.name || null,
       notes: e.notes || null,
+      photos: e.photos ? JSON.parse(e.photos) : [],
     }))
 
     return NextResponse.json(shaped)

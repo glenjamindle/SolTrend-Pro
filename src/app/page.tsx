@@ -65,6 +65,7 @@ export default async function SolTrendApp() {
         .capture-btn:hover { border-color: #f59e0b; background: rgba(245, 158, 11, 0.05); }
         .heat-cell { width: 100%; aspect-ratio: 1; border-radius: 3px; transition: transform 0.15s ease; cursor: pointer; border: 1px solid rgba(0,0,0,0.2); }
         .heat-cell:hover { transform: scale(1.5); z-index: 10; box-shadow: 0 0 8px rgba(255,255,255,0.3); border-color: white; }
+        .heat-cell.dimmed { opacity: 0.15; }
         .row-label { position: sticky; left: 0; background: linear-gradient(90deg, #111827 80%, transparent 100%); z-index: 5; padding-right: 4px; }
         .status-pass { background: #22c55e; }
         .status-fail { background: #ef4444; }
@@ -91,6 +92,7 @@ export default async function SolTrendApp() {
         .activity-item.pass::before { background: #22c55e; }
         .activity-item.fail::before { background: #ef4444; }
         .activity-item.refusal::before { background: #f97316; }
+        .activity-item.production::before { background: #3b82f6; }
         .sparkline { display: flex; align-items: flex-end; gap: 2px; height: 40px; }
         .sparkline-bar { flex: 1; background: linear-gradient(to top, #f59e0b, #fbbf24); border-radius: 2px; }
         .chart-bar { transition: all 0.2s ease; }
@@ -145,7 +147,7 @@ export default async function SolTrendApp() {
             openRefusals: 8,
             productionEntry: { crew: null, subcontractor: null, notes: '', photos: [] },
             isListening: false,
-            heatmap: { zoom: 1, totalRows: 50, pilesPerRow: 30 }
+            heatmap: { zoom: 1, totalRows: 50, pilesPerRow: 30, search: '' }
           };
 
           // UTILITY FUNCTIONS
@@ -164,6 +166,63 @@ export default async function SolTrendApp() {
           // two disagree by a day for any timezone west of UTC, e.g. Phoenix.
           function pad2(n) { return String(n).padStart(2, '0'); }
           function localDateStr(ms) { const d = new Date(ms); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+          // Inspector/Manager/Admin existed only as a label on the user form -
+          // nothing in the app actually checked it, so any signed-in user
+          // could delete a project or edit company settings. The server
+          // (see /api/settings) is what actually enforces this now; these
+          // just keep the UI from offering actions that would get a 403.
+          function currentRole() { return state.currentUser?.role || 'inspector'; }
+          function hasRole(min) {
+            const rank = { inspector: 1, manager: 2, admin: 3 };
+            return (rank[currentRole()] || 0) >= rank[min];
+          }
+          function timeAgo(ms) {
+            const diffMin = Math.max(0, Math.round((Date.now() - ms) / 60000));
+            if (diffMin < 1) return 'just now';
+            if (diffMin < 60) return diffMin + 'm ago';
+            const diffHr = Math.round(diffMin / 60);
+            if (diffHr < 24) return diffHr + 'h ago';
+            const diffDay = Math.round(diffHr / 24);
+            return diffDay + 'd ago';
+          }
+
+          // Recent Activity used to be a separate array only ever populated
+          // by the demo-data seeder, so on a real project (no demo fallback)
+          // it just stayed empty forever - nothing that actually happened
+          // (a real inspection, refusal, or production entry) ever appeared
+          // here. This derives the feed straight from the same real data
+          // already loaded for the dashboard/analytics widgets instead.
+          function computeRecentActivity() {
+            const items = [];
+            state.inspections.forEach(function(i) {
+              items.push({
+                type: i.status === 'pass' ? 'pass' : 'fail',
+                message: (i.status === 'pass' ? 'Passed pile ' : 'Failed pile ') + i.pileId,
+                user: i.user,
+                timestamp: i.timestamp
+              });
+            });
+            state.refusals.forEach(function(r) {
+              items.push({
+                type: 'refusal',
+                message: 'Logged refusal at ' + r.pileId,
+                user: r.user,
+                timestamp: r.timestamp
+              });
+            });
+            state.production.forEach(function(p) {
+              items.push({
+                type: 'production',
+                message: p.piles + ' pile' + (p.piles === 1 ? '' : 's') + ' installed' + (p.crew ? ' — ' + p.crew : ''),
+                user: p.user || p.crew || 'Field crew',
+                timestamp: new Date(p.date).getTime()
+              });
+            });
+            items.sort(function(a, b) { return b.timestamp - a.timestamp; });
+            return items.slice(0, 5).map(function(a) {
+              return { type: a.type, message: a.message, user: a.user, time: timeAgo(a.timestamp) };
+            });
+          }
           function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
           function addDaysStr(dateStr, days) { const parts = dateStr.split('-').map(Number); const dt = new Date(parts[0], parts[1] - 1, parts[2]); dt.setDate(dt.getDate() + days); return dt.getFullYear() + '-' + pad2(dt.getMonth() + 1) + '-' + pad2(dt.getDate()); }
           // Real schedule estimate, not a fixed guess - avgRate is piles/day
@@ -327,15 +386,10 @@ export default async function SolTrendApp() {
                 else if (random < 0.76) state.refusals.push({ pileId, reason: ['bedrock', 'cobble', 'obstruction'][Math.floor(Math.random()*3)], timestamp: Date.now() - Math.random()*3600000*48, user: state.crews[0].lead, targetDepth: 72, achievedDepth: Math.floor(30 + Math.random()*24) });
               }
             }
-            
-            // Generate recent activity
-            const actions = [ { type: 'pass', msg: 'passed pile' }, { type: 'fail', msg: 'failed pile' }, { type: 'refusal', msg: 'logged refusal at' } ];
-            for(let i=0; i<15; i++) {
-              const act = actions[Math.floor(Math.random() * actions.length)];
-              const row = Math.floor(Math.random() * 50);
-              const pile = Math.floor(Math.random() * 30);
-              state.recentActivity.push({ type: act.type, message: act.msg + ' ' + row + '-' + pile, time: Math.floor(Math.random() * 60) + 'm ago', user: state.crews[Math.floor(Math.random() * state.crews.length)].lead });
-            }
+            // Recent Activity is now derived live from state.inspections/
+            // refusals/production (see computeRecentActivity) instead of a
+            // separately-seeded array, so the demo fallback above already
+            // covers it - no separate fake feed needed here.
             
             // Generate 30 days of production data
             for (let i = 29; i >= 0; i--) {
@@ -497,7 +551,7 @@ export default async function SolTrendApp() {
                   '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 mb-2">Active Profile</p><p class="text-sm font-medium text-white">' + (state.rackingProfiles.find(r => r.id === project.rackingProfileId)?.name || RACKING_MANUFACTURERS.find(m => m.id === project.rackingProfile)?.name || 'N/A') + '</p></div>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3 flex items-center justify-between">Needs Attention <span class="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400">' + openIssues + '</span></h3><div class="space-y-2 max-h-48 overflow-y-auto">' + state.inspections.filter(i => i.status === 'fail').slice(0, 3).map(i => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + i.pileId + '</span><span class="text-red-400">Failed</span></div>').join('') + state.refusals.slice(0, 2).map(r => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + r.pileId + '</span><span class="text-orange-400">Refusal</span></div>').join('') + '</div></div>' +
-                '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3">Recent Activity</h3><div class="space-y-3 max-h-48 overflow-y-auto">' + state.recentActivity.slice(0, 5).map(a => '<div class="activity-item ' + a.type + ' pl-4 py-1"><p class="text-sm text-slate-300">' + a.message + '</p><p class="text-xs text-slate-500">' + a.user + ' · ' + a.time + '</p></div>').join('') + '</div></div>' +
+                '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3">Recent Activity</h3><div class="space-y-3 max-h-48 overflow-y-auto">' + (function() { const feed = computeRecentActivity(); return feed.length > 0 ? feed.map(a => '<div class="activity-item ' + a.type + ' pl-4 py-1"><p class="text-sm text-slate-300">' + a.message + '</p><p class="text-xs text-slate-500">' + a.user + ' · ' + a.time + '</p></div>').join('') : '<p class="text-sm text-slate-500">No activity logged yet.</p>'; })() + '</div></div>' +
               '</div>' +
             '</div>';
           }
@@ -822,7 +876,62 @@ export default async function SolTrendApp() {
                   '<button onclick="generateRefusalReport()" class="w-full py-2.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
               '</div>' +
+              '<div class="card rounded-xl p-5">' +
+                '<div class="flex items-center gap-3 mb-4">' + icon('table', 'w-8 h-8 text-slate-400') + '<div><h3 class="font-display font-semibold text-white">Data Export</h3><p class="text-xs text-slate-500">Raw data as CSV, for Excel or Sheets</p></div></div>' +
+                '<div class="grid md:grid-cols-3 gap-3">' +
+                  '<button onclick="exportProductionCSV()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Production Log</button>' +
+                  '<button onclick="exportInspectionsCSV()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Inspections</button>' +
+                  '<button onclick="exportRefusalsCSV()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Refusals</button>' +
+                '</div>' +
+              '</div>' +
             '</div>';
+          }
+
+          // DATA EXPORT (CSV)
+          // Separate from the five formatted PDF-style reports above - these
+          // hand back the raw rows so they can be dropped into Excel/Sheets
+          // for further analysis instead of a print-formatted document.
+          function csvEscape(v) {
+            if (v === null || v === undefined) return '';
+            const s = String(v);
+            return /[",\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+          }
+          function toCSV(rows, headers) {
+            const lines = [headers.join(',')];
+            rows.forEach(function(r) { lines.push(headers.map(function(h) { return csvEscape(r[h]); }).join(',')); });
+            return lines.join('\\n');
+          }
+          function downloadCSV(filename, csvString) {
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }
+          function exportFilePrefix() {
+            return (state.currentProject?.name || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+          }
+          function exportProductionCSV() {
+            const rows = state.production.map(function(p) {
+              return { date: p.date, piles: p.piles, tables: p.tables || 0, modules: p.modules || 0, crew: p.crew || '', user: p.user || '', notes: p.notes || '' };
+            });
+            downloadCSV(exportFilePrefix() + '-production-log.csv', toCSV(rows, ['date', 'piles', 'tables', 'modules', 'crew', 'user', 'notes']));
+          }
+          function exportInspectionsCSV() {
+            const rows = state.inspections.map(function(i) {
+              return { pileId: i.pileId, status: i.status, date: localDateStr(i.timestamp), user: i.user, depth: i.depth ?? '', plumbNS: i.plumbNS ?? '', plumbEW: i.plumbEW ?? '', failReason: i.failReason || '' };
+            });
+            downloadCSV(exportFilePrefix() + '-inspections.csv', toCSV(rows, ['pileId', 'status', 'date', 'user', 'depth', 'plumbNS', 'plumbEW', 'failReason']));
+          }
+          function exportRefusalsCSV() {
+            const rows = state.refusals.map(function(r) {
+              return { pileId: r.pileId, reason: r.reason, date: localDateStr(r.timestamp), user: r.user, targetDepth: r.targetDepth, achievedDepth: r.achievedDepth ?? '', notes: r.notes || '' };
+            });
+            downloadCSV(exportFilePrefix() + '-refusals.csv', toCSV(rows, ['pileId', 'reason', 'date', 'user', 'targetDepth', 'achievedDepth', 'notes']));
           }
 
           // WEATHER API INTEGRATION
@@ -922,7 +1031,16 @@ export default async function SolTrendApp() {
             const humidity = currentWeather ? currentWeather.relative_humidity_2m : null;
             const windSpeed = currentWeather ? Math.round(currentWeather.wind_speed_10m) : null;
             const weatherDesc = currentWeather ? getWeatherDescription(currentWeather.weather_code) : (isToday ? 'Unavailable' : 'Historical data not available');
-            
+            // Photos are genuinely captured and uploaded for inspections,
+            // refusals, and production entries (see uploadPendingPhotos) -
+            // this report previously never showed any of them, just four
+            // hardcoded "No photos captured" tiles regardless of what was
+            // actually on file for the date.
+            const dayPhotos = []
+              .concat(dayInspections.flatMap(function(i) { return (i.photos || []).map(function(p) { return { url: p.url, label: 'Inspection ' + i.pileId }; }); }))
+              .concat(dayRefusalsList.flatMap(function(r) { return (r.photos || []).map(function(p) { return { url: p.url, label: 'Refusal ' + r.pileId }; }); }))
+              .concat((dayProd?.photos || []).map(function(p) { return { url: p.url, label: 'Production log' }; }));
+
             const reportContent = \`
               <!DOCTYPE html>
               <html>
@@ -1063,12 +1181,8 @@ export default async function SolTrendApp() {
                   <div class="notes-content">Weather conditions were favorable for pile driving operations. All crews operating at normal capacity. \${failed > 0 ? failed + ' piles failed QC and require remediation. ' : ''}\${dayRefusals > 0 ? dayRefusals + ' refusal(s) logged - engineering notified for alternative pile locations.' : 'No refusals encountered today.'}</div>
                 </div>
                 <div class="section-title">Photo Documentation</div>
-                <div class="photo-gallery">
-                  <div class="photo-item">No photos captured</div>
-                  <div class="photo-item">No photos captured</div>
-                  <div class="photo-item">No photos captured</div>
-                  <div class="photo-item">No photos captured</div>
-                </div>
+                <div class="photo-gallery">\${dayPhotos.length > 0 ? dayPhotos.slice(0, 8).map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured</div>'}</div>
+                \${dayPhotos.length > 8 ? '<p style="font-size:11px;color:#94a3b8;margin-top:8px;">+ ' + (dayPhotos.length - 8) + ' more photo' + (dayPhotos.length - 8 === 1 ? '' : 's') + ' not shown</p>' : ''}
                 <div class="report-footer">
                   <div>Generated by SolTrend Pro • Report verified by: \${state.currentUser?.name || 'Field Supervisor'}</div>
                   <div>Page 1 of 1</div>
@@ -1711,18 +1825,35 @@ export default async function SolTrendApp() {
 
           // HEATMAP
           function renderHeatMap() {
-            const { zoom, totalRows, pilesPerRow } = state.heatmap;
+            const { zoom, totalRows, pilesPerRow, search } = state.heatmap;
             const cellSize = Math.round(20 * zoom);
+            const term = (search || '').trim().toLowerCase();
+            let matchCount = 0;
             let rows = '';
             for (let row = 1; row <= totalRows; row++) {
               let cells = '';
               for (let pile = 1; pile <= pilesPerRow; pile++) {
                 const pileId = row + '-' + pile;
-                cells += '<button onclick="showPileDetails(\\'' + pileId + '\\')" class="heat-cell status-' + getInspectionStatus(pileId) + '" style="width: ' + cellSize + 'px; height: ' + cellSize + 'px" title="' + pileId + '"></button>';
+                const isMatch = !term || pileId.indexOf(term) !== -1;
+                if (term && isMatch) matchCount++;
+                cells += '<button onclick="showPileDetails(\\'' + pileId + '\\')" class="heat-cell status-' + getInspectionStatus(pileId) + (term && !isMatch ? ' dimmed' : '') + '" style="width: ' + cellSize + 'px; height: ' + cellSize + 'px" title="' + pileId + '"></button>';
               }
               rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-500 font-mono text-right pr-1">' + row + '</span>' + cells + '</div>';
             }
-            return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Pile Map</h1><p class="text-slate-400">Showing all ' + totalRows + ' rows</p></div><div class="flex items-center gap-2"><button onclick="zoomOut()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-out', 'w-4 h-4') + '</button><span class="text-sm text-slate-400 w-12 text-center">' + Math.round(zoom * 100) + '%</span><button onclick="zoomIn()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-in', 'w-4 h-4') + '</button></div></div><div class="flex flex-wrap items-center gap-4 bg-slate-800/50 border border-slate-700 rounded-xl p-3"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-green-500"></div><span class="text-xs text-slate-300">Passed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-red-500"></div><span class="text-xs text-slate-300">Failed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-orange-500"></div><span class="text-xs text-slate-300">Refusal</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-slate-500"></div><span class="text-xs text-slate-300">Not Started</span></div></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4 overflow-x-auto" style="max-height: 60vh; overflow-y: auto;"><div class="inline-block">' + rows + '</div></div></div><div id="pileModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop"><div class="bg-slate-800 border border-slate-700 rounded-xl max-w-sm w-full" id="pileModalContent"></div></div>';
+            return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Pile Map</h1><p class="text-slate-400">Showing all ' + totalRows + ' rows</p></div><div class="flex items-center gap-2"><button onclick="zoomOut()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-out', 'w-4 h-4') + '</button><span class="text-sm text-slate-400 w-12 text-center">' + Math.round(zoom * 100) + '%</span><button onclick="zoomIn()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-in', 'w-4 h-4') + '</button></div></div><div class="flex flex-wrap items-center gap-3 bg-slate-800/50 border border-slate-700 rounded-xl p-3"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-green-500"></div><span class="text-xs text-slate-300">Passed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-red-500"></div><span class="text-xs text-slate-300">Failed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-orange-500"></div><span class="text-xs text-slate-300">Refusal</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-slate-500"></div><span class="text-xs text-slate-300">Not Started</span></div><div class="flex items-center gap-2 ml-auto"><input type="text" id="pileMapSearch" value="' + (search || '') + '" oninput="filterPileMap(this.value)" placeholder="Search pile, e.g. 12-7" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-40">' + (term ? '<span class="text-xs text-slate-500">' + matchCount + ' match' + (matchCount === 1 ? '' : 'es') + '</span>' : '') + '</div></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4 overflow-x-auto" style="max-height: 60vh; overflow-y: auto;"><div class="inline-block">' + rows + '</div></div></div><div id="pileModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop"><div class="bg-slate-800 border border-slate-700 rounded-xl max-w-sm w-full" id="pileModalContent"></div></div>';
+          }
+
+          // Live-filters the pile map as the user types without a full
+          // render() - re-rendering on every keystroke would rebuild this
+          // same search input and drop focus/cursor position mid-word.
+          function filterPileMap(value) {
+            state.heatmap.search = value;
+            const term = value.trim().toLowerCase();
+            document.querySelectorAll('.heat-cell').forEach(function(cell) {
+              const pid = cell.getAttribute('title') || '';
+              const match = !term || pid.indexOf(term) !== -1;
+              cell.classList.toggle('dimmed', !!term && !match);
+            });
           }
 
           function showPileDetails(pileId) {
@@ -1874,7 +2005,8 @@ export default async function SolTrendApp() {
                       depth: dbInsp.depth,
                       plumbNS: dbInsp.plumbNS,
                       plumbEW: dbInsp.plumbEW,
-                      failReason: dbInsp.failReason
+                      failReason: dbInsp.failReason,
+                      photos: dbInsp.photos || []
                     });
                   }
                 });
@@ -1899,7 +2031,8 @@ export default async function SolTrendApp() {
                       user: dbRef.user?.name || 'Unknown',
                       targetDepth: dbRef.targetDepth,
                       achievedDepth: dbRef.achievedDepth,
-                      notes: dbRef.notes || ''
+                      notes: dbRef.notes || '',
+                      photos: dbRef.photos || []
                     });
                   }
                 });
@@ -2177,27 +2310,32 @@ export default async function SolTrendApp() {
           
           function renderCompanySettings() {
             const company = state.company || { name: 'Loading...', tier: 'starter' };
+            const canEdit = hasRole('admin');
+            const dis = canEdit ? '' : ' disabled';
             return '<div class="card rounded-xl p-6">' +
               '<h3 class="font-display font-semibold text-white mb-6">Company Information</h3>' +
+              (canEdit ? '' : '<p class="text-xs text-slate-500 mb-4">View only - ask an admin to change company settings.</p>') +
               '<div class="space-y-4">' +
                 '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Company Name</label>' +
-                '<input type="text" id="companyName" value="' + (company.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white" placeholder="Enter company name"></div>' +
+                '<input type="text" id="companyName" value="' + (company.name || '') + '"' + dis + ' class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white disabled:opacity-50" placeholder="Enter company name"></div>' +
                 '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Subscription Tier</label>' +
-                '<select id="companyTier" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
+                '<select id="companyTier"' + dis + ' class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white disabled:opacity-50">' +
                   '<option value="starter" ' + (company.tier === 'starter' ? 'selected' : '') + '>Starter</option>' +
                   '<option value="professional" ' + (company.tier === 'professional' ? 'selected' : '') + '>Professional</option>' +
                   '<option value="enterprise" ' + (company.tier === 'enterprise' ? 'selected' : '') + '>Enterprise</option>' +
                 '</select></div>' +
-                '<button onclick="saveCompanySettings()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-semibold">Save Changes</button>' +
+                (canEdit ? '<button onclick="saveCompanySettings()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-semibold">Save Changes</button>' : '') +
               '</div>' +
             '</div>';
           }
           
           function renderProjectsSettings() {
+            const canEdit = hasRole('manager');
+            const canDelete = hasRole('admin');
             return '<div class="space-y-4">' +
-              '<div class="flex justify-end">' +
+              (canEdit ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'project\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Project</button>' +
-              '</div>' +
+              '</div>' : '<p class="text-xs text-slate-500">View only - ask a manager or admin to make changes.</p>') +
               '<div class="grid gap-4">' +
                 (state.projects.length === 0 ? '<p class="text-slate-400 text-center py-8">No projects yet. Create your first project above.</p>' :
                 state.projects.map(p => '<div class="card rounded-xl p-5">' +
@@ -2211,20 +2349,22 @@ export default async function SolTrendApp() {
                     '<div><span class="block text-slate-500">Rows</span><span class="text-white font-medium">' + p.totalRows + '</span></div>' +
                     '<div><span class="block text-slate-500">Piles/Row</span><span class="text-white font-medium">' + p.pilesPerRow + '</span></div>' +
                   '</div>' +
-                  '<div class="flex gap-2">' +
-                    '<button onclick="openEditModal(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
-                    '<button onclick="deleteItem(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
-                  '</div>' +
+                  (canEdit || canDelete ? '<div class="flex gap-2">' +
+                    (canEdit ? '<button onclick="openEditModal(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
+                    (canDelete ? '<button onclick="deleteItem(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
+                  '</div>' : '') +
                 '</div>').join('')) +
               '</div>' +
             '</div>';
           }
           
           function renderCrewsSettings() {
+            const canEdit = hasRole('manager');
+            const canDelete = hasRole('admin');
             return '<div class="space-y-4">' +
-              '<div class="flex justify-end">' +
+              (canEdit ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'crew\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Crew</button>' +
-              '</div>' +
+              '</div>' : '<p class="text-xs text-slate-500">View only - ask a manager or admin to make changes.</p>') +
               '<div class="grid gap-4">' +
                 (state.crews.length === 0 ? '<p class="text-slate-400 text-center py-8">No crews yet. Create your first crew above.</p>' :
                 state.crews.map(c => '<div class="card rounded-xl p-5">' +
@@ -2234,20 +2374,22 @@ export default async function SolTrendApp() {
                     '<span class="px-2 py-1 text-xs rounded ' + (c.status === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-slate-500/20 text-slate-400') + '">' + c.status + '</span>' +
                   '</div>' +
                   '<p class="text-sm text-slate-400 mb-3">' + (c.workerCount || 8) + ' workers</p>' +
-                  '<div class="flex gap-2">' +
-                    '<button onclick="openEditModal(\\'crew\\', ' + (c.id ? '\\'' + c.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
-                    '<button onclick="deleteItem(\\'crew\\', ' + (c.id ? '\\'' + c.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
-                  '</div>' +
+                  (canEdit || canDelete ? '<div class="flex gap-2">' +
+                    (canEdit ? '<button onclick="openEditModal(\\'crew\\', ' + (c.id ? '\\'' + c.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
+                    (canDelete ? '<button onclick="deleteItem(\\'crew\\', ' + (c.id ? '\\'' + c.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
+                  '</div>' : '') +
                 '</div>').join('')) +
               '</div>' +
             '</div>';
           }
           
           function renderSubcontractorsSettings() {
+            const canEdit = hasRole('manager');
+            const canDelete = hasRole('admin');
             return '<div class="space-y-4">' +
-              '<div class="flex justify-end">' +
+              (canEdit ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'subcontractor\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Subcontractor</button>' +
-              '</div>' +
+              '</div>' : '<p class="text-xs text-slate-500">View only - ask a manager or admin to make changes.</p>') +
               '<div class="grid gap-4">' +
                 (state.subcontractors.length === 0 ? '<p class="text-slate-400 text-center py-8">No subcontractors yet. Add your first one above.</p>' :
                 state.subcontractors.map(s => '<div class="card rounded-xl p-5">' +
@@ -2259,20 +2401,22 @@ export default async function SolTrendApp() {
                     '<div><span class="block text-slate-500">Phone</span><span class="text-white font-medium">' + (s.phone || '—') + '</span></div>' +
                     '<div><span class="block text-slate-500">Email</span><span class="text-white font-medium">' + (s.email || '—') + '</span></div>' +
                   '</div>' +
-                  '<div class="flex gap-2">' +
-                    '<button onclick="openEditModal(\\'subcontractor\\', ' + (s.id ? '\\'' + s.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
-                    '<button onclick="deleteItem(\\'subcontractor\\', ' + (s.id ? '\\'' + s.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
-                  '</div>' +
+                  (canEdit || canDelete ? '<div class="flex gap-2">' +
+                    (canEdit ? '<button onclick="openEditModal(\\'subcontractor\\', ' + (s.id ? '\\'' + s.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
+                    (canDelete ? '<button onclick="deleteItem(\\'subcontractor\\', ' + (s.id ? '\\'' + s.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
+                  '</div>' : '') +
                 '</div>').join('')) +
               '</div>' +
             '</div>';
           }
           
           function renderRackingSettings() {
+            const canEdit = hasRole('manager');
+            const canDelete = hasRole('admin');
             return '<div class="space-y-4">' +
-              '<div class="flex justify-end">' +
+              (canEdit ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'rackingProfile\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Profile</button>' +
-              '</div>' +
+              '</div>' : '<p class="text-xs text-slate-500">View only - ask a manager or admin to make changes.</p>') +
               '<div class="grid gap-4">' +
                 (state.rackingProfiles.length === 0 ? '<p class="text-slate-400 text-center py-8">No racking profiles yet.</p>' :
                 state.rackingProfiles.map(r => '<div class="card rounded-xl p-5">' +
@@ -2281,20 +2425,21 @@ export default async function SolTrendApp() {
                     '<p class="text-sm text-slate-400">' + (r.manufacturer || r.name) + '</p></div>' +
                     '<span class="px-2 py-1 text-xs rounded ' + (r.isActive ? 'bg-green-500/20 text-green-400' : 'bg-slate-500/20 text-slate-400') + '">' + (r.isActive ? 'Active' : 'Inactive') + '</span>' +
                   '</div>' +
-                  '<div class="flex gap-2">' +
-                    '<button onclick="openEditModal(\\'rackingProfile\\', ' + (r.id ? '\\'' + r.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
-                    '<button onclick="deleteItem(\\'rackingProfile\\', ' + (r.id ? '\\'' + r.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
-                  '</div>' +
+                  (canEdit || canDelete ? '<div class="flex gap-2">' +
+                    (canEdit ? '<button onclick="openEditModal(\\'rackingProfile\\', ' + (r.id ? '\\'' + r.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
+                    (canDelete ? '<button onclick="deleteItem(\\'rackingProfile\\', ' + (r.id ? '\\'' + r.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
+                  '</div>' : '') +
                 '</div>').join('')) +
               '</div>' +
             '</div>';
           }
           
           function renderUsersSettings() {
+            const canManage = hasRole('admin');
             return '<div class="space-y-4">' +
-              '<div class="flex justify-end">' +
+              (canManage ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'user\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' Invite User</button>' +
-              '</div>' +
+              '</div>' : '<p class="text-xs text-slate-500">View only - ask an admin to manage users.</p>') +
               '<div class="grid gap-4">' +
                 (state.users.length === 0 ? '<p class="text-slate-400 text-center py-8">No users yet.</p>' :
                 state.users.map(u => '<div class="card rounded-xl p-5">' +
@@ -2303,10 +2448,10 @@ export default async function SolTrendApp() {
                     '<p class="text-sm text-slate-400">' + u.email + '</p></div>' +
                     '<span class="px-2 py-1 text-xs rounded bg-blue-500/20 text-blue-400 capitalize">' + u.role + '</span>' +
                   '</div>' +
-                  '<div class="flex gap-2">' +
+                  (canManage ? '<div class="flex gap-2">' +
                     '<button onclick="openEditModal(\\'user\\', ' + (u.id ? '\\'' + u.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
                     '<button onclick="deleteItem(\\'user\\', ' + (u.id ? '\\'' + u.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
-                  '</div>' +
+                  '</div>' : '') +
                 '</div>').join('')) +
               '</div>' +
             '</div>';
@@ -2521,7 +2666,8 @@ export default async function SolTrendApp() {
                 await loadSettings();
                 closeEditModal();
               } else {
-                alert('Failed to save. Please try again.');
+                const err = await response.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to save. Please try again.');
               }
             } catch (e) {
               console.error('Save error:', e);
@@ -2542,7 +2688,8 @@ export default async function SolTrendApp() {
               if (response.ok) {
                 await loadSettings();
               } else {
-                alert('Failed to delete. Please try again.');
+                const err = await response.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to delete. Please try again.');
               }
             } catch (e) {
               console.error('Delete error:', e);
@@ -2564,6 +2711,9 @@ export default async function SolTrendApp() {
               if (response.ok) {
                 await loadSettings();
                 alert('Company settings saved!');
+              } else {
+                const err = await response.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to save company settings.');
               }
             } catch (e) {
               console.error('Save error:', e);

@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth/next'
+import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+
+// Role hierarchy for gating writes below. The middleware already requires
+// *some* logged-in session to reach any API route, but until now nothing
+// checked *which* role - any signed-in user (inspector included) could
+// delete a project, edit company settings, or change another user's role.
+const ROLE_RANK: Record<string, number> = { inspector: 1, manager: 2, admin: 3 }
+function hasRole(role: string | undefined, min: keyof typeof ROLE_RANK): boolean {
+  return (ROLE_RANK[role || ''] || 0) >= ROLE_RANK[min]
+}
 
 // GET - Fetch all settings data
 export async function GET(request: NextRequest) {
@@ -138,9 +149,29 @@ export async function GET(request: NextRequest) {
 // POST - Update settings
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    }
+    const role = session.user.role
+
     const body = await request.json()
     const { type, data, companyId } = body
-    
+
+    // company/user changes are admin-only; project/crew/subcontractor/
+    // rackingProfile creates and edits need at least manager. Inspectors can
+    // still log production/inspections/refusals through their own routes -
+    // this route only covers the settings/admin entities.
+    if (type === 'company' && !hasRole(role, 'admin')) {
+      return NextResponse.json({ error: 'Only admins can edit company settings' }, { status: 403 })
+    }
+    if (type === 'user' && !hasRole(role, 'admin')) {
+      return NextResponse.json({ error: 'Only admins can manage users' }, { status: 403 })
+    }
+    if (['project', 'crew', 'subcontractor', 'rackingProfile'].includes(type) && !hasRole(role, 'manager')) {
+      return NextResponse.json({ error: 'Only managers and admins can make this change' }, { status: 403 })
+    }
+
     switch (type) {
       case 'company': {
         const company = await prisma.company.update({
@@ -322,9 +353,19 @@ export async function POST(request: NextRequest) {
 // DELETE - Delete entities
 export async function DELETE(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    }
+    // Deleting a project, crew, subcontractor, racking profile, or user is
+    // destructive and hard to undo, so it's admin-only regardless of type.
+    if (!hasRole(session.user.role, 'admin')) {
+      return NextResponse.json({ error: 'Only admins can delete records' }, { status: 403 })
+    }
+
     const body = await request.json()
     const { type, id } = body
-    
+
     switch (type) {
       case 'project':
         await prisma.project.delete({ where: { id } })
