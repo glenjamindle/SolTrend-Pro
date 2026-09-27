@@ -147,7 +147,12 @@ export default async function SolTrendApp() {
             openRefusals: 8,
             productionEntry: { crew: null, subcontractor: null, notes: '', photos: [] },
             isListening: false,
-            heatmap: { zoom: 1, totalRows: 50, pilesPerRow: 30, search: '' }
+            heatmap: { zoom: 1, totalRows: 50, pilesPerRow: 30, search: '' },
+            notifications: [], unreadCount: 0, notifPanelOpen: false,
+            delays: [],
+            delayDate: new Date().toISOString().split('T')[0], delayReason: null, delayHours: '', delayDescription: '',
+            punchItems: [], punchFilter: 'open', punchFormOpen: false,
+            punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: []
           };
 
           // UTILITY FUNCTIONS
@@ -337,6 +342,7 @@ export default async function SolTrendApp() {
                 if (context === 'production') state.productionEntry.photos.push(photoObj);
                 else if (context === 'inspection') state.inspectionPhotos.push(photoObj);
                 else if (context === 'refusal') state.refusalPhotos.push(photoObj);
+                else if (context === 'punchlist') state.punchPhotos.push(photoObj);
                 render();
               };
             };
@@ -347,6 +353,7 @@ export default async function SolTrendApp() {
             if (context === 'production') state.productionEntry.photos = state.productionEntry.photos.filter(p => p.id !== id);
             else if (context === 'inspection') state.inspectionPhotos = state.inspectionPhotos.filter(p => p.id !== id);
             else if (context === 'refusal') state.refusalPhotos = state.refusalPhotos.filter(p => p.id !== id);
+            else if (context === 'punchlist') state.punchPhotos = state.punchPhotos.filter(p => p.id !== id);
             render();
           }
           function renderPhotoCapture(context) {
@@ -354,6 +361,7 @@ export default async function SolTrendApp() {
             if (context === 'production') photos = state.productionEntry.photos;
             else if (context === 'inspection') photos = state.inspectionPhotos;
             else if (context === 'refusal') photos = state.refusalPhotos;
+            else if (context === 'punchlist') photos = state.punchPhotos;
             return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><div class="flex items-center gap-3"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photo</span></button><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn w-12 h-12 rounded-xl flex items-center justify-center text-slate-400 hover:text-white">' + icon('image', 'w-5 h-5') + '</button></div>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
           }
 
@@ -407,7 +415,11 @@ export default async function SolTrendApp() {
                 { id: 'production', label: 'Production', icon: 'truck' },
                 { id: 'inspection', label: 'QC Inspection', icon: 'clipboard-check' },
                 { id: 'refusal', label: 'Refusals', icon: 'alert-triangle' },
+                { id: 'delays', label: 'Delays', icon: 'cloud-rain' },
                 { id: 'heatmap', label: 'Pile Map', icon: 'map' },
+              ]},
+              { title: 'Closeout', items: [
+                { id: 'punchlist', label: 'Punch List', icon: 'list-checks' },
               ]},
               { title: 'Analysis', items: [
                 { id: 'analytics', label: 'Analytics', icon: 'bar-chart-3' },
@@ -419,7 +431,7 @@ export default async function SolTrendApp() {
               ]}
             ];
             return '<aside class="fixed inset-y-0 left-0 z-50 w-60 bg-slate-900/95 border-r border-slate-700/50 transform transition-transform duration-300 ' + (state.sidebarOpen ? 'translate-x-0' : '-translate-x-full') + ' lg:translate-x-0 flex flex-col">' +
-              '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">' + icon('trending-up', 'w-5 h-5 text-white') + '</div><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-500 uppercase tracking-wider">Pro v2.1</p></div></div></div>' +
+              '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><div class="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">' + icon('trending-up', 'w-5 h-5 text-white') + '</div><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-500 uppercase tracking-wider">Pro v2.1</p></div></div>' + renderNotifBell() + '</div></div>' +
               (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + '</option>').join('') + '</select></div>' : '') +
               '<nav class="flex-1 py-3 overflow-y-auto">' + navSections.map(section => '<div class="mb-4"><h3 class="px-5 mb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">' + section.title + '</h3>' + section.items.map(item => '<button onclick="navigateTo(\\'' + item.id + '\\')" class="nav-item w-full flex items-center gap-3 px-5 py-2.5 text-left text-sm ' + (state.currentView === item.id ? 'active' : 'text-slate-400 hover:text-slate-200') + '">' + icon(item.icon, 'w-4 h-4') + '<span>' + item.label + '</span></button>').join('') + '</div>').join('') + '</nav>' +
               '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">' + (state.currentUser.name || '?').split(' ').map(function(n){return n[0]||'';}).join('').slice(0,2).toUpperCase() + '</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-500 capitalize">' + state.currentUser.role + '</p></div><a href="/api/auth/signout" title="Sign out" class="text-slate-500 hover:text-red-400 transition-colors p-1">' + icon('log-out', 'w-4 h-4') + '</a></div></div>' +
@@ -565,7 +577,7 @@ export default async function SolTrendApp() {
 
           // ANALYTICS - FULL IMPLEMENTATION
           function renderAnalytics() {
-            const tabs = [ { id: 'production', label: 'Production', icon: 'trending-up' }, { id: 'quality', label: 'Quality', icon: 'check-circle' }, { id: 'refusals', label: 'Refusals', icon: 'alert-triangle' }, { id: 'schedule', label: 'Schedule', icon: 'calendar' }, { id: 'field', label: 'Field Ops', icon: 'smartphone' }, { id: 'predictive', label: 'Insights', icon: 'brain' } ];
+            const tabs = [ { id: 'production', label: 'Production', icon: 'trending-up' }, { id: 'quality', label: 'Quality', icon: 'check-circle' }, { id: 'refusals', label: 'Refusals', icon: 'alert-triangle' }, { id: 'subcontractors', label: 'Subcontractors', icon: 'briefcase' }, { id: 'schedule', label: 'Schedule', icon: 'calendar' }, { id: 'field', label: 'Field Ops', icon: 'smartphone' }, { id: 'predictive', label: 'Insights', icon: 'brain' } ];
             return '<div class="space-y-6 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Analytics</h1><p class="text-slate-400">Performance insights</p></div></div><div class="flex gap-1 p-1 bg-slate-800/50 rounded-xl overflow-x-auto">' + tabs.map(t => '<button onclick="setAnalyticsTab(\\'' + t.id + '\\')" class="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all ' + (state.analyticsTab === t.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white hover:bg-slate-700/50') + '">' + icon(t.icon, 'w-4 h-4') + t.label + '</button>').join('') + '</div><div id="analyticsContent">' + renderAnalyticsContent() + '</div></div>';
           }
 
@@ -574,6 +586,7 @@ export default async function SolTrendApp() {
               case 'production': return renderProductionAnalytics();
               case 'quality': return renderQualityAnalytics();
               case 'refusals': return renderRefusalAnalytics();
+              case 'subcontractors': return renderSubcontractorAnalytics();
               case 'schedule': return renderScheduleAnalytics();
               case 'field': return renderFieldOpsAnalytics();
               case 'predictive': return renderPredictiveAnalytics();
@@ -711,6 +724,40 @@ export default async function SolTrendApp() {
                 Object.entries(reasons).map(([reason, count]) => { const pct = Math.round((count / totalRefusals) * 100); return '<div><div class="flex justify-between text-sm mb-1"><span class="text-slate-300 capitalize">' + reason + '</span><span class="text-white">' + count + ' (' + pct + '%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-orange-500 rounded-full" style="width: ' + pct + '%"></div></div></div>'; }).join('') || '<div class="flex justify-between text-sm mb-1"><span class="text-slate-300">Bedrock</span><span class="text-white">' + Math.floor(totalRefusals * 0.5) + ' (50%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-orange-500 rounded-full" style="width: 50%"></div></div><div class="flex justify-between text-sm mb-1 mt-3"><span class="text-slate-300">Cobble</span><span class="text-white">' + Math.floor(totalRefusals * 0.3) + ' (30%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-amber-500 rounded-full" style="width: 30%"></div></div><div class="flex justify-between text-sm mb-1 mt-3"><span class="text-slate-300">Obstruction</span><span class="text-white">' + Math.floor(totalRefusals * 0.2) + ' (20%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-yellow-500 rounded-full" style="width: 20%"></div></div>' +
               '</div></div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Avg Shortfall</h3><div class="flex items-center gap-4"><div class="flex-1 h-4 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-green-500 via-amber-500 to-red-500" style="width: 100%"></div></div><span class="text-lg font-bold text-amber-400">' + avgShortfall + '"</span></div><p class="text-xs text-slate-500 mt-2">Average depth shortfall from target</p></div>' +
+            '</div>';
+          }
+
+          // SUBCONTRACTOR SCORECARDS - piles/tables/modules and pace derived
+          // from ProductionEntry, the one place a subcontractor is actually
+          // attributed today. Inspections/refusals are tied to the
+          // inspecting USER, not a subcontractor, so QC pass rate and
+          // refusal rate can't be broken out per-sub yet without adding a
+          // subcontractor picker to those field-entry screens - noted below
+          // rather than guessed at.
+          function renderSubcontractorAnalytics() {
+            const bySub = {};
+            state.production.forEach(function(p) {
+              const key = p.subcontractor || 'Unassigned';
+              if (!bySub[key]) bySub[key] = { name: key, days: 0, piles: 0, tables: 0, modules: 0, lastDate: null, belowTarget: 0 };
+              const s = bySub[key];
+              s.days++;
+              s.piles += p.piles || 0;
+              s.tables += p.tables || 0;
+              s.modules += p.modules || 0;
+              if (!s.lastDate || p.date > s.lastDate) s.lastDate = p.date;
+              if (state.currentProject && state.currentProject.dailyTarget > 0 && p.piles < state.currentProject.dailyTarget * 0.5) s.belowTarget++;
+            });
+            const rows = Object.values(bySub).sort(function(a, b) { return b.piles - a.piles; });
+            const maxPiles = Math.max(1, ...rows.map(function(r) { return r.piles; }));
+            return '<div class="space-y-6 stagger-children">' +
+              (rows.length === 0 ? '<div class="card rounded-xl p-8 text-center text-slate-500 text-sm">No production logged with a subcontractor attached yet.</div>' :
+              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Piles Installed by Subcontractor</h3><div class="space-y-4">' +
+                rows.map(function(r) {
+                  const pct = Math.round((r.piles / maxPiles) * 100);
+                  const avg = r.days > 0 ? (r.piles / r.days).toFixed(1) : '0';
+                  return '<div><div class="flex justify-between text-sm mb-1"><span class="text-slate-300">' + r.name + '</span><span class="text-white font-medium">' + r.piles + ' piles</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full" style="width: ' + pct + '%"></div></div><div class="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-slate-500"><span>' + r.days + ' day' + (r.days === 1 ? '' : 's') + ' logged</span><span>' + avg + ' piles/day avg</span>' + (r.belowTarget > 0 ? '<span class="text-red-400">' + r.belowTarget + ' day' + (r.belowTarget === 1 ? '' : 's') + ' under 50% target</span>' : '') + '<span>Last: ' + formatDate(r.lastDate) + '</span></div></div>';
+                }).join('') + '</div></div>') +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500">Pace and schedule adherence only — QC pass rate and refusal rate aren\\'t attributed to a specific subcontractor yet, since inspections and refusals aren\\'t tagged with one today.</p></div>' +
             '</div>';
           }
 
@@ -1983,7 +2030,9 @@ export default async function SolTrendApp() {
             state.inspections = [];
             state.refusals = [];
             state.production = [];
-            await Promise.all([loadInspections(), loadRefusals(), loadProduction()]);
+            state.delays = [];
+            state.punchItems = [];
+            await Promise.all([loadInspections(), loadRefusals(), loadProduction(), loadDelays(), loadPunchItems()]);
             render();
           }
 
@@ -2205,6 +2254,234 @@ export default async function SolTrendApp() {
             render();
             // Save to database
             saveRefusal(refusal, photos);
+          }
+
+          // WEATHER & DELAY LOGGING - one entry per project per calendar
+          // day, same shape as Production but for non-productive days, so
+          // there's a real record to back up schedule conversations.
+          function renderDelays() {
+            const reasons = [
+              { id: 'weather', label: 'Weather' },
+              { id: 'permitting_hold', label: 'Permitting' },
+              { id: 'equipment_down', label: 'Equipment' },
+              { id: 'material_shortage', label: 'Materials' },
+              { id: 'other', label: 'Other' }
+            ];
+            const recent = state.delays.slice(0, 10);
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto">' +
+              '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Delays</h1><span class="text-sm text-slate-500">' + state.delays.length + ' logged</span></div>' +
+              '<div class="card rounded-xl p-5 space-y-4">' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label><input type="date" id="delayDateInput" value="' + state.delayDate + '" oninput="state.delayDate=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Reason</label><div class="grid grid-cols-3 gap-2">' + reasons.map(r => '<button onclick="setDelayReason(\\'' + r.id + '\\')" class="reason-btn ' + (state.delayReason === r.id ? 'reason-btn-selected' : '') + '"><span class="text-xs text-white">' + r.label + '</span></button>').join('') + '</div></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Hours Lost (optional)</label><input type="number" step="0.5" min="0" max="24" id="delayHoursInput" value="' + (state.delayHours || '') + '" oninput="state.delayHours=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white font-bold"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea id="delayDescInput" rows="2" placeholder="Any detail worth keeping for the record..." oninput="state.delayDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (state.delayDescription || '') + '</textarea></div>' +
+                '<button onclick="submitDelay()" class="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-lg">Log Delay</button>' +
+              '</div>' +
+              '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Recent Delays</h3>' + (recent.length > 0 ? '<div class="space-y-2">' + recent.map(d => '<div class="flex items-center justify-between py-2 border-b border-slate-700/50 last:border-0"><div><p class="text-sm text-white capitalize">' + d.reason.replace(/_/g, ' ') + '</p><p class="text-xs text-slate-500">' + formatDate(d.date) + (d.description ? ' · ' + d.description : '') + '</p></div>' + (d.hoursLost ? '<span class="text-xs text-slate-400">' + d.hoursLost + 'h</span>' : '') + '</div>').join('') + '</div>' : '<p class="text-sm text-slate-500">No delays logged yet.</p>') + '</div>' +
+            '</div>';
+          }
+          function setDelayReason(reason) { hapticFeedback(); state.delayReason = reason; render(); }
+          function submitDelay() {
+            hapticFeedback();
+            if (!state.delayReason) { alert('Select a reason for the delay.'); return; }
+            const delay = {
+              date: state.delayDate,
+              reason: state.delayReason,
+              description: state.delayDescription || null,
+              hoursLost: state.delayHours ? parseFloat(state.delayHours) : null,
+              user: state.currentUser.name
+            };
+            const existingIdx = state.delays.findIndex(d => d.date === delay.date);
+            if (existingIdx >= 0) state.delays[existingIdx] = delay; else state.delays.unshift(delay);
+            state.delays.sort(function(a, b) { return b.date.localeCompare(a.date); });
+            state.delayReason = null;
+            state.delayHours = '';
+            state.delayDescription = '';
+            render();
+            saveDelay(delay);
+          }
+          async function saveDelay(delay) {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              await fetch('/api/delays', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  projectId,
+                  date: delay.date,
+                  reason: delay.reason,
+                  description: delay.description,
+                  hoursLost: delay.hoursLost,
+                  loggedBy: state.currentUser.id
+                })
+              });
+            } catch (e) { console.error('Save delay error:', e); }
+          }
+          async function loadDelays() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/delays?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) {
+                state.delays = data;
+                render();
+              }
+            } catch (e) { console.error('Load delays error:', e); }
+          }
+
+          // CLOSEOUT PUNCH LIST - not tied to a pile-by-pile flow like the
+          // field-entry screens above; this is a filterable list with an
+          // add-item form and per-item status controls, closer in shape to
+          // the Settings tables than to the Refusal pattern.
+          function renderPunchList() {
+            const filters = [
+              { id: 'open', label: 'Open' },
+              { id: 'in_progress', label: 'In Progress' },
+              { id: 'resolved', label: 'Resolved' },
+              { id: 'all', label: 'All' }
+            ];
+            const items = state.punchFilter === 'all' ? state.punchItems : state.punchItems.filter(function(p) { return p.status === state.punchFilter; });
+            const openCount = state.punchItems.filter(function(p) { return p.status !== 'resolved'; }).length;
+            const canDelete = hasRole('admin');
+            const priorityColor = { high: 'text-red-400', medium: 'text-amber-400', low: 'text-slate-400' };
+            const addForm = state.punchFormOpen ? (
+              '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+                '<h3 class="font-display font-semibold text-white text-sm">New Punch Item</h3>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Description</label><textarea id="punchDescInput" rows="2" placeholder="What needs to be fixed or finished..." oninput="state.punchDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.punchDescription || '') + '</textarea></div>' +
+                '<div class="grid grid-cols-2 gap-3">' +
+                  '<div><label class="text-xs text-slate-500 mb-1 block">Location</label><input type="text" id="punchLocationInput" value="' + (state.punchLocation || '') + '" oninput="state.punchLocation=this.value" placeholder="e.g. Row 12 / pile 12-4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                  '<div><label class="text-xs text-slate-500 mb-1 block">Assigned To</label><input type="text" id="punchAssignedInput" value="' + (state.punchAssignedTo || '') + '" oninput="state.punchAssignedTo=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '</div>' +
+                '<div class="grid grid-cols-2 gap-3">' +
+                  '<div><label class="text-xs text-slate-500 mb-1 block">Priority</label><div class="grid grid-cols-3 gap-2">' + ['low', 'medium', 'high'].map(function(p) { return '<button onclick="setPunchPriority(\\'' + p + '\\')" class="reason-btn text-xs py-2 capitalize ' + (state.punchPriority === p ? 'reason-btn-selected text-white' : 'text-slate-300') + '">' + p + '</button>'; }).join('') + '</div></div>' +
+                  '<div><label class="text-xs text-slate-500 mb-1 block">Due Date</label><input type="date" id="punchDueInput" value="' + (state.punchDueDate || '') + '" oninput="state.punchDueDate=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '</div>' +
+                renderPhotoCapture('punchlist') +
+                '<div class="flex gap-2"><button onclick="submitPunchItem()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-sm">Add Item</button><button onclick="closePunchForm()" class="px-4 py-3 bg-slate-700 text-slate-300 rounded-xl font-medium text-sm">Cancel</button></div>' +
+              '</div>'
+            ) : '';
+            return '<div class="space-y-4 animate-fade-in">' +
+              '<div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">Punch List</h1><p class="text-sm text-slate-500">' + openCount + ' open item' + (openCount === 1 ? '' : 's') + '</p></div>' + (state.punchFormOpen ? '' : '<button onclick="openPunchForm()" class="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Item</button>') + '</div>' +
+              addForm +
+              '<div class="flex gap-1 p-1 bg-slate-800/50 rounded-xl overflow-x-auto max-w-md">' + filters.map(function(f) { return '<button onclick="setPunchFilter(\\'' + f.id + '\\')" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ' + (state.punchFilter === f.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white') + '">' + f.label + '</button>'; }).join('') + '</div>' +
+              (items.length === 0 ? '<div class="card rounded-xl p-8 text-center text-slate-500 text-sm">No ' + (state.punchFilter === 'all' ? '' : state.punchFilter.replace('_', ' ') + ' ') + 'punch items.</div>' :
+              '<div class="space-y-3">' + items.map(function(p) {
+                const dueLabel = p.dueDate ? new Date(p.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+                const overdue = p.dueDate && p.status !== 'resolved' && new Date(p.dueDate).getTime() < Date.now();
+                return '<div class="card rounded-xl p-4">' +
+                  '<div class="flex items-start justify-between gap-3">' +
+                    '<div class="flex-1 min-w-0"><p class="text-white text-sm">' + p.description + '</p>' +
+                    '<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs text-slate-500">' +
+                      (p.location ? '<span>' + p.location + '</span>' : '') +
+                      (p.assignedTo ? '<span>' + p.assignedTo + '</span>' : '') +
+                      '<span class="' + (priorityColor[p.priority] || 'text-slate-400') + ' capitalize">' + p.priority + '</span>' +
+                      (dueLabel ? '<span class="' + (overdue ? 'text-red-400' : '') + '">Due ' + dueLabel + '</span>' : '') +
+                    '</div></div>' +
+                    (canDelete ? '<button onclick="deletePunchItem(\\'' + p.id + '\\')" class="p-1.5 text-slate-500 hover:text-red-400">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
+                  '</div>' +
+                  (p.photos && p.photos.length > 0 ? '<div class="photo-grid mt-3">' + p.photos.slice(0, 4).map(function(ph) { return '<div class="photo-thumb"><img src="' + ph.url + '" alt="Photo"></div>'; }).join('') + '</div>' : '') +
+                  '<div class="flex gap-2 mt-3">' +
+                    (p.status !== 'open' ? '<button onclick="setPunchStatus(\\'' + p.id + '\\', \\'open\\')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-700 text-slate-300">Reopen</button>' : '') +
+                    (p.status !== 'in_progress' ? '<button onclick="setPunchStatus(\\'' + p.id + '\\', \\'in_progress\\')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-400">In Progress</button>' : '') +
+                    (p.status !== 'resolved' ? '<button onclick="setPunchStatus(\\'' + p.id + '\\', \\'resolved\\')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600 text-white">Resolve</button>' : '<span class="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600/20 text-green-400">Resolved</span>') +
+                  '</div>' +
+                '</div>';
+              }).join('') + '</div>') +
+            '</div>';
+          }
+          function openPunchForm() { state.punchFormOpen = true; render(); }
+          function closePunchForm() {
+            state.punchFormOpen = false;
+            state.punchDescription = '';
+            state.punchLocation = '';
+            state.punchPriority = 'medium';
+            state.punchAssignedTo = '';
+            state.punchDueDate = '';
+            state.punchNotes = '';
+            state.punchPhotos = [];
+            render();
+          }
+          function setPunchPriority(p) { state.punchPriority = p; render(); }
+          function setPunchFilter(f) { state.punchFilter = f; render(); }
+          async function submitPunchItem() {
+            hapticFeedback();
+            if (!state.punchDescription || !state.punchDescription.trim()) { alert('Enter a description for this punch item.'); return; }
+            const uploadedPhotos = await uploadPendingPhotos(state.punchPhotos, 'punchlist', 'punch');
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/punchlist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  projectId,
+                  description: state.punchDescription.trim(),
+                  location: state.punchLocation || null,
+                  priority: state.punchPriority,
+                  assignedTo: state.punchAssignedTo || null,
+                  dueDate: state.punchDueDate || null,
+                  photos: uploadedPhotos,
+                  createdBy: state.currentUser.id
+                })
+              });
+              const created = await res.json();
+              if (created && created.id) {
+                state.punchItems.unshift({
+                  id: created.id,
+                  description: created.description,
+                  location: created.location,
+                  status: created.status,
+                  priority: created.priority,
+                  assignedTo: created.assignedTo,
+                  dueDate: created.dueDate,
+                  notes: created.notes,
+                  photos: uploadedPhotos,
+                  resolvedAt: created.resolvedAt,
+                  createdBy: state.currentUser.name,
+                  createdAt: created.createdAt
+                });
+              }
+            } catch (e) { console.error('Save punch item error:', e); }
+            closePunchForm();
+          }
+          async function setPunchStatus(id, status) {
+            hapticFeedback();
+            const item = state.punchItems.find(function(p) { return p.id === id; });
+            if (!item) return;
+            item.status = status;
+            if (status === 'resolved') item.resolvedAt = new Date().toISOString();
+            render();
+            try {
+              await fetch('/api/punchlist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, projectId: state.currentProject?.id || 'proj_001', status })
+              });
+            } catch (e) { console.error('Update punch status error:', e); }
+          }
+          async function deletePunchItem(id) {
+            if (!confirm('Delete this punch item? This cannot be undone.')) return;
+            hapticFeedback();
+            state.punchItems = state.punchItems.filter(function(p) { return p.id !== id; });
+            render();
+            try {
+              const res = await fetch('/api/punchlist?id=' + id, { method: 'DELETE' });
+              if (!res.ok) {
+                const err = await res.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to delete punch item.');
+                loadPunchItems();
+              }
+            } catch (e) { console.error('Delete punch item error:', e); }
+          }
+          async function loadPunchItems() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/punchlist?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) {
+                state.punchItems = data;
+                render();
+              }
+            } catch (e) { console.error('Load punch items error:', e); }
           }
 
           // PRODUCTION - WITH PHOTO CAPTURE
@@ -2754,11 +3031,61 @@ export default async function SolTrendApp() {
             }
           }
 
+          // IN-APP NOTIFICATIONS - a bell + dropdown, fed by createNotification
+          // on the server (failed inspections, new refusals, failed pull
+          // tests, a day that comes in well short of target). Polled on an
+          // interval rather than pushed - no websockets in this app.
+          function renderNotifBell() {
+            const badge = state.unreadCount > 0 ? '<span class="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 bg-red-500 rounded-full text-[10px] leading-4 text-white flex items-center justify-center font-bold">' + (state.unreadCount > 9 ? '9+' : state.unreadCount) + '</span>' : '';
+            return '<button onclick="toggleNotifPanel(event)" class="relative p-2 text-slate-400 hover:text-white transition-colors">' + icon('bell', 'w-5 h-5') + badge + '</button>';
+          }
+          function renderNotifPanel() {
+            const typeIcon = { inspection_fail: 'x-circle', refusal: 'alert-triangle', behind_schedule: 'trending-down' };
+            const items = state.notifications.length > 0 ? state.notifications.map(n => '<div onclick="markNotificationRead(\\'' + n.id + '\\')" class="px-4 py-3 border-b border-slate-700/50 cursor-pointer hover:bg-slate-800/70 transition-colors ' + (n.read ? 'opacity-50' : 'bg-slate-800/40') + '"><div class="flex items-start gap-3"><div class="mt-0.5 text-amber-400">' + icon(typeIcon[n.type] || 'bell', 'w-4 h-4') + '</div><div class="flex-1 min-w-0"><p class="text-sm text-slate-200 leading-snug">' + n.message + '</p><p class="text-xs text-slate-500 mt-0.5">' + timeAgo(new Date(n.createdAt).getTime()) + '</p></div>' + (!n.read ? '<div class="w-2 h-2 rounded-full bg-amber-400 mt-1.5 flex-shrink-0"></div>' : '') + '</div></div>').join('') : '<div class="px-4 py-8 text-center text-sm text-slate-500">No notifications yet</div>';
+            return '<div class="fixed top-16 right-4 lg:top-6 lg:left-64 lg:right-auto z-[60] w-80 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-fade-in"><div class="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Notifications</h3>' + (state.unreadCount > 0 ? '<button onclick="markAllNotificationsRead()" class="text-xs text-amber-400 hover:text-amber-300">Mark all read</button>' : '') + '</div><div class="max-h-96 overflow-y-auto">' + items + '</div></div>';
+          }
+          function toggleNotifPanel(e) {
+            if (e && e.stopPropagation) e.stopPropagation();
+            state.notifPanelOpen = !state.notifPanelOpen;
+            if (state.notifPanelOpen) loadNotifications();
+            render();
+          }
+          async function loadNotifications() {
+            if (!state.companyId) return;
+            try {
+              const res = await fetch('/api/notifications?companyId=' + state.companyId);
+              const data = await res.json();
+              if (Array.isArray(data.notifications)) {
+                state.notifications = data.notifications;
+                state.unreadCount = data.unreadCount || 0;
+                render();
+              }
+            } catch (e) { console.error('Load notifications error:', e); }
+          }
+          async function markNotificationRead(id) {
+            const n = state.notifications.find(x => x.id === id);
+            if (!n || n.read) return;
+            n.read = true;
+            state.unreadCount = Math.max(0, state.unreadCount - 1);
+            render();
+            try {
+              await fetch('/api/notifications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'markRead', id }) });
+            } catch (e) { console.error('Mark notification read error:', e); }
+          }
+          async function markAllNotificationsRead() {
+            state.notifications.forEach(n => { n.read = true; });
+            state.unreadCount = 0;
+            render();
+            try {
+              await fetch('/api/notifications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'markAllRead', companyId: state.companyId }) });
+            } catch (e) { console.error('Mark all notifications read error:', e); }
+          }
+
           // MAIN RENDER
           function render() {
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings };
             const content = views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>';
-            document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center">' + icon('trending-up', 'w-4 h-4 text-white') + '</div><span class="font-display font-bold text-white">SolTrend</span></div><div class="w-10"></div></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '');
+            document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><div class="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center">' + icon('trending-up', 'w-4 h-4 text-white') + '</div><span class="font-display font-bold text-white">SolTrend</span></div>' + renderNotifBell() + '</div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '');
             if (window.lucide) lucide.createIcons();
           }
 
@@ -2819,9 +3146,16 @@ export default async function SolTrendApp() {
             
             render();
             setupEventListeners();
-            
+
             // Then seed database and load persisted data
             await seedDatabase();
+
+            // Notifications aren't tied to a specific project, so load them
+            // once the company is known and poll for new ones from there -
+            // no websockets in this app, so a periodic refresh is the whole
+            // "live" story.
+            await loadNotifications();
+            setInterval(loadNotifications, 60000);
           }
 
           initializeApp();

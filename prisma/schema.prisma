@@ -20,6 +20,7 @@ model Company {
   crews     Crew[]
   subcontractors Subcontractor[]
   rackingProfiles RackingProfile[]
+  notifications   Notification[]
 }
 
 // User - Team members
@@ -39,6 +40,8 @@ model User {
   inspections Inspection[]
   refusals  Refusal[]
   productionEntries ProductionEntry[]
+  punchItems PunchItem[]
+  delayLogs DelayLog[]
 }
 
 // Project - Solar installation project
@@ -91,6 +94,8 @@ model Project {
   inspections       Inspection[]
   refusals          Refusal[]
   productionEntries ProductionEntry[]
+  punchItems        PunchItem[]
+  delayLogs         DelayLog[]
 }
 
 // Crew - Work crews
@@ -188,6 +193,66 @@ model Refusal {
   user      User     @relation(fields: [userId], references: [id])
   
   @@unique([projectId, pileId])
+}
+
+// Notification - In-app alerts (failed inspection, new refusal, a day's
+// production falling well short of target). No email/SMS - these are read
+// inside the app only, cleared per-company as they're marked read.
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // inspection_fail, refusal, behind_schedule
+  message   String
+  read      Boolean  @default(false)
+  companyId String
+  projectId String?
+  createdAt DateTime @default(now())
+
+  company   Company  @relation(fields: [companyId], references: [id])
+}
+
+// PunchItem - Closeout punch list. Not always tied to a specific pile (a
+// gate repair or exposed grounding cable has no pileId), so location is
+// free text rather than the strict row/pile pair the field-entry models use.
+model PunchItem {
+  id          String    @id @default(cuid())
+  description String
+  location    String?   // free text - pile id, row, or general area
+  status      String    @default("open")   // open, in_progress, resolved
+  priority    String    @default("medium") // low, medium, high
+  assignedTo  String?   // free text name - not required to be a registered user
+  dueDate     DateTime?
+  photos      String?   // JSON string: Array of photo URLs
+  notes       String?
+  resolvedAt  DateTime?
+
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// DelayLog - Non-productive day tracking (weather, permitting holds,
+// equipment down, material shortages). Separate from ProductionEntry so a
+// day can carry a delay reason whether or not any piles were installed -
+// this is what backs up schedule conversations with the client.
+model DelayLog {
+  id          String   @id @default(cuid())
+  date        DateTime
+  reason      String   // weather, permitting_hold, equipment_down, material_shortage, other
+  description String?
+  hoursLost   Float?
+
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, date])
 }
 
 // ProductionEntry - Daily production logs

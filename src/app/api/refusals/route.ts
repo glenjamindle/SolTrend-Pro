@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { createNotification } from '@/lib/notify'
 
 function parsePileId(pileId: string) {
   const parts = String(pileId).split('-')
@@ -103,6 +104,12 @@ export async function POST(request: NextRequest) {
 
     if (!existing) {
       await prisma.project.update({ where: { id: projectId }, data: { refusalCount: { increment: 1 } } })
+      await createNotification({
+        type: 'refusal',
+        message: 'New refusal logged at pile ' + pileId + ' (' + reason + ') on ' + project.name,
+        companyId: project.companyId,
+        projectId,
+      })
     }
 
     return NextResponse.json(refusal)

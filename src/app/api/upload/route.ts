@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { uploadPhoto } from '@/lib/storage'
 
 // POST /api/upload
-// body: { dataUrl: "data:image/jpeg;base64,...", context: "inspection"|"refusal"|"production", pileId?: string }
+// body: { dataUrl: "data:image/jpeg;base64,...", context: "inspection"|"refusal"|"production"|"punchlist", pileId?: string }
 // Uploads one photo (already resized/compressed client-side) to the private
 // storage bucket and returns { key, url }. url is a same-origin path
 // (/api/photos/...) that proxies the bytes back through this app - the
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'dataUrl is required' }, { status: 400 })
     }
 
-    const safeContext = ['inspection', 'refusal', 'production'].includes(context) ? context : 'misc'
+    const safeContext = ['inspection', 'refusal', 'production', 'punchlist'].includes(context) ? context : 'misc'
     const safePileId = typeof pileId === 'string' ? pileId.replace(/[^a-zA-Z0-9_-]/g, '') : ''
     const keyPrefix = [safeContext, safePileId].filter(Boolean).join('/')
 

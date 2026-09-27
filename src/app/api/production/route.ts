@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { createNotification } from '@/lib/notify'
 
 // GET /api/production?projectId=...
 // Returns this project's daily production log, oldest first - the shape the
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
 
     const entries = await prisma.productionEntry.findMany({
       where: { projectId },
-      include: { crew: { select: { name: true } }, user: { select: { name: true } } },
+      include: { crew: { select: { name: true } }, user: { select: { name: true } }, subcontractor: { select: { name: true } } },
       orderBy: { date: 'asc' },
     })
 
@@ -24,6 +25,8 @@ export async function GET(request: NextRequest) {
       modules: e.modulesInstalled,
       crew: e.crew?.name || null,
       user: e.user?.name || null,
+      subcontractorId: e.subcontractorId || null,
+      subcontractor: e.subcontractor?.name || null,
       notes: e.notes || null,
       photos: e.photos ? JSON.parse(e.photos) : [],
     }))
@@ -121,6 +124,19 @@ export async function POST(request: NextRequest) {
           },
         })
       : project
+
+    // Flag a day that came in well short of target - piles only (tables/
+    // modules don't have a daily target to compare against). Only on a new
+    // entry, and only when there's a real target to fall short of, so this
+    // doesn't fire on every re-save of an already-known-short day.
+    if (!existing && project.dailyTarget > 0 && pilesInstalled < project.dailyTarget * 0.5) {
+      await createNotification({
+        type: 'behind_schedule',
+        message: 'Only ' + pilesInstalled + ' of ' + project.dailyTarget + ' target piles logged on ' + entryDate.toISOString().split('T')[0] + ' for ' + project.name,
+        companyId: project.companyId,
+        projectId,
+      })
+    }
 
     return NextResponse.json({
       entry,

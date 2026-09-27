@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { createNotification } from '@/lib/notify'
 
 function parsePileId(pileId: string) {
   const parts = String(pileId).split('-')
@@ -119,6 +120,15 @@ export async function POST(request: NextRequest) {
           passedInspections: passedDelta !== 0 ? { increment: passedDelta } : undefined,
           failedInspections: failedDelta !== 0 ? { increment: failedDelta } : undefined,
         },
+      })
+    }
+
+    if (status === 'fail' && existing?.status !== 'fail') {
+      await createNotification({
+        type: 'inspection_fail',
+        message: 'Inspection failed at pile ' + pileId + (failReason ? ' (' + failReason + ')' : '') + ' on ' + project.name,
+        companyId: project.companyId,
+        projectId,
       })
     }
 
