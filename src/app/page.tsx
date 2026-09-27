@@ -161,8 +161,168 @@ export default async function SolTrendApp() {
             delays: [],
             delayDate: new Date().toISOString().split('T')[0], delayReason: null, delayHours: '', delayDescription: '',
             punchItems: [], punchFilter: 'open', punchFormOpen: false,
-            punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: []
+            punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: [],
+            pendingSyncCount: 0
           };
+
+          // OFFLINE SUPPORT
+          // Everything below makes the current project usable with no
+          // signal: cached reads, a local write queue for creates/updates,
+          // and a service worker so the app itself (not just its data) can
+          // boot from cache. It's all built on top of window.fetch, which
+          // every API call in this file already goes through - so nothing
+          // elsewhere needs to change to benefit from it.
+          //
+          // Scope, deliberately: only the currently-open project's data is
+          // cached (switching projects needs a live connection), and only
+          // creates/updates (POST/PUT) are queued - deletes still require a
+          // connection, since replaying a queued delete against data that
+          // may have changed on the server in the meantime is a much easier
+          // way to lose someone else's work than a queued create/update is.
+          const originalFetch = window.fetch.bind(window);
+          let offlineDbPromise = null;
+          function openOfflineDB() {
+            if (offlineDbPromise) return offlineDbPromise;
+            offlineDbPromise = new Promise(function(resolve, reject) {
+              if (!('indexedDB' in window)) { reject(new Error('IndexedDB unavailable')); return; }
+              const req = indexedDB.open('soltrend-offline', 1);
+              req.onupgradeneeded = function() {
+                const db = req.result;
+                if (!db.objectStoreNames.contains('pendingWrites')) db.createObjectStore('pendingWrites', { keyPath: 'id', autoIncrement: true });
+                if (!db.objectStoreNames.contains('getCache')) db.createObjectStore('getCache', { keyPath: 'url' });
+              };
+              req.onsuccess = function() { resolve(req.result); };
+              req.onerror = function() { reject(req.error); };
+            });
+            return offlineDbPromise;
+          }
+          function idbRequest(storeName, mode, fn) {
+            return openOfflineDB().then(function(db) {
+              return new Promise(function(resolve, reject) {
+                const tx = db.transaction(storeName, mode);
+                const store = tx.objectStore(storeName);
+                const result = fn(store);
+                tx.oncomplete = function() { resolve(result && result.result !== undefined ? result.result : result); };
+                tx.onerror = function() { reject(tx.error); };
+              });
+            });
+          }
+          function idbPut(storeName, value) { return idbRequest(storeName, 'readwrite', function(store) { return store.put(value); }).catch(function() {}); }
+          function idbGet(storeName, key) { return idbRequest(storeName, 'readonly', function(store) { return store.get(key); }).catch(function() { return undefined; }); }
+          function idbGetAll(storeName) { return idbRequest(storeName, 'readonly', function(store) { return store.getAll(); }).catch(function() { return []; }); }
+          function idbDelete(storeName, key) { return idbRequest(storeName, 'readwrite', function(store) { return store.delete(key); }).catch(function() {}); }
+
+          async function updatePendingSyncBadge() {
+            const items = await idbGetAll('pendingWrites');
+            const count = (items || []).length;
+            if (count !== state.pendingSyncCount) { state.pendingSyncCount = count; render(); }
+          }
+
+          function buildPendingUploadResponse(options) {
+            let payload = {};
+            try { payload = JSON.parse(options.body); } catch (e) {}
+            // No real upload happened - the photo's own data URL stands in
+            // as its "url" for now (which is also a valid <img src>, so
+            // thumbnails still render normally), tagged so the queued
+            // record that references it knows to redo this for real once
+            // back online.
+            return new Response(JSON.stringify({
+              url: payload.dataUrl, key: null, pendingUpload: true,
+              uploadContext: payload.context, uploadPileId: payload.pileId
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+
+          async function queueWrite(url, options) {
+            await idbPut('pendingWrites', { url: url, method: options.method || 'POST', headers: options.headers || { 'Content-Type': 'application/json' }, body: options.body || null, timestamp: Date.now() });
+            updatePendingSyncBadge();
+          }
+
+          // Every fetch() call in this file goes through here. GET requests
+          // to /api/ are cached on success and served from that cache if the
+          // network fails; POST/PUT are queued on failure (photo uploads get
+          // a local placeholder instead - see buildPendingUploadResponse).
+          window.fetch = async function(url, options) {
+            options = options || {};
+            const method = (options.method || 'GET').toUpperCase();
+            const isApi = typeof url === 'string' && url.indexOf('/api/') === 0;
+            if (!isApi) return originalFetch(url, options);
+
+            if (method === 'GET') {
+              try {
+                const res = await originalFetch(url, options);
+                if (res && res.ok) {
+                  res.clone().text().then(function(text) { idbPut('getCache', { url: url, body: text, timestamp: Date.now() }); }).catch(function() {});
+                }
+                return res;
+              } catch (err) {
+                const cached = await idbGet('getCache', url);
+                if (cached) return new Response(cached.body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+                throw err;
+              }
+            }
+
+            if (method === 'POST' || method === 'PUT') {
+              try {
+                return await originalFetch(url, options);
+              } catch (err) {
+                if (url === '/api/upload') return buildPendingUploadResponse(options);
+                await queueWrite(url, options);
+                return new Response(JSON.stringify({ queued: true }), { status: 202, headers: { 'Content-Type': 'application/json' } });
+              }
+            }
+
+            // DELETE and anything else: unchanged behavior, no offline queueing.
+            return originalFetch(url, options);
+          };
+
+          async function flushPendingWrites() {
+            const items = (await idbGetAll('pendingWrites')).sort(function(a, b) { return a.timestamp - b.timestamp; });
+            let syncedCount = 0;
+            for (const item of items) {
+              try {
+                let body = item.body;
+                if (typeof body === 'string' && body.indexOf('"pendingUpload":true') !== -1) {
+                  const parsed = JSON.parse(body);
+                  if (Array.isArray(parsed.photos)) {
+                    for (const photo of parsed.photos) {
+                      if (!photo.pendingUpload) continue;
+                      const upRes = await originalFetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: photo.url, context: photo.uploadContext, pileId: photo.uploadPileId }) });
+                      const upData = await upRes.json();
+                      if (upData.url) { photo.url = upData.url; photo.key = upData.key; }
+                      delete photo.pendingUpload; delete photo.uploadContext; delete photo.uploadPileId;
+                    }
+                  }
+                  body = JSON.stringify(parsed);
+                }
+                const res = await originalFetch(item.url, { method: item.method, headers: item.headers, body: body });
+                if (!res.ok) throw new Error('Sync failed with status ' + res.status);
+                await idbDelete('pendingWrites', item.id);
+                syncedCount++;
+              } catch (err) {
+                console.error('Offline sync error, will retry later:', err);
+                break; // Stop here so the remaining queue stays in order for the next attempt.
+              }
+            }
+            await updatePendingSyncBadge();
+            if (syncedCount > 0 && state.currentProject) loadProjectData();
+            return syncedCount;
+          }
+
+          function renderOfflineBanner() {
+            if (state.isOnline && state.pendingSyncCount === 0) return '';
+            if (!state.isOnline) {
+              return '<div class="mb-4 px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.35); color: #eab308;">' + icon('wifi-off', 'w-4 h-4 flex-shrink-0') + '<span>You\\'re offline. Changes save on this device and sync automatically once you\\'re back online' + (state.pendingSyncCount > 0 ? ' (' + state.pendingSyncCount + ' pending)' : '') + '.</span></div>';
+            }
+            return '<div class="mb-4 px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); color: #f59e0b;">' + icon('refresh-cw', 'w-4 h-4 flex-shrink-0') + '<span>Syncing ' + state.pendingSyncCount + ' offline change' + (state.pendingSyncCount === 1 ? '' : 's') + '...</span></div>';
+          }
+
+          if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+              navigator.serviceWorker.register('/sw.js').catch(function(e) { console.error('Service worker registration failed:', e); });
+            });
+          }
+          window.addEventListener('online', function() { state.isOnline = true; render(); flushPendingWrites(); });
+          window.addEventListener('offline', function() { state.isOnline = false; render(); });
 
           // UTILITY FUNCTIONS
           function formatDate(dateStr) { const date = new Date(dateStr); return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
@@ -3093,7 +3253,7 @@ export default async function SolTrendApp() {
           // MAIN RENDER
           function render() {
             const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings };
-            const content = views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>';
+            const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div>' + renderNotifBell() + '</div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '');
             if (window.lucide) lucide.createIcons();
           }
@@ -3156,6 +3316,11 @@ export default async function SolTrendApp() {
             // Show loading state
             render();
             requestAnimationFrame(() => requestAnimationFrame(revealApp));
+
+            // Pick up any changes queued from a previous offline session -
+            // if we're online now, sync them before loading fresh data.
+            updatePendingSyncBadge();
+            if (navigator.onLine) flushPendingWrites();
 
             // Try to load settings from database first
             await loadSettings();
