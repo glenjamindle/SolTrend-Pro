@@ -42,6 +42,14 @@ model User {
   productionEntries ProductionEntry[]
   punchItems PunchItem[]
   delayLogs DelayLog[]
+  toolboxTalks ToolboxTalk[]
+  safetyObservations SafetyObservation[]
+  safetyIncidents SafetyIncident[]
+  milestones Milestone[]
+  documents Document[]
+  cois Coi[]
+  materials Material[]
+  deliveries Delivery[]
 }
 
 // Project - Solar installation project
@@ -96,6 +104,14 @@ model Project {
   productionEntries ProductionEntry[]
   punchItems        PunchItem[]
   delayLogs         DelayLog[]
+  toolboxTalks       ToolboxTalk[]
+  safetyObservations SafetyObservation[]
+  safetyIncidents    SafetyIncident[]
+  milestones         Milestone[]
+  documents          Document[]
+  cois               Coi[]
+  materials          Material[]
+  deliveries         Delivery[]
 }
 
 // Crew - Work crews
@@ -127,6 +143,7 @@ model Subcontractor {
   
   company           Company           @relation(fields: [companyId], references: [id])
   productionEntries ProductionEntry[]
+  cois              Coi[]
 }
 
 // RackingProfile - Manufacturer tolerance configurations
@@ -253,6 +270,170 @@ model DelayLog {
   user      User     @relation(fields: [userId], references: [id])
 
   @@unique([projectId, date])
+}
+
+// ToolboxTalk - Safety - brief pre-shift safety topic covered with a crew.
+model ToolboxTalk {
+  id            String   @id @default(cuid())
+  topic         String
+  conductedBy   String   // free text name - not required to be a registered user
+  crewName      String?
+  attendeeCount Int      @default(0)
+  notes         String?
+  date          DateTime @default(now())
+
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// SafetyObservation - Safety - a positive or at-risk behavior/condition
+// spotted in the field, logged the same way an inspection or refusal is.
+model SafetyObservation {
+  id          String   @id @default(cuid())
+  type        String   // positive, at_risk
+  category    String   // ppe, housekeeping, fall_protection, equipment, other
+  location    String?  // free text - pile id, row, or general area
+  description String
+  photos      String?  // JSON string: Array of photo URLs
+
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// SafetyIncident - Safety - near-misses and actual incidents, with a
+// corrective action and an open/closed status so nothing gets dropped.
+model SafetyIncident {
+  id               String    @id @default(cuid())
+  severity         String    // near_miss, minor, recordable
+  description      String
+  correctiveAction String?
+  status           String    @default("open") // open, closed
+  photos           String?   // JSON string
+  resolvedAt       DateTime?
+
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// Milestone - Schedule - planned vs actual for major project phases. The
+// client treats "Pile Driving" specially: its actual percentComplete is
+// derived live from the project's real installed/total pile counts rather
+// than typed in by hand, the same source of truth as everywhere else in
+// the app. Every other phase tracks percentComplete directly.
+model Milestone {
+  id              String    @id @default(cuid())
+  phase           String    // e.g. "Mobilization", "Pile Driving", "Racking Install"
+  sortOrder       Int       @default(0)
+  plannedStart    DateTime?
+  plannedEnd      DateTime?
+  actualStart     DateTime?
+  actualEnd       DateTime?
+  status          String    @default("not_started") // not_started, on_track, at_risk, delayed, complete
+  percentComplete Int       @default(0)
+
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// Document - Documents & COI - project paperwork: site plans, IFC drawing
+// sets, permits, as-builts, spec sheets. fileKey/fileUrl point at the same
+// private storage bucket photos use (see uploadFile in lib/storage.ts) -
+// fileUrl is a same-origin /api/photos/<key> path regardless of file type,
+// since that route just streams whatever bytes/content-type it finds.
+model Document {
+  id       String  @id @default(cuid())
+  title    String
+  category String  // site_plans, ifc_drawings, as_builts, permits, specs, other
+  fileKey  String
+  fileUrl  String
+  fileType String? // original MIME type
+  fileSize Int?    // bytes
+
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// Coi - Documents & COI - subcontractor certificates of insurance, tracked
+// per coverage type with an expiration date so the app can flag one going
+// stale before it actually lapses (see coiStatus() in page.tsx).
+model Coi {
+  id           String   @id @default(cuid())
+  coverageType String   // general_liability, workers_comp, auto_liability, umbrella, other
+  expiresAt    DateTime
+  fileKey      String?
+  fileUrl      String?
+
+  subcontractorId String
+  projectId       String
+  userId          String
+  createdAt       DateTime @default(now())
+
+  subcontractor Subcontractor @relation(fields: [subcontractorId], references: [id])
+  project       Project       @relation(fields: [projectId], references: [id])
+  user          User          @relation(fields: [userId], references: [id])
+}
+
+// Material - Materials - bill-of-materials line items tracked against what
+// has actually been delivered to site. deliveredQty is a running total,
+// kept in sync from each Delivery entry rather than typed by hand.
+model Material {
+  id           String    @id @default(cuid())
+  name         String
+  orderedQty   Int       @default(0)
+  deliveredQty Int       @default(0)
+  unit         String    @default("units")
+  expectedDate DateTime?
+  supplier     String?
+
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project    Project    @relation(fields: [projectId], references: [id])
+  user       User       @relation(fields: [userId], references: [id])
+  deliveries Delivery[]
+}
+
+// Delivery - Materials - individual delivery log entries against a
+// Material line item; each one increments that material's deliveredQty.
+model Delivery {
+  id         String   @id @default(cuid())
+  quantity   Int
+  supplier   String?
+  receivedBy String?  // free text name
+  date       DateTime @default(now())
+  notes      String?
+
+  materialId String
+  projectId  String
+  userId     String
+  createdAt  DateTime @default(now())
+
+  material Material @relation(fields: [materialId], references: [id])
+  project  Project  @relation(fields: [projectId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
 }
 
 // ProductionEntry - Daily production logs

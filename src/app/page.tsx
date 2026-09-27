@@ -162,7 +162,24 @@ export default async function SolTrendApp() {
             delayDate: new Date().toISOString().split('T')[0], delayReason: null, delayHours: '', delayDescription: '',
             punchItems: [], punchFilter: 'open', punchFormOpen: false,
             punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: [],
-            pendingSyncCount: 0
+            pendingSyncCount: 0,
+            // SAFETY
+            toolboxTalks: [], safetyObservations: [], safetyIncidents: [],
+            safetyTab: 'talks',
+            talkTopic: '', talkConductedBy: '', talkCrewName: '', talkAttendeeCount: '', talkNotes: '',
+            obsType: 'positive', obsCategory: null, obsLocation: '', obsDescription: '', obsPhotos: [],
+            incidentSeverity: null, incidentDescription: '', incidentCorrectiveAction: '', incidentPhotos: [],
+            // SCHEDULE
+            milestones: [], milestoneFormOpen: false, editingMilestoneId: null,
+            milestonePhase: '', milestonePlannedStart: '', milestonePlannedEnd: '', milestoneActualStart: '', milestoneActualEnd: '', milestoneStatus: 'not_started', milestonePercent: '',
+            // DOCUMENTS & COI
+            documents: [], cois: [], documentsTab: 'library',
+            docFormOpen: false, docTitle: '', docCategory: 'site_plans', docPendingFile: null,
+            coiFormOpen: false, coiSubcontractorId: '', coiCoverageType: 'general_liability', coiExpiresAt: '', coiPendingFile: null,
+            // MATERIALS
+            materials: [], deliveries: [],
+            materialFormOpen: false, materialName: '', materialOrderedQty: '', materialUnit: 'units', materialExpectedDate: '', materialSupplier: '',
+            deliveryFormOpen: false, deliveryMaterialId: '', deliveryQty: '', deliverySupplier: '', deliveryReceivedBy: '', deliveryNotes: ''
           };
 
           // OFFLINE SUPPORT
@@ -492,6 +509,13 @@ export default async function SolTrendApp() {
             } catch(e) {}
           }
           function icon(name, className = '') { return '<i data-lucide="' + name + '" class="' + className + '"></i>'; }
+          // Small pill badge for any status that isn't a plain pass/fail/open
+          // (those already have real CSS classes above) - takes a hex color
+          // and derives a translucent background/border from it so Safety,
+          // Schedule, Documents, and Materials don't need their own CSS.
+          function statusBadge(label, hex) {
+            return '<span class="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full" style="background:' + hex + '22;color:' + hex + ';border:1px solid ' + hex + '55;">' + label + '</span>';
+          }
 
           // PHOTO CAPTURE HANDLING
           function triggerPhotoInput(context) { document.getElementById('photoInput-' + context).click(); }
@@ -512,6 +536,8 @@ export default async function SolTrendApp() {
                 else if (context === 'inspection') state.inspectionPhotos.push(photoObj);
                 else if (context === 'refusal') state.refusalPhotos.push(photoObj);
                 else if (context === 'punchlist') state.punchPhotos.push(photoObj);
+                else if (context === 'safety-obs') state.obsPhotos.push(photoObj);
+                else if (context === 'safety-incident') state.incidentPhotos.push(photoObj);
                 render();
               };
             };
@@ -523,6 +549,8 @@ export default async function SolTrendApp() {
             else if (context === 'inspection') state.inspectionPhotos = state.inspectionPhotos.filter(p => p.id !== id);
             else if (context === 'refusal') state.refusalPhotos = state.refusalPhotos.filter(p => p.id !== id);
             else if (context === 'punchlist') state.punchPhotos = state.punchPhotos.filter(p => p.id !== id);
+            else if (context === 'safety-obs') state.obsPhotos = state.obsPhotos.filter(p => p.id !== id);
+            else if (context === 'safety-incident') state.incidentPhotos = state.incidentPhotos.filter(p => p.id !== id);
             render();
           }
           function renderPhotoCapture(context) {
@@ -531,6 +559,8 @@ export default async function SolTrendApp() {
             else if (context === 'inspection') photos = state.inspectionPhotos;
             else if (context === 'refusal') photos = state.refusalPhotos;
             else if (context === 'punchlist') photos = state.punchPhotos;
+            else if (context === 'safety-obs') photos = state.obsPhotos;
+            else if (context === 'safety-incident') photos = state.incidentPhotos;
             return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><div class="flex items-center gap-3"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photo</span></button><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn w-12 h-12 rounded-xl flex items-center justify-center text-slate-400 hover:text-white">' + icon('image', 'w-5 h-5') + '</button></div>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
           }
 
@@ -581,11 +611,19 @@ export default async function SolTrendApp() {
               { title: 'Overview', items: [{ id: 'company', label: 'Company Dashboard', icon: 'building-2' }] },
               { title: 'Project', items: [
                 { id: 'dashboard', label: 'Project Dashboard', icon: 'layout-dashboard' },
+                { id: 'schedule', label: 'Schedule', icon: 'calendar-range' },
                 { id: 'production', label: 'Production', icon: 'truck' },
                 { id: 'inspection', label: 'QC Inspection', icon: 'clipboard-check' },
                 { id: 'refusal', label: 'Refusals', icon: 'alert-triangle' },
                 { id: 'delays', label: 'Delays', icon: 'cloud-rain' },
+                { id: 'materials', label: 'Materials', icon: 'package' },
                 { id: 'heatmap', label: 'Pile Map', icon: 'map' },
+              ]},
+              { title: 'Safety', items: [
+                { id: 'safety', label: 'Safety', icon: 'hard-hat' },
+              ]},
+              { title: 'Documents', items: [
+                { id: 'documents', label: 'Documents & COI', icon: 'folder' },
               ]},
               { title: 'Closeout', items: [
                 { id: 'punchlist', label: 'Punch List', icon: 'list-checks' },
@@ -2201,8 +2239,635 @@ export default async function SolTrendApp() {
             state.production = [];
             state.delays = [];
             state.punchItems = [];
-            await Promise.all([loadInspections(), loadRefusals(), loadProduction(), loadDelays(), loadPunchItems()]);
+            state.toolboxTalks = [];
+            state.safetyObservations = [];
+            state.safetyIncidents = [];
+            state.milestones = [];
+            state.documents = [];
+            state.cois = [];
+            state.materials = [];
+            state.deliveries = [];
+            await Promise.all([
+              loadInspections(), loadRefusals(), loadProduction(), loadDelays(), loadPunchItems(),
+              loadToolboxTalks(), loadSafetyObservations(), loadSafetyIncidents(),
+              loadMilestones(), loadDocuments(), loadCois(), loadMaterials(), loadDeliveries()
+            ]);
             render();
+          }
+
+          async function loadToolboxTalks() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/safety/toolbox-talks?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.toolboxTalks = data; render(); }
+            } catch (e) { console.error('Load toolbox talks error:', e); }
+          }
+          async function loadSafetyObservations() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/safety/observations?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.safetyObservations = data; render(); }
+            } catch (e) { console.error('Load safety observations error:', e); }
+          }
+          async function loadSafetyIncidents() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/safety/incidents?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.safetyIncidents = data; render(); }
+            } catch (e) { console.error('Load safety incidents error:', e); }
+          }
+          async function loadMilestones() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/milestones?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.milestones = data; render(); }
+            } catch (e) { console.error('Load milestones error:', e); }
+          }
+          async function loadDocuments() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/documents?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.documents = data; render(); }
+            } catch (e) { console.error('Load documents error:', e); }
+          }
+          async function loadCois() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/coi?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.cois = data; render(); }
+            } catch (e) { console.error('Load COIs error:', e); }
+          }
+          async function loadMaterials() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/materials?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.materials = data; render(); }
+            } catch (e) { console.error('Load materials error:', e); }
+          }
+          async function loadDeliveries() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/deliveries?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.deliveries = data; render(); }
+            } catch (e) { console.error('Load deliveries error:', e); }
+          }
+
+          // SAFETY - toolbox talks, observations, and incidents. Three
+          // sub-tabs on one screen, same shape as the Analytics tabs.
+          function renderSafety() {
+            const tabs = [
+              { id: 'talks', label: 'Toolbox Talks' },
+              { id: 'observations', label: 'Observations' },
+              { id: 'incidents', label: 'Incidents' }
+            ];
+            const sortedIncidents = state.safetyIncidents.slice().sort(function(a, b) { return new Date(b.createdAt) - new Date(a.createdAt); });
+            const daysSinceIncident = sortedIncidents.length > 0 ? Math.floor((Date.now() - new Date(sortedIncidents[0].createdAt).getTime()) / 86400000) : null;
+            const now = new Date();
+            const thisMonthTalks = state.toolboxTalks.filter(function(t) { const d = new Date(t.date); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); }).length;
+            const thisMonthObs = state.safetyObservations.filter(function(o) { const d = new Date(o.createdAt); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); }).length;
+            const openIncidents = state.safetyIncidents.filter(function(i) { return i.status !== 'closed'; }).length;
+
+            const statRow = '<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Days Since Last Incident</p><p class="text-2xl font-display font-bold ' + (daysSinceIncident === null ? 'text-slate-500' : 'text-emerald-400') + '">' + (daysSinceIncident === null ? '—' : daysSinceIncident) + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Talks This Month</p><p class="text-2xl font-display font-bold text-white">' + thisMonthTalks + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Observations This Month</p><p class="text-2xl font-display font-bold text-white">' + thisMonthObs + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Open Corrective Actions</p><p class="text-2xl font-display font-bold ' + (openIncidents > 0 ? 'text-amber-400' : 'text-white') + '">' + openIncidents + '</p></div>' +
+            '</div>';
+
+            const tabBar = '<div class="flex gap-2 mb-4 flex-wrap">' + tabs.map(function(t) { return '<button onclick="setSafetyTab(\\'' + t.id + '\\')" class="mode-btn ' + (state.safetyTab === t.id ? 'mode-btn-active' : 'mode-btn-inactive') + '">' + t.label + '</button>'; }).join('') + '</div>';
+
+            const body = state.safetyTab === 'talks' ? renderToolboxTalksTab() : state.safetyTab === 'observations' ? renderObservationsTab() : renderIncidentsTab();
+
+            return '<div class="space-y-4 animate-fade-in max-w-2xl mx-auto">' +
+              '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Safety</h1></div>' +
+              statRow + tabBar + body +
+            '</div>';
+          }
+          function setSafetyTab(tab) { state.safetyTab = tab; render(); }
+
+          function renderToolboxTalksTab() {
+            const talks = state.toolboxTalks;
+            return '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+              '<h3 class="font-display font-semibold text-white text-sm">Log a Toolbox Talk</h3>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Topic</label><input type="text" value="' + (state.talkTopic || '') + '" oninput="state.talkTopic=this.value" placeholder="e.g. Ladder Safety" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div class="grid grid-cols-2 gap-3">' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Conducted By</label><input type="text" value="' + (state.talkConductedBy || '') + '" oninput="state.talkConductedBy=this.value" placeholder="' + (state.currentUser.name || '') + '" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Crew</label><select oninput="state.talkCrewName=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">—</option>' + state.crews.map(function(c) { return '<option value="' + c.name + '"' + (state.talkCrewName === c.name ? ' selected' : '') + '>' + c.name + '</option>'; }).join('') + '</select></div>' +
+              '</div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Attendees</label><input type="number" min="0" value="' + (state.talkAttendeeCount || '') + '" oninput="state.talkAttendeeCount=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Notes</label><textarea rows="2" oninput="state.talkNotes=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.talkNotes || '') + '</textarea></div>' +
+              '<button onclick="submitToolboxTalk()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Log Talk</button>' +
+            '</div>' +
+            '<div class="space-y-2">' + (talks.length > 0 ? talks.map(function(t) {
+              return '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-sm font-medium text-white">' + t.topic + '</p><p class="text-xs text-slate-500">' + (t.conductedBy || '') + (t.crewName ? ' · ' + t.crewName : '') + ' · ' + t.attendeeCount + ' attendees</p></div><span class="text-xs text-slate-500">' + formatDate(t.date) + '</span></div>';
+            }).join('') : '<p class="text-sm text-slate-500">No toolbox talks logged yet.</p>') + '</div>';
+          }
+          function submitToolboxTalk() {
+            hapticFeedback();
+            const conductedBy = state.talkConductedBy || state.currentUser.name;
+            if (!state.talkTopic || !state.talkTopic.trim() || !conductedBy) { alert('Enter a topic and who conducted it.'); return; }
+            const talk = { topic: state.talkTopic.trim(), conductedBy: conductedBy, crewName: state.talkCrewName || null, attendeeCount: state.talkAttendeeCount ? parseInt(state.talkAttendeeCount) : 0, notes: state.talkNotes || null, date: new Date().toISOString() };
+            state.toolboxTalks.unshift(talk);
+            state.talkTopic = ''; state.talkNotes = ''; state.talkAttendeeCount = ''; state.talkCrewName = '';
+            render();
+            saveToolboxTalk(talk);
+          }
+          async function saveToolboxTalk(talk) {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              await fetch('/api/safety/toolbox-talks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, topic: talk.topic, conductedBy: talk.conductedBy, crewName: talk.crewName, attendeeCount: talk.attendeeCount, notes: talk.notes, loggedBy: state.currentUser.id }) });
+            } catch (e) { console.error('Save toolbox talk error:', e); }
+          }
+
+          function renderObservationsTab() {
+            const categories = [
+              { id: 'ppe', label: 'PPE' },
+              { id: 'housekeeping', label: 'Housekeeping' },
+              { id: 'fall_protection', label: 'Fall Protection' },
+              { id: 'equipment', label: 'Equipment' },
+              { id: 'other', label: 'Other' }
+            ];
+            const obs = state.safetyObservations;
+            return '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+              '<h3 class="font-display font-semibold text-white text-sm">New Observation</h3>' +
+              '<div class="grid grid-cols-2 gap-2">' +
+                '<button onclick="setObsType(\\'positive\\')" class="mode-btn ' + (state.obsType === 'positive' ? 'mode-btn-active' : 'mode-btn-inactive') + '">Positive</button>' +
+                '<button onclick="setObsType(\\'at_risk\\')" class="mode-btn ' + (state.obsType === 'at_risk' ? 'mode-btn-active' : 'mode-btn-inactive') + '">At-Risk</button>' +
+              '</div>' +
+              '<div class="grid grid-cols-3 gap-2">' + categories.map(function(c) { return '<button onclick="setObsCategory(\\'' + c.id + '\\')" class="reason-btn ' + (state.obsCategory === c.id ? 'reason-btn-selected' : '') + '"><span class="text-xs text-white">' + c.label + '</span></button>'; }).join('') + '</div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Location</label><input type="text" value="' + (state.obsLocation || '') + '" oninput="state.obsLocation=this.value" placeholder="e.g. Row 12" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Description</label><textarea rows="2" oninput="state.obsDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.obsDescription || '') + '</textarea></div>' +
+              renderPhotoCapture('safety-obs') +
+              '<button onclick="submitObservation()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Log Observation</button>' +
+            '</div>' +
+            '<div class="space-y-2">' + (obs.length > 0 ? obs.map(function(o) {
+              return '<div class="card rounded-xl p-4"><div class="flex items-start justify-between gap-3"><div><p class="text-sm font-medium text-white">' + o.description + '</p><p class="text-xs text-slate-500 capitalize">' + o.category.replace(/_/g, ' ') + (o.location ? ' · ' + o.location : '') + ' · ' + o.reportedBy + ' · ' + formatDate(o.createdAt) + '</p></div><span class="badge-pill ' + (o.type === 'positive' ? 'badge-pass' : 'badge-fail') + ' text-[10px] px-2 py-1 rounded-full flex-shrink-0">' + (o.type === 'positive' ? 'Positive' : 'At-Risk') + '</span></div></div>';
+            }).join('') : '<p class="text-sm text-slate-500">No observations logged yet.</p>') + '</div>';
+          }
+          function setObsType(type) { hapticFeedback(); state.obsType = type; render(); }
+          function setObsCategory(cat) { hapticFeedback(); state.obsCategory = cat; render(); }
+          function submitObservation() {
+            hapticFeedback();
+            if (!state.obsCategory || !state.obsDescription || !state.obsDescription.trim()) { alert('Pick a category and describe what you saw.'); return; }
+            const localPhotos = state.obsPhotos.map(function(p) { return { url: p.url, timestamp: p.timestamp, gps: p.gps }; });
+            const obs = { id: 'local_' + Date.now(), type: state.obsType, category: state.obsCategory, location: state.obsLocation || null, description: state.obsDescription.trim(), photos: localPhotos, reportedBy: state.currentUser.name, createdAt: new Date().toISOString() };
+            state.safetyObservations.unshift(obs);
+            const photosToUpload = state.obsPhotos;
+            state.obsCategory = null; state.obsLocation = ''; state.obsDescription = ''; state.obsPhotos = [];
+            render();
+            saveObservation(obs, photosToUpload);
+          }
+          async function saveObservation(obs, photosToUpload) {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const uploadedPhotos = await uploadPendingPhotos(photosToUpload, 'safety', null);
+              const res = await fetch('/api/safety/observations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, type: obs.type, category: obs.category, location: obs.location, description: obs.description, photos: uploadedPhotos, reportedBy: state.currentUser.id }) });
+              const created = await res.json();
+              if (created && created.id) { const idx = state.safetyObservations.findIndex(function(o) { return o.id === obs.id; }); if (idx >= 0) { state.safetyObservations[idx].id = created.id; render(); } }
+            } catch (e) { console.error('Save observation error:', e); }
+          }
+
+          function renderIncidentsTab() {
+            const severities = [
+              { id: 'near_miss', label: 'Near-Miss', hex: '#3b82f6' },
+              { id: 'minor', label: 'Minor', hex: '#eab308' },
+              { id: 'recordable', label: 'Recordable', hex: '#ef4444' }
+            ];
+            const sevMap = {}; severities.forEach(function(s) { sevMap[s.id] = s; });
+            const incidents = state.safetyIncidents;
+            return '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+              '<h3 class="font-display font-semibold text-white text-sm">Report an Incident</h3>' +
+              '<div class="grid grid-cols-3 gap-2">' + severities.map(function(s) { return '<button onclick="setIncidentSeverity(\\'' + s.id + '\\')" class="reason-btn ' + (state.incidentSeverity === s.id ? 'reason-btn-selected' : '') + '"><span class="text-xs text-white">' + s.label + '</span></button>'; }).join('') + '</div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">What happened</label><textarea rows="2" oninput="state.incidentDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.incidentDescription || '') + '</textarea></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Corrective Action (optional)</label><textarea rows="2" oninput="state.incidentCorrectiveAction=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.incidentCorrectiveAction || '') + '</textarea></div>' +
+              renderPhotoCapture('safety-incident') +
+              '<button onclick="submitIncident()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Report Incident</button>' +
+            '</div>' +
+            '<div class="space-y-2">' + (incidents.length > 0 ? incidents.map(function(i) {
+              const sev = sevMap[i.severity] || { label: i.severity, hex: '#64748b' };
+              return '<div class="card rounded-xl p-4"><div class="flex items-start justify-between gap-3"><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white">' + i.description + '</p>' + (i.correctiveAction ? '<p class="text-xs text-slate-400 mt-1">Corrective action: ' + i.correctiveAction + '</p>' : '') + '<p class="text-xs text-slate-500 mt-1">' + i.reportedBy + ' · ' + formatDate(i.createdAt) + '</p></div><div class="flex flex-col items-end gap-2 flex-shrink-0">' + statusBadge(sev.label, sev.hex) + (i.status === 'closed' ? '<span class="text-xs text-emerald-400">Closed</span>' : '<button onclick="closeIncident(\\'' + i.id + '\\')" class="text-xs text-amber-400 hover:text-amber-300">Close out</button>') + '</div></div></div>';
+            }).join('') : '<p class="text-sm text-slate-500">No incidents reported. Nice work.</p>') + '</div>';
+          }
+          function setIncidentSeverity(s) { hapticFeedback(); state.incidentSeverity = s; render(); }
+          function submitIncident() {
+            hapticFeedback();
+            if (!state.incidentSeverity || !state.incidentDescription || !state.incidentDescription.trim()) { alert('Pick a severity and describe what happened.'); return; }
+            const localPhotos = state.incidentPhotos.map(function(p) { return { url: p.url, timestamp: p.timestamp, gps: p.gps }; });
+            const incident = { id: 'local_' + Date.now(), severity: state.incidentSeverity, description: state.incidentDescription.trim(), correctiveAction: state.incidentCorrectiveAction || null, status: 'open', photos: localPhotos, resolvedAt: null, reportedBy: state.currentUser.name, createdAt: new Date().toISOString() };
+            state.safetyIncidents.unshift(incident);
+            const photosToUpload = state.incidentPhotos;
+            state.incidentSeverity = null; state.incidentDescription = ''; state.incidentCorrectiveAction = ''; state.incidentPhotos = [];
+            render();
+            saveIncident(incident, photosToUpload);
+          }
+          async function saveIncident(incident, photosToUpload) {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const uploadedPhotos = await uploadPendingPhotos(photosToUpload, 'safety', null);
+              const res = await fetch('/api/safety/incidents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, severity: incident.severity, description: incident.description, correctiveAction: incident.correctiveAction, photos: uploadedPhotos, reportedBy: state.currentUser.id }) });
+              const created = await res.json();
+              if (created && created.id) { const idx = state.safetyIncidents.findIndex(function(i) { return i.id === incident.id; }); if (idx >= 0) { state.safetyIncidents[idx].id = created.id; render(); } }
+            } catch (e) { console.error('Save incident error:', e); }
+          }
+          function closeIncident(id) {
+            hapticFeedback();
+            const idx = state.safetyIncidents.findIndex(function(i) { return i.id === id; });
+            if (idx < 0) return;
+            state.safetyIncidents[idx].status = 'closed';
+            state.safetyIncidents[idx].resolvedAt = new Date().toISOString();
+            render();
+            const projectId = state.currentProject?.id || 'proj_001';
+            fetch('/api/safety/incidents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, projectId: projectId, status: 'closed' }) }).catch(function(e) { console.error('Close incident error:', e); });
+          }
+
+          // SCHEDULE - planned vs. actual milestones. Pile Driving's percent
+          // is derived live from the project's real installed/total pile
+          // counts (same source of truth as everywhere else) rather than
+          // typed in by hand; every other phase tracks percentComplete
+          // directly.
+          function renderSchedule() {
+            const milestones = state.milestones.slice().sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+            const statusHex = { on_track: '#22c55e', at_risk: '#eab308', delayed: '#ef4444', complete: '#22c55e', not_started: '#64748b' };
+            const statusLabel = { on_track: 'On Track', at_risk: 'At Risk', delayed: 'Delayed', complete: 'Complete', not_started: 'Not Started' };
+
+            function effectivePercent(m) {
+              if (m.phase && m.phase.trim().toLowerCase() === 'pile driving' && state.currentProject && state.currentProject.totalPiles) {
+                return Math.round(100 * (state.currentProject.installedPiles || 0) / state.currentProject.totalPiles);
+              }
+              return m.percentComplete || 0;
+            }
+
+            const dates = [];
+            milestones.forEach(function(m) { if (m.plannedStart) dates.push(new Date(m.plannedStart).getTime()); if (m.plannedEnd) dates.push(new Date(m.plannedEnd).getTime()); });
+            const rangeStart = dates.length ? Math.min.apply(null, dates) : Date.now();
+            const rangeEnd = dates.length ? Math.max.apply(null, dates) : Date.now() + 86400000 * 90;
+            const rangeSpan = Math.max(1, rangeEnd - rangeStart);
+            function pct(dateStr) { if (!dateStr) return null; return Math.max(0, Math.min(100, ((new Date(dateStr).getTime() - rangeStart) / rangeSpan) * 100)); }
+
+            const gantt = milestones.length > 0 ? '<div class="card rounded-xl p-5 mb-4 space-y-3">' + milestones.map(function(m) {
+              const plannedLeft = pct(m.plannedStart), plannedRight = pct(m.plannedEnd);
+              const hasPlanned = plannedLeft !== null && plannedRight !== null;
+              const percent = effectivePercent(m);
+              const barColor = statusHex[m.status] || '#64748b';
+              return '<div class="grid grid-cols-[110px_1fr] items-center gap-3">' +
+                '<div class="min-w-0"><p class="text-xs font-semibold text-white truncate">' + m.phase + '</p><p class="text-[10px] text-slate-500">' + percent + '%</p></div>' +
+                '<div class="relative h-4 bg-slate-900 rounded-md overflow-hidden">' +
+                  (hasPlanned ? '<div class="absolute top-0 bottom-0 rounded-md" style="left:' + plannedLeft + '%;width:' + Math.max(2, plannedRight - plannedLeft) + '%;background:rgba(148,163,184,0.18);border:1px dashed rgba(148,163,184,0.4);"></div>' : '') +
+                  (hasPlanned ? '<div class="absolute top-0 bottom-0 rounded-md" style="left:' + plannedLeft + '%;width:' + Math.max(2, (plannedRight - plannedLeft) * (percent / 100)) + '%;background:' + barColor + ';"></div>' : '') +
+                '</div>' +
+              '</div>';
+            }).join('') + '</div>' : '';
+
+            const table = '<div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-500 uppercase"><th class="p-3">Phase</th><th class="p-3">Planned</th><th class="p-3">Actual</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
+              (milestones.length > 0 ? milestones.map(function(m) {
+                const canDelete = hasRole('admin');
+                return '<tr class="border-t border-slate-700/50"><td class="p-3 text-white font-medium">' + m.phase + '</td>' +
+                  '<td class="p-3 text-slate-400 text-xs">' + (m.plannedStart ? formatDate(m.plannedStart) : '—') + ' &ndash; ' + (m.plannedEnd ? formatDate(m.plannedEnd) : '—') + '</td>' +
+                  '<td class="p-3 text-slate-400 text-xs">' + (m.actualStart ? formatDate(m.actualStart) : '—') + ' &ndash; ' + (m.actualEnd ? formatDate(m.actualEnd) : '—') + '</td>' +
+                  '<td class="p-3">' + statusBadge(statusLabel[m.status] || m.status, statusHex[m.status] || '#64748b') + '</td>' +
+                  '<td class="p-3 text-right"><button onclick="openMilestoneForm(\\'' + m.id + '\\')" class="text-xs text-amber-400 hover:text-amber-300 mr-3">Edit</button>' + (canDelete ? '<button onclick="deleteMilestone(\\'' + m.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') + '</td></tr>';
+              }).join('') : '<tr><td class="p-4 text-slate-500 text-sm" colspan="5">No milestones yet — add your first phase below.</td></tr>') +
+            '</tbody></table></div>';
+
+            const form = state.milestoneFormOpen ? renderMilestoneForm() : '';
+
+            return '<div class="space-y-4 animate-fade-in">' +
+              '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Schedule</h1><button onclick="openMilestoneForm(null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' Add Phase</button></div>' +
+              form + gantt + table +
+            '</div>';
+          }
+          function openMilestoneForm(id) {
+            if (id) {
+              const m = state.milestones.find(function(x) { return x.id === id; });
+              if (m) {
+                state.editingMilestoneId = id;
+                state.milestonePhase = m.phase || '';
+                state.milestonePlannedStart = m.plannedStart ? String(m.plannedStart).split('T')[0] : '';
+                state.milestonePlannedEnd = m.plannedEnd ? String(m.plannedEnd).split('T')[0] : '';
+                state.milestoneActualStart = m.actualStart ? String(m.actualStart).split('T')[0] : '';
+                state.milestoneActualEnd = m.actualEnd ? String(m.actualEnd).split('T')[0] : '';
+                state.milestoneStatus = m.status || 'not_started';
+                state.milestonePercent = m.percentComplete != null ? String(m.percentComplete) : '';
+              }
+            } else {
+              state.editingMilestoneId = null;
+              state.milestonePhase = ''; state.milestonePlannedStart = ''; state.milestonePlannedEnd = ''; state.milestoneActualStart = ''; state.milestoneActualEnd = ''; state.milestoneStatus = 'not_started'; state.milestonePercent = '';
+            }
+            state.milestoneFormOpen = true;
+            render();
+          }
+          function closeMilestoneForm() { state.milestoneFormOpen = false; state.editingMilestoneId = null; render(); }
+          function renderMilestoneForm() {
+            const statuses = ['not_started', 'on_track', 'at_risk', 'delayed', 'complete'];
+            return '<div class="card rounded-xl p-5 space-y-3">' +
+              '<h3 class="font-display font-semibold text-white text-sm">' + (state.editingMilestoneId ? 'Edit Phase' : 'New Phase') + '</h3>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Phase Name</label><input type="text" value="' + state.milestonePhase + '" oninput="state.milestonePhase=this.value" placeholder="e.g. Racking Install" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div class="grid grid-cols-2 gap-3">' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Planned Start</label><input type="date" value="' + state.milestonePlannedStart + '" oninput="state.milestonePlannedStart=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Planned End</label><input type="date" value="' + state.milestonePlannedEnd + '" oninput="state.milestonePlannedEnd=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Actual Start</label><input type="date" value="' + state.milestoneActualStart + '" oninput="state.milestoneActualStart=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Actual End</label><input type="date" value="' + state.milestoneActualEnd + '" oninput="state.milestoneActualEnd=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '</div>' +
+              '<div class="grid grid-cols-2 gap-3">' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Status</label><select oninput="state.milestoneStatus=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + statuses.map(function(s) { return '<option value="' + s + '"' + (state.milestoneStatus === s ? ' selected' : '') + '>' + s.replace(/_/g, ' ') + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">% Complete</label><input type="number" min="0" max="100" value="' + state.milestonePercent + '" oninput="state.milestonePercent=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '</div>' +
+              '<div class="flex gap-3"><button onclick="closeMilestoneForm()" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-medium">Cancel</button><button onclick="saveMilestoneForm()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Save</button></div>' +
+            '</div>';
+          }
+          function saveMilestoneForm() {
+            hapticFeedback();
+            if (!state.milestonePhase || !state.milestonePhase.trim()) { alert('Enter a phase name.'); return; }
+            const payload = {
+              id: state.editingMilestoneId || undefined,
+              projectId: state.currentProject?.id || 'proj_001',
+              phase: state.milestonePhase.trim(),
+              sortOrder: state.milestones.length,
+              plannedStart: state.milestonePlannedStart || null,
+              plannedEnd: state.milestonePlannedEnd || null,
+              actualStart: state.milestoneActualStart || null,
+              actualEnd: state.milestoneActualEnd || null,
+              status: state.milestoneStatus,
+              percentComplete: state.milestonePercent ? parseInt(state.milestonePercent) : 0,
+              loggedBy: state.currentUser.id
+            };
+            const wasEditingId = state.editingMilestoneId;
+            state.milestoneFormOpen = false;
+            state.editingMilestoneId = null;
+            let localId = null;
+            if (wasEditingId) {
+              const idx = state.milestones.findIndex(function(m) { return m.id === wasEditingId; });
+              if (idx >= 0) state.milestones[idx] = Object.assign({}, state.milestones[idx], payload, { id: wasEditingId });
+            } else {
+              localId = 'local_' + Date.now();
+              state.milestones.push(Object.assign({}, payload, { id: localId }));
+            }
+            render();
+            saveMilestoneToServer(payload, wasEditingId, localId);
+          }
+          async function saveMilestoneToServer(payload, wasEditingId, localId) {
+            try {
+              const res = await fetch('/api/milestones', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+              const created = await res.json();
+              if (!wasEditingId && created && created.id && localId) {
+                const idx = state.milestones.findIndex(function(m) { return m.id === localId; });
+                if (idx >= 0) { state.milestones[idx].id = created.id; render(); }
+              }
+            } catch (e) { console.error('Save milestone error:', e); }
+          }
+          function deleteMilestone(id) {
+            if (!confirm('Delete this phase?')) return;
+            state.milestones = state.milestones.filter(function(m) { return m.id !== id; });
+            render();
+            fetch('/api/milestones?id=' + id, { method: 'DELETE' }).catch(function(e) { console.error('Delete milestone error:', e); });
+          }
+
+          // DOCUMENTS & COI
+          function triggerDocFileInput(kind) { document.getElementById('docFileInput-' + kind).click(); }
+          function handleDocFileSelect(event, kind) {
+            const file = event.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+              const fileInfo = { name: file.name, type: file.type, size: file.size, dataUrl: e.target.result };
+              if (kind === 'document') state.docPendingFile = fileInfo;
+              else if (kind === 'coi') state.coiPendingFile = fileInfo;
+              render();
+            };
+            reader.readAsDataURL(file);
+            event.target.value = '';
+          }
+          function renderDocuments() {
+            const tabs = [{ id: 'library', label: 'Document Library' }, { id: 'coi', label: 'Insurance (COI)' }];
+            const tabBar = '<div class="flex gap-2 mb-4 flex-wrap">' + tabs.map(function(t) { return '<button onclick="setDocumentsTab(\\'' + t.id + '\\')" class="mode-btn ' + (state.documentsTab === t.id ? 'mode-btn-active' : 'mode-btn-inactive') + '">' + t.label + '</button>'; }).join('') + '</div>';
+            const body = state.documentsTab === 'library' ? renderDocumentLibrary() : renderCoiTracker();
+            return '<div class="space-y-4 animate-fade-in">' +
+              '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Documents &amp; Insurance</h1></div>' +
+              tabBar + body +
+            '</div>';
+          }
+          function setDocumentsTab(tab) { state.documentsTab = tab; render(); }
+          function renderDocumentLibrary() {
+            const categories = [
+              { id: 'site_plans', label: 'Site Plans' }, { id: 'ifc_drawings', label: 'IFC Drawings' },
+              { id: 'as_builts', label: 'As-Builts' }, { id: 'permits', label: 'Permits' },
+              { id: 'specs', label: 'Specs' }, { id: 'other', label: 'Other' }
+            ];
+            const catLabel = {}; categories.forEach(function(c) { catLabel[c.id] = c.label; });
+            const canDelete = hasRole('admin');
+            const form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+              '<h3 class="font-display font-semibold text-white text-sm">Upload a Document</h3>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Title</label><input type="text" value="' + (state.docTitle || '') + '" oninput="state.docTitle=this.value" placeholder="e.g. IFC Drawing Set Rev 4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Category</label><select oninput="state.docCategory=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + categories.map(function(c) { return '<option value="' + c.id + '"' + (state.docCategory === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
+              '<input type="file" id="docFileInput-document" class="hidden" onchange="handleDocFileSelect(event, \\'document\\')">' +
+              '<button onclick="triggerDocFileInput(\\'document\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.docPendingFile ? state.docPendingFile.name : 'Choose File') + '</span></button>' +
+              '<button onclick="submitDocument()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Upload</button>' +
+            '</div>';
+            const list = state.documents.length > 0 ? '<div class="space-y-2">' + state.documents.map(function(d) {
+              return '<div class="card rounded-xl p-4 flex items-center justify-between gap-3"><a href="' + d.fileUrl + '" target="_blank" rel="noopener" class="flex items-center gap-3 flex-1 min-w-0">' + icon('file-text', 'w-5 h-5 text-slate-400 flex-shrink-0') + '<div class="min-w-0"><p class="text-sm font-medium text-white truncate">' + d.title + '</p><p class="text-xs text-slate-500">' + (catLabel[d.category] || d.category) + ' · ' + d.uploadedBy + ' · ' + formatDate(d.createdAt) + '</p></div></a>' + (canDelete ? '<button onclick="deleteDocument(\\'' + d.id + '\\')" class="text-slate-500 hover:text-red-400 p-1 flex-shrink-0">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') + '</div>';
+            }).join('') + '</div>' : '<p class="text-sm text-slate-500">No documents uploaded yet.</p>';
+            return form + list;
+          }
+          function submitDocument() {
+            hapticFeedback();
+            if (!state.docTitle || !state.docTitle.trim()) { alert('Enter a title.'); return; }
+            if (!state.docPendingFile) { alert('Choose a file to upload.'); return; }
+            const file = state.docPendingFile;
+            const title = state.docTitle.trim(), category = state.docCategory;
+            state.docTitle = ''; state.docPendingFile = null;
+            render();
+            saveDocument(title, category, file);
+          }
+          async function saveDocument(title, category, file) {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const upRes = await fetch('/api/upload-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: file.dataUrl, context: 'document' }) });
+              const upData = await upRes.json();
+              if (!upData.url) { console.error('Document upload failed'); return; }
+              const res = await fetch('/api/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, title, category, fileKey: upData.key, fileUrl: upData.url, fileType: upData.contentType, fileSize: upData.size, uploadedBy: state.currentUser.id }) });
+              const created = await res.json();
+              if (created && created.id) {
+                state.documents.unshift({ id: created.id, title: created.title, category: created.category, fileUrl: created.fileUrl, fileType: created.fileType, fileSize: created.fileSize, uploadedBy: state.currentUser.name, createdAt: created.createdAt });
+                render();
+              }
+            } catch (e) { console.error('Save document error:', e); }
+          }
+          function deleteDocument(id) {
+            if (!confirm('Delete this document?')) return;
+            state.documents = state.documents.filter(function(d) { return d.id !== id; });
+            render();
+            fetch('/api/documents?id=' + id, { method: 'DELETE' }).catch(function(e) { console.error('Delete document error:', e); });
+          }
+          function renderCoiTracker() {
+            const coverageTypes = [
+              { id: 'general_liability', label: 'General Liability' }, { id: 'workers_comp', label: 'Workers Comp' },
+              { id: 'auto_liability', label: 'Auto Liability' }, { id: 'umbrella', label: 'Umbrella' }, { id: 'other', label: 'Other' }
+            ];
+            const covLabel = {}; coverageTypes.forEach(function(c) { covLabel[c.id] = c.label; });
+            const canDelete = hasRole('admin');
+            function coiStatus(expiresAt) {
+              const days = Math.floor((new Date(expiresAt).getTime() - Date.now()) / 86400000);
+              if (days < 0) return { label: 'Expired', hex: '#ef4444' };
+              if (days <= 30) return { label: 'Expiring Soon', hex: '#eab308' };
+              return { label: 'Valid', hex: '#22c55e' };
+            }
+            const form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+              '<h3 class="font-display font-semibold text-white text-sm">Add a Certificate</h3>' +
+              '<div class="grid grid-cols-2 gap-3">' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Subcontractor</label><select oninput="state.coiSubcontractorId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">Select…</option>' + state.subcontractors.map(function(s) { return '<option value="' + s.id + '"' + (state.coiSubcontractorId === s.id ? ' selected' : '') + '>' + s.name + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Coverage</label><select oninput="state.coiCoverageType=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + coverageTypes.map(function(c) { return '<option value="' + c.id + '"' + (state.coiCoverageType === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
+              '</div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Expires</label><input type="date" value="' + (state.coiExpiresAt || '') + '" oninput="state.coiExpiresAt=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<input type="file" id="docFileInput-coi" class="hidden" onchange="handleDocFileSelect(event, \\'coi\\')">' +
+              '<button onclick="triggerDocFileInput(\\'coi\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.coiPendingFile ? state.coiPendingFile.name : 'Attach Certificate (optional)') + '</span></button>' +
+              '<button onclick="submitCoi()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add Certificate</button>' +
+            '</div>';
+            const expiredOrSoon = state.cois.filter(function(c) { return coiStatus(c.expiresAt).label !== 'Valid'; });
+            const warnBanner = expiredOrSoon.length > 0 ? '<div class="mb-4 px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;">' + icon('alert-triangle', 'w-4 h-4 flex-shrink-0') + '<span>' + expiredOrSoon.length + ' certificate' + (expiredOrSoon.length === 1 ? ' is' : 's are') + ' expired or expiring within 30 days.</span></div>' : '';
+            const table = '<div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-500 uppercase"><th class="p-3">Subcontractor</th><th class="p-3">Coverage</th><th class="p-3">Expires</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
+              (state.cois.length > 0 ? state.cois.map(function(c) {
+                const st = coiStatus(c.expiresAt);
+                return '<tr class="border-t border-slate-700/50"><td class="p-3 text-white font-medium">' + c.subcontractor + '</td><td class="p-3 text-slate-400 text-xs">' + (covLabel[c.coverageType] || c.coverageType) + '</td><td class="p-3 text-slate-400 text-xs">' + formatDate(c.expiresAt) + '</td><td class="p-3">' + statusBadge(st.label, st.hex) + '</td><td class="p-3 text-right">' + (canDelete ? '<button onclick="deleteCoi(\\'' + c.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') + '</td></tr>';
+              }).join('') : '<tr><td class="p-4 text-slate-500 text-sm" colspan="5">No certificates on file yet.</td></tr>') +
+            '</tbody></table></div>';
+            return form + warnBanner + table;
+          }
+          function submitCoi() {
+            hapticFeedback();
+            if (!state.coiSubcontractorId || !state.coiExpiresAt) { alert('Select a subcontractor and expiration date.'); return; }
+            const subcontractorId = state.coiSubcontractorId, coverageType = state.coiCoverageType, expiresAt = state.coiExpiresAt, file = state.coiPendingFile;
+            state.coiSubcontractorId = ''; state.coiExpiresAt = ''; state.coiPendingFile = null;
+            render();
+            saveCoi(subcontractorId, coverageType, expiresAt, file);
+          }
+          async function saveCoi(subcontractorId, coverageType, expiresAt, file) {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              let fileKey = null, fileUrl = null;
+              if (file) {
+                const upRes = await fetch('/api/upload-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: file.dataUrl, context: 'coi' }) });
+                const upData = await upRes.json();
+                fileKey = upData.key || null; fileUrl = upData.url || null;
+              }
+              const res = await fetch('/api/coi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, subcontractorId, coverageType, expiresAt, fileKey, fileUrl, loggedBy: state.currentUser.id }) });
+              const created = await res.json();
+              if (created && created.id) {
+                const sub = state.subcontractors.find(function(s) { return s.id === subcontractorId; });
+                state.cois.unshift({ id: created.id, subcontractorId, subcontractor: sub ? sub.name : 'Unknown', coverageType, expiresAt: created.expiresAt, fileUrl, createdAt: created.createdAt });
+                render();
+              }
+            } catch (e) { console.error('Save COI error:', e); }
+          }
+          function deleteCoi(id) {
+            if (!confirm('Delete this certificate?')) return;
+            state.cois = state.cois.filter(function(c) { return c.id !== id; });
+            render();
+            fetch('/api/coi?id=' + id, { method: 'DELETE' }).catch(function(e) { console.error('Delete COI error:', e); });
+          }
+
+          // MATERIALS - bill of materials vs. delivered, with a delivery log.
+          function renderMaterials() {
+            const canDelete = hasRole('admin');
+            function materialStatus(m) {
+              if (m.orderedQty > 0 && m.deliveredQty >= m.orderedQty) return statusBadge('Complete', '#22c55e');
+              if (m.expectedDate && new Date(m.expectedDate).getTime() < Date.now() && m.deliveredQty < m.orderedQty) return statusBadge('Behind', '#ef4444');
+              if (m.deliveredQty > 0) return statusBadge('On Track', '#22c55e');
+              return statusBadge('Not Started', '#64748b');
+            }
+            const behind = state.materials.filter(function(m) { return m.expectedDate && new Date(m.expectedDate).getTime() < Date.now() && m.deliveredQty < m.orderedQty; });
+            const warnBanner = behind.length > 0 ? '<div class="mb-4 px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;">' + icon('alert-triangle', 'w-4 h-4 flex-shrink-0') + '<span>' + behind.map(function(m) { return m.name + ' (' + m.deliveredQty + '/' + m.orderedQty + ' ' + m.unit + ')'; }).join(', ') + ' behind schedule.</span></div>' : '';
+
+            const materialForm = state.materialFormOpen ? '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+              '<h3 class="font-display font-semibold text-white text-sm">New Material</h3>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Name</label><input type="text" value="' + (state.materialName || '') + '" oninput="state.materialName=this.value" placeholder="e.g. Racking Clips" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div class="grid grid-cols-2 gap-3">' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Ordered Qty</label><input type="number" min="0" value="' + (state.materialOrderedQty || '') + '" oninput="state.materialOrderedQty=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Unit</label><input type="text" value="' + (state.materialUnit || 'units') + '" oninput="state.materialUnit=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Expected Date</label><input type="date" value="' + (state.materialExpectedDate || '') + '" oninput="state.materialExpectedDate=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Supplier</label><input type="text" value="' + (state.materialSupplier || '') + '" oninput="state.materialSupplier=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '</div>' +
+              '<div class="flex gap-3"><button onclick="state.materialFormOpen=false; render();" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-medium">Cancel</button><button onclick="submitMaterial()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add</button></div>' +
+            '</div>' : '';
+
+            const bomTable = '<div class="card rounded-xl overflow-x-auto mb-4"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-500 uppercase"><th class="p-3">Material</th><th class="p-3">Ordered</th><th class="p-3">Delivered</th><th class="p-3">Remaining</th><th class="p-3">Expected</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
+              (state.materials.length > 0 ? state.materials.map(function(m) {
+                return '<tr class="border-t border-slate-700/50"><td class="p-3 text-white font-medium">' + m.name + '</td><td class="p-3 text-slate-400">' + m.orderedQty + '</td><td class="p-3 text-slate-400">' + m.deliveredQty + '</td><td class="p-3 text-slate-400">' + Math.max(0, m.orderedQty - m.deliveredQty) + '</td><td class="p-3 text-slate-400 text-xs">' + (m.expectedDate ? formatDate(m.expectedDate) : '—') + '</td><td class="p-3">' + materialStatus(m) + '</td><td class="p-3 text-right">' + (canDelete ? '<button onclick="deleteMaterial(\\'' + m.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') + '</td></tr>';
+              }).join('') : '<tr><td class="p-4 text-slate-500 text-sm" colspan="7">No materials tracked yet.</td></tr>') +
+            '</tbody></table></div>';
+
+            const deliveryForm = state.deliveryFormOpen ? '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+              '<h3 class="font-display font-semibold text-white text-sm">Log a Delivery</h3>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Material</label><select oninput="state.deliveryMaterialId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">Select…</option>' + state.materials.map(function(m) { return '<option value="' + m.id + '"' + (state.deliveryMaterialId === m.id ? ' selected' : '') + '>' + m.name + '</option>'; }).join('') + '</select></div>' +
+              '<div class="grid grid-cols-2 gap-3">' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Quantity</label><input type="number" min="1" value="' + (state.deliveryQty || '') + '" oninput="state.deliveryQty=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Supplier</label><input type="text" value="' + (state.deliverySupplier || '') + '" oninput="state.deliverySupplier=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Received By</label><input type="text" value="' + (state.deliveryReceivedBy || '') + '" oninput="state.deliveryReceivedBy=this.value" placeholder="' + (state.currentUser.name || '') + '" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Notes</label><input type="text" value="' + (state.deliveryNotes || '') + '" oninput="state.deliveryNotes=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '</div>' +
+              '<div class="flex gap-3"><button onclick="state.deliveryFormOpen=false; render();" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-medium">Cancel</button><button onclick="submitDelivery()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Log Delivery</button></div>' +
+            '</div>' : '';
+
+            const deliveryLog = '<div class="space-y-2">' + (state.deliveries.length > 0 ? state.deliveries.slice(0, 15).map(function(d) {
+              return '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-sm font-medium text-white">' + d.material + ' — ' + d.quantity + ' ' + d.unit + '</p><p class="text-xs text-slate-500">' + (d.supplier ? d.supplier + ' · ' : '') + (d.receivedBy ? 'received by ' + d.receivedBy : '') + '</p></div><span class="text-xs text-slate-500">' + formatDate(d.date) + '</span></div>';
+            }).join('') : '<p class="text-sm text-slate-500">No deliveries logged yet.</p>') + '</div>';
+
+            return '<div class="space-y-4 animate-fade-in">' +
+              '<div class="flex items-center justify-between flex-wrap gap-2"><h1 class="font-display text-xl font-bold text-white">Materials</h1><div class="flex gap-2"><button onclick="state.materialFormOpen=!state.materialFormOpen; render();" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">+ Material</button><button onclick="state.deliveryFormOpen=!state.deliveryFormOpen; render();" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm">+ Delivery</button></div></div>' +
+              warnBanner + materialForm +
+              '<h2 class="font-display font-semibold text-white text-sm">Bill of Materials</h2>' + bomTable +
+              deliveryForm +
+              '<h2 class="font-display font-semibold text-white text-sm">Delivery Log</h2>' + deliveryLog +
+            '</div>';
+          }
+          function submitMaterial() {
+            hapticFeedback();
+            if (!state.materialName || !state.materialName.trim()) { alert('Enter a material name.'); return; }
+            const payload = { projectId: state.currentProject?.id || 'proj_001', name: state.materialName.trim(), orderedQty: state.materialOrderedQty ? parseInt(state.materialOrderedQty) : 0, unit: state.materialUnit || 'units', expectedDate: state.materialExpectedDate || null, supplier: state.materialSupplier || null, loggedBy: state.currentUser.id };
+            const localId = 'local_' + Date.now();
+            state.materials.push(Object.assign({ id: localId, deliveredQty: 0 }, payload));
+            state.materialName = ''; state.materialOrderedQty = ''; state.materialUnit = 'units'; state.materialExpectedDate = ''; state.materialSupplier = ''; state.materialFormOpen = false;
+            render();
+            saveMaterial(payload, localId);
+          }
+          async function saveMaterial(payload, localId) {
+            try {
+              const res = await fetch('/api/materials', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+              const created = await res.json();
+              if (created && created.id) { const idx = state.materials.findIndex(function(m) { return m.id === localId; }); if (idx >= 0) { state.materials[idx].id = created.id; render(); } }
+            } catch (e) { console.error('Save material error:', e); }
+          }
+          function deleteMaterial(id) {
+            if (!confirm('Delete this material and its delivery log?')) return;
+            state.materials = state.materials.filter(function(m) { return m.id !== id; });
+            state.deliveries = state.deliveries.filter(function(d) { return d.materialId !== id; });
+            render();
+            fetch('/api/materials?id=' + id, { method: 'DELETE' }).catch(function(e) { console.error('Delete material error:', e); });
+          }
+          function submitDelivery() {
+            hapticFeedback();
+            if (!state.deliveryMaterialId || !state.deliveryQty || parseInt(state.deliveryQty) <= 0) { alert('Select a material and enter a quantity.'); return; }
+            const material = state.materials.find(function(m) { return m.id === state.deliveryMaterialId; });
+            if (!material) { alert('Select a material.'); return; }
+            const qty = parseInt(state.deliveryQty);
+            const payload = { projectId: state.currentProject?.id || 'proj_001', materialId: state.deliveryMaterialId, quantity: qty, supplier: state.deliverySupplier || null, receivedBy: state.deliveryReceivedBy || null, notes: state.deliveryNotes || null, loggedBy: state.currentUser.id };
+            state.deliveries.unshift({ id: 'local_' + Date.now(), materialId: material.id, material: material.name, unit: material.unit, quantity: qty, supplier: payload.supplier, receivedBy: payload.receivedBy, date: new Date().toISOString(), notes: payload.notes });
+            const idx = state.materials.findIndex(function(m) { return m.id === material.id; });
+            if (idx >= 0) state.materials[idx].deliveredQty += qty;
+            state.deliveryMaterialId = ''; state.deliveryQty = ''; state.deliverySupplier = ''; state.deliveryReceivedBy = ''; state.deliveryNotes = ''; state.deliveryFormOpen = false;
+            render();
+            saveDelivery(payload);
+          }
+          async function saveDelivery(payload) {
+            try {
+              await fetch('/api/deliveries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            } catch (e) { console.error('Save delivery error:', e); }
           }
 
           async function loadInspections() {
@@ -3252,7 +3917,7 @@ export default async function SolTrendApp() {
 
           // MAIN RENDER
           function render() {
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div>' + renderNotifBell() + '</div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '');
             if (window.lucide) lucide.createIcons();

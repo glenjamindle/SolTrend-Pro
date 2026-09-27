@@ -41,6 +41,32 @@ export async function uploadPhoto(dataUrl: string, keyPrefix: string): Promise<{
   return { key, url: `/api/photos/${key}` }
 }
 
+// Same as uploadPhoto, but for arbitrary file types (PDFs, drawing sets,
+// spec sheets) - used by Documents and COI uploads. Shares the same
+// private bucket and the same /api/photos/[...key] route to read files
+// back, which just streams whatever bytes/content-type it finds regardless
+// of what put them there.
+export async function uploadFile(dataUrl: string, keyPrefix: string): Promise<{ key: string; url: string; size: number; contentType: string }> {
+  const match = /^data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl)
+  if (!match) throw new Error('Invalid data URL')
+
+  const contentType = match[1]
+  const buffer = Buffer.from(match[2], 'base64')
+  const ext = contentType.split('/')[1]?.replace('jpeg', 'jpg') || 'bin'
+  const key = `${keyPrefix}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
+
+  await getClient().send(
+    new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+    })
+  )
+
+  return { key, url: `/api/photos/${key}`, size: buffer.length, contentType }
+}
+
 export async function getPhotoBytes(key: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   const res = await getClient().send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
   if (!res.Body) return null
