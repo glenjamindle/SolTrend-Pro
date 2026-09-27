@@ -494,7 +494,7 @@ export default async function SolTrendApp() {
                 '<div class="space-y-3">' +
                   '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-500">Pass Rate</p><p class="font-display text-xl font-bold text-white">' + passRate + '%</p><p class="text-[11px] text-slate-500 mt-0.5"><span class="text-green-400">' + (project.passedInspections || 0) + ' pass</span> · <span class="text-red-400">' + (project.failedInspections || 0) + ' fail</span></p></div><div class="w-12 h-12 rounded-full border-4 border-green-500 flex items-center justify-center text-green-400 font-bold">' + passRate + '</div></div>' +
                   '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-500">Open Issues</p><p class="font-display text-xl font-bold text-white">' + openIssues + '</p></div><div class="w-12 h-12 rounded-full border-4 border-red-500 flex items-center justify-center text-red-400 font-bold">' + openIssues + '</div></div>' +
-                  '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 mb-2">Active Profile</p><p class="text-sm font-medium text-white">' + (RACKING_MANUFACTURERS.find(m => m.id === project.rackingProfile)?.name || 'N/A') + '</p></div>' +
+                  '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 mb-2">Active Profile</p><p class="text-sm font-medium text-white">' + (state.rackingProfiles.find(r => r.id === project.rackingProfileId)?.name || RACKING_MANUFACTURERS.find(m => m.id === project.rackingProfile)?.name || 'N/A') + '</p></div>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3 flex items-center justify-between">Needs Attention <span class="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400">' + openIssues + '</span></h3><div class="space-y-2 max-h-48 overflow-y-auto">' + state.inspections.filter(i => i.status === 'fail').slice(0, 3).map(i => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + i.pileId + '</span><span class="text-red-400">Failed</span></div>').join('') + state.refusals.slice(0, 2).map(r => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + r.pileId + '</span><span class="text-orange-400">Refusal</span></div>').join('') + '</div></div>' +
                 '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3">Recent Activity</h3><div class="space-y-3 max-h-48 overflow-y-auto">' + state.recentActivity.slice(0, 5).map(a => '<div class="activity-item ' + a.type + ' pl-4 py-1"><p class="text-sm text-slate-300">' + a.message + '</p><p class="text-xs text-slate-500">' + a.user + ' · ' + a.time + '</p></div>').join('') + '</div></div>' +
@@ -550,7 +550,24 @@ export default async function SolTrendApp() {
               '</div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-4">14-Day Production Trend</h3><div class="h-48 flex items-end gap-1">' + state.production.slice(-14).map(p => { const h = Math.max(10, (p.piles / 60) * 100); return '<div class="flex-1 relative group"><div class="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-700 px-1.5 py-0.5 rounded text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">' + p.piles + '</div><div class="chart-bar w-full bg-amber-500 rounded-t" style="height: ' + h + '%"></div></div>'; }).join('') + '</div><div class="flex justify-between mt-2 text-xs text-slate-500"><span>14 days ago</span><span>Today</span></div></div>' +
               '<div class="grid lg:grid-cols-2 gap-4">' +
-                '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Crew Performance</h3><div class="space-y-3">' + state.crews.map((c, i) => { const crewPiles = 38 + Math.floor(Math.random() * 12); return '<div><div class="flex justify-between text-sm mb-1"><span class="text-slate-300">' + c.name + '</span><span class="text-white font-medium">' + crewPiles + ' piles/day</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full" style="width: ' + (70 + i * 8) + '%"></div></div></div>'; }).join('') + '</div></div>' +
+                (function() {
+                  // Was Math.random()-based fake piles/day per crew with a
+                  // fixed bar-width formula. Production Entries already
+                  // record crew (by name, via crewId) and pile counts, so
+                  // this computes each crew's real average over the last 14
+                  // logged days - crews with no logged production show '-'
+                  // instead of a number the bar can't back up.
+                  const crewAvgs = state.crews.map(function(c) {
+                    const entries = last14.filter(function(p) { return p.crew === c.name; });
+                    const total = entries.reduce(function(s, p) { return s + p.piles; }, 0);
+                    return { crew: c, avg: entries.length > 0 ? total / entries.length : null };
+                  });
+                  const maxAvg = Math.max(1, ...crewAvgs.filter(function(x) { return x.avg !== null; }).map(function(x) { return x.avg; }));
+                  return '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Crew Performance</h3><div class="space-y-3">' + crewAvgs.map(function(x) {
+                    const pctWidth = x.avg === null ? 0 : Math.round((x.avg / maxAvg) * 100);
+                    return '<div><div class="flex justify-between text-sm mb-1"><span class="text-slate-300">' + x.crew.name + '</span><span class="text-white font-medium">' + (x.avg === null ? '—' : x.avg.toFixed(1) + ' piles/day') + '</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full" style="width: ' + pctWidth + '%"></div></div></div>';
+                  }).join('') + '</div></div>';
+                })() +
                 (function() {
                   const passRates = dayOfWeekPassRates();
                   const avgProd = dayOfWeekAvgProduction();
@@ -605,7 +622,22 @@ export default async function SolTrendApp() {
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Failure Breakdown</h3><div class="space-y-3">' +
                 failReasonMeta.map(m => '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded ' + m.color + '"></div><span class="text-slate-300">' + m.label + '</span></div><span class="text-white font-medium">' + failReasons[m.key] + '</span></div>').join('') +
               '</div></div>' +
-              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Inspector Performance</h3><div class="space-y-2">' + state.crews.slice(0, 3).map(c => { const inspCount = Math.floor(50 + Math.random() * 30); const inspRate = 90 + Math.floor(Math.random() * 8); return '<div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-medium">' + c.lead.split(' ').map(n => n[0]).join('') + '</div><div><p class="text-sm text-white">' + c.lead + '</p><p class="text-xs text-slate-500">' + inspCount + ' inspections</p></div></div><div class="text-right"><p class="text-lg font-bold text-green-400">' + inspRate + '%</p><p class="text-xs text-slate-500">pass rate</p></div></div>'; }).join('') + '</div></div>' +
+              (function() {
+                // Was Math.random()-based fake inspection counts/pass rates
+                // per crew lead. Inspections carry the inspecting user's
+                // name, and crew.lead is that same name, so this matches on
+                // it directly and computes real counts - a lead with zero
+                // inspections just doesn't render a row rather than showing
+                // fabricated activity.
+                const leadStats = state.crews.map(function(c) {
+                  const theirs = state.inspections.filter(function(i) { return i.user === c.lead; });
+                  const passed = theirs.filter(function(i) { return i.status === 'pass'; }).length;
+                  return { lead: c.lead, count: theirs.length, rate: theirs.length > 0 ? Math.round((passed / theirs.length) * 100) : null };
+                }).filter(function(x) { return x.count > 0; }).sort(function(a, b) { return b.count - a.count; }).slice(0, 3);
+                return '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Inspector Performance</h3><div class="space-y-2">' + (leadStats.length > 0 ? leadStats.map(function(x) {
+                  return '<div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-medium">' + x.lead.split(' ').map(function(n) { return n[0]; }).join('') + '</div><div><p class="text-sm text-white">' + x.lead + '</p><p class="text-xs text-slate-500">' + x.count + ' inspections</p></div></div><div class="text-right"><p class="text-lg font-bold text-green-400">' + x.rate + '%</p><p class="text-xs text-slate-500">pass rate</p></div></div>';
+                }).join('') : '<p class="text-slate-500 text-sm text-center py-4">No inspections logged yet</p>') + '</div></div>';
+              })() +
             '</div>';
           }
 
@@ -673,7 +705,18 @@ export default async function SolTrendApp() {
             const maxCount = Math.max(1, ...weekCounts);
             return '<div class="space-y-6 stagger-children">' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Daily Inspections This Week</h3><div class="h-32 flex items-end gap-2">' + weekCounts.map((v, i) => { const h = v > 0 ? Math.max(8, Math.round((v / maxCount) * 100)) : 2; return '<div class="flex-1 flex flex-col items-center"><div class="chart-bar w-full bg-indigo-500 rounded-t" style="height: ' + h + '%"></div><span class="text-[10px] text-slate-500 mt-1">' + ['M','T','W','T','F','S','S'][i] + '</span></div>'; }).join('') + '</div></div>' +
-              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Top Performers</h3><div class="space-y-2">' + state.crews.slice(0, 3).map((c, i) => '<div class="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg"><div class="w-8 h-8 rounded-full flex items-center justify-center ' + (i === 0 ? 'bg-amber-500 text-black' : i === 1 ? 'bg-gray-400 text-black' : 'bg-amber-700 text-white') + ' font-bold">' + (i + 1) + '</div><div class="flex-1"><p class="text-sm text-white">' + c.lead + '</p><p class="text-xs text-slate-500">' + c.name + '</p></div><div class="text-right"><p class="text-lg font-bold text-white">' + (85 - i * 5) + '</p><p class="text-xs text-slate-500">inspections</p></div></div>').join('') + '</div></div>' +
+              (function() {
+                // Was a fake (85 - i*5) count in whatever order state.crews
+                // happened to be in. Ranks crews by their lead's real
+                // inspection count instead, so "Top Performers" actually
+                // means top performers.
+                const ranked = state.crews.map(function(c) {
+                  return { crew: c, count: state.inspections.filter(function(i) { return i.user === c.lead; }).length };
+                }).sort(function(a, b) { return b.count - a.count; }).slice(0, 3);
+                return '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Top Performers</h3><div class="space-y-2">' + (ranked.length > 0 ? ranked.map(function(x, i) {
+                  return '<div class="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg"><div class="w-8 h-8 rounded-full flex items-center justify-center ' + (i === 0 ? 'bg-amber-500 text-black' : i === 1 ? 'bg-gray-400 text-black' : 'bg-amber-700 text-white') + ' font-bold">' + (i + 1) + '</div><div class="flex-1"><p class="text-sm text-white">' + x.crew.lead + '</p><p class="text-xs text-slate-500">' + x.crew.name + '</p></div><div class="text-right"><p class="text-lg font-bold text-white">' + x.count + '</p><p class="text-xs text-slate-500">inspections</p></div></div>';
+                }).join('') : '<p class="text-slate-500 text-sm text-center py-4">No inspections logged yet</p>') + '</div></div>';
+              })() +
             '</div>';
           }
 
@@ -785,23 +828,32 @@ export default async function SolTrendApp() {
           // WEATHER API INTEGRATION
           let weatherCache = null;
           let weatherCacheTime = 0;
-          
+          let weatherCacheKey = null;
+
+          // Was hardcoded to Phoenix, AZ regardless of which project was
+          // open. Projects can now carry their own latitude/longitude
+          // (set in Settings); this uses those when present and falls back
+          // to the same Phoenix default otherwise. The cache is keyed by
+          // coordinates so switching to a project at a different location
+          // doesn't keep serving a stale forecast for the previous one.
           async function fetchWeatherData() {
-            if (weatherCache && (Date.now() - weatherCacheTime) < 1800000) {
+            const lat = state.currentProject?.latitude ?? 33.4484;
+            const lon = state.currentProject?.longitude ?? -112.0740;
+            const cacheKey = lat + ',' + lon;
+            if (weatherCache && weatherCacheKey === cacheKey && (Date.now() - weatherCacheTime) < 1800000) {
               return weatherCache;
             }
             try {
-              const lat = 33.4484;
-              const lon = -112.0740;
               const response = await fetch(
-                'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon + 
+                'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
                 '&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code,uv_index' +
                 '&daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_probability_max' +
-                '&timezone=America/Phoenix&forecast_days=7'
+                '&timezone=auto&forecast_days=7'
               );
               const data = await response.json();
               weatherCache = data;
               weatherCacheTime = Date.now();
+              weatherCacheKey = cacheKey;
               return data;
             } catch (error) {
               console.error('Weather API error:', error);
@@ -1058,7 +1110,21 @@ export default async function SolTrendApp() {
             const includesToday = localDateStr(Date.now()) >= startStr && localDateStr(Date.now()) <= endStr;
             const weather = includesToday ? await fetchWeatherData() : null;
             const dailyWeather = weather?.daily;
-            
+            // Weather Impact Analysis card - was hardcoded "4 of 5" clear
+            // days, "78°F" avg, "0 days" delays regardless of what the
+            // forecast actually said, even though dailyWeather (fetched
+            // just above for the day-strip) already has real numbers for
+            // these same 5 days.
+            const weatherStats = dailyWeather ? (function() {
+              const codes = dailyWeather.weather_code.slice(0, 5);
+              const highs = dailyWeather.temperature_2m_max.slice(0, 5);
+              const precipProbs = (dailyWeather.precipitation_probability_max || []).slice(0, 5);
+              const clearDays = codes.filter(function(c) { return c <= 3; }).length;
+              const avgTemp = Math.round(highs.reduce(function(s, t) { return s + t; }, 0) / highs.length);
+              const delayDays = precipProbs.filter(function(p) { return p >= 60; }).length;
+              return { clearDays: clearDays + ' of ' + codes.length, avgTemp: avgTemp + '°F', delayDays: delayDays + ' day' + (delayDays === 1 ? '' : 's') };
+            })() : { clearDays: '—', avgTemp: '—', delayDays: '—' };
+
             const reportContent = \`
               <!DOCTYPE html>
               <html>
@@ -1208,11 +1274,11 @@ export default async function SolTrendApp() {
                   <div class="comparison-card">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
                       <span class="comparison-title">Weather Impact Analysis</span>
-                      <span class="comparison-badge positive">Favorable</span>
+                      <span class="comparison-badge \${dailyWeather ? 'positive' : ''}" style="\${dailyWeather ? '' : 'background:#f1f5f9;color:#64748b;'}">\${dailyWeather ? 'Favorable' : 'No data'}</span>
                     </div>
-                    <div class="comparison-row"><span class="comparison-label">Clear Days</span><span class="comparison-value">4 of 5</span></div>
-                    <div class="comparison-row"><span class="comparison-label">Avg Temperature</span><span class="comparison-value">78°F</span></div>
-                    <div class="comparison-row"><span class="comparison-label">Weather Delays</span><span class="comparison-value">0 days</span></div>
+                    <div class="comparison-row"><span class="comparison-label">Clear Days</span><span class="comparison-value">\${weatherStats.clearDays}</span></div>
+                    <div class="comparison-row"><span class="comparison-label">Avg Temperature</span><span class="comparison-value">\${weatherStats.avgTemp}</span></div>
+                    <div class="comparison-row"><span class="comparison-label">Weather Delays</span><span class="comparison-value">\${weatherStats.delayDays}</span></div>
                     <div class="comparison-row"><span class="comparison-label">Best Production Day</span><span class="comparison-value">\${bestDay} piles</span></div>
                   </div>
                 </div>
@@ -1261,9 +1327,23 @@ export default async function SolTrendApp() {
             const monthRefusalsList = state.refusals.filter(r => { const d = localDateStr(r.timestamp); return d >= monthStartStr && d <= monthEndStr; });
             const monthChange = prevMonthProd > 0 ? Math.round(((monthProd - prevMonthProd) / prevMonthProd) * 100) : 0;
             const monthLabel = new Date(my, mm - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-            const includesTodayMonth = localDateStr(Date.now()) >= monthStartStr && localDateStr(Date.now()) <= monthEndStr;
-            const weather = includesTodayMonth ? await fetchWeatherData() : null;
-            
+            // Crew Performance Rankings - was hardcoded Alpha/Beta/Gamma
+            // names with fixed 96.2/93.8/91.4% regardless of what crews
+            // actually exist or how they performed. Ranks real crews by
+            // their lead's pass rate on inspections logged this month;
+            // crews with no inspections this month sort last and show
+            // "No data" instead of a fabricated percentage.
+            const crewRankings = state.crews.map(c => {
+              const theirs = monthInspections.filter(i => i.user === c.lead);
+              const passed = theirs.filter(i => i.status === 'pass').length;
+              return { name: c.name, lead: c.lead, rate: theirs.length > 0 ? Math.round((passed / theirs.length) * 100) : null };
+            }).sort((a, b) => {
+              if (a.rate === null && b.rate === null) return 0;
+              if (a.rate === null) return 1;
+              if (b.rate === null) return -1;
+              return b.rate - a.rate;
+            }).slice(0, 3);
+
             const reportContent = \`
               <!DOCTYPE html>
               <html>
@@ -1283,11 +1363,6 @@ export default async function SolTrendApp() {
                   .project-info .project-details { font-size: 13px; color: #94a3b8; }
                   .project-badge { background: #22c55e; color: white; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
                   .section-title { font-size: 16px; font-weight: 700; color: #1e293b; margin-bottom: 15px; }
-                  .weather-monthly { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); border-radius: 12px; padding: 20px; margin-bottom: 25px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; }
-                  .weather-stat { text-align: center; }
-                  .weather-stat .icon { font-size: 32px; margin-bottom: 8px; }
-                  .weather-stat .value { font-size: 20px; font-weight: 700; color: #1e40af; }
-                  .weather-stat .label { font-size: 10px; color: #3b82f6; text-transform: uppercase; margin-top: 4px; }
                   .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 30px; }
                   .kpi-card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; text-align: center; }
                   .kpi-card .value { font-size: 24px; font-weight: 800; color: #1e293b; }
@@ -1348,14 +1423,6 @@ export default async function SolTrendApp() {
                   </div>
                   <div class="project-badge">\${monthChange >= 0 ? 'On Schedule' : 'Behind'}</div>
                 </div>
-                <div class="section-title">Monthly Weather Summary</div>
-                <div class="weather-monthly">
-                  <div class="weather-stat"><div class="icon">☀️</div><div class="value">22</div><div class="label">Clear Days</div></div>
-                  <div class="weather-stat"><div class="icon">⛅</div><div class="value">5</div><div class="label">Cloudy Days</div></div>
-                  <div class="weather-stat"><div class="icon">🌧️</div><div class="value">1</div><div class="label">Rain Days</div></div>
-                  <div class="weather-stat"><div class="icon">🌡️</div><div class="value">76°F</div><div class="label">Avg Temp</div></div>
-                  <div class="weather-stat"><div class="icon">💨</div><div class="value">0</div><div class="label">Delay Days</div></div>
-                </div>
                 <div class="section-title">Key Performance Indicators</div>
                 <div class="kpi-grid">
                   <div class="kpi-card highlight"><div class="value">\${Math.round(((project?.installedPiles || 0) / (project?.totalPiles || 1)) * 100)}%</div><div class="label">Complete</div></div>
@@ -1388,9 +1455,11 @@ export default async function SolTrendApp() {
                   <div>
                     <div class="section-title">Crew Performance Rankings</div>
                     <div class="crew-rankings">
-                      <div class="crew-item gold"><span class="crew-rank">🥇</span><div class="crew-info"><div class="crew-name">Alpha Crew</div><div class="crew-lead">Lead: \${state.crews[0]?.lead || 'Marcus T.'}</div></div><div class="crew-stats"><div class="crew-rate">96.2%</div></div></div>
-                      <div class="crew-item silver"><span class="crew-rank">🥈</span><div class="crew-info"><div class="crew-name">Beta Crew</div><div class="crew-lead">Lead: \${state.crews[1]?.lead || 'Elena V.'}</div></div><div class="crew-stats"><div class="crew-rate">93.8%</div></div></div>
-                      <div class="crew-item bronze"><span class="crew-rank">🥉</span><div class="crew-info"><div class="crew-name">Gamma Crew</div><div class="crew-lead">Lead: \${state.crews[2]?.lead || 'James K.'}</div></div><div class="crew-stats"><div class="crew-rate">91.4%</div></div></div>
+                      \${crewRankings.length > 0 ? crewRankings.map((c, i) => {
+                        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
+                        const cls = i === 0 ? 'gold' : i === 1 ? 'silver' : 'bronze';
+                        return '<div class="crew-item ' + cls + '"><span class="crew-rank">' + medal + '</span><div class="crew-info"><div class="crew-name">' + c.name + '</div><div class="crew-lead">Lead: ' + (c.lead || 'Not assigned') + '</div></div><div class="crew-stats"><div class="crew-rate">' + (c.rate === null ? 'No data' : c.rate + '%') + '</div></div></div>';
+                      }).join('') : '<p style="color:#94a3b8;font-size:13px;">No crews on file.</p>'}
                     </div>
                   </div>
                 </div>
@@ -1677,8 +1746,16 @@ export default async function SolTrendApp() {
           // INSPECTION - WITH PHOTO CAPTURE
           function renderInspection() {
             const pid = getPileId(state.currentRow, state.currentPile);
+            // Reference-only: shows the project's active racking profile
+            // tolerance next to the measurement inputs so the inspector can
+            // see the target while entering readings. This does not
+            // validate or change the Pass/Fail logic - that stays a manual
+            // call either way.
+            const activeProfile = state.rackingProfiles.find(function(r) { return r.id === state.currentProject?.rackingProfileId; });
+            const activeTol = activeProfile?.tolerances?.interior;
             const detailedPanel = state.inspectionMode === 'detailed' ? (
               '<div class="card rounded-xl p-4 mb-3"><h3 class="font-display font-semibold text-white text-sm mb-3">Detailed Measurements</h3>' +
+              (activeProfile ? '<p class="text-xs text-slate-500 mb-3">Active profile: <span class="text-slate-300">' + activeProfile.name + '</span>' + (activeTol ? ' — min embedment ' + activeTol.embedmentMin + '", max plumb ' + activeTol.plumbNS + '°' : '') + '</p>' : '<p class="text-xs text-slate-500 mb-3">No racking profile set for this project (set one in Settings → Projects)</p>') +
               '<div class="grid grid-cols-3 gap-3 mb-3">' +
               '<div><label class="text-xs text-slate-500 mb-1 block">Depth (in)</label><input type="number" id="inspDepthInput" value="' + (state.inspectionDepth||'') + '" oninput="state.inspectionDepth=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
               '<div><label class="text-xs text-slate-500 mb-1 block">Plumb N-S (°)</label><input type="number" step="0.1" id="inspPlumbNSInput" value="' + (state.inspectionPlumbNS||'') + '" oninput="state.inspectionPlumbNS=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
@@ -2071,6 +2148,7 @@ export default async function SolTrendApp() {
               { id: 'company', label: 'Company', icon: 'building-2' },
               { id: 'projects', label: 'Projects', icon: 'folder' },
               { id: 'crews', label: 'Crews', icon: 'users' },
+              { id: 'subcontractors', label: 'Subcontractors', icon: 'hard-hat' },
               { id: 'racking', label: 'Racking', icon: 'sliders-horizontal' },
               { id: 'users', label: 'Users', icon: 'user' },
             ];
@@ -2090,6 +2168,7 @@ export default async function SolTrendApp() {
               case 'company': return renderCompanySettings();
               case 'projects': return renderProjectsSettings();
               case 'crews': return renderCrewsSettings();
+              case 'subcontractors': return renderSubcontractorsSettings();
               case 'racking': return renderRackingSettings();
               case 'users': return renderUsersSettings();
               default: return renderCompanySettings();
@@ -2158,6 +2237,31 @@ export default async function SolTrendApp() {
                   '<div class="flex gap-2">' +
                     '<button onclick="openEditModal(\\'crew\\', ' + (c.id ? '\\'' + c.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
                     '<button onclick="deleteItem(\\'crew\\', ' + (c.id ? '\\'' + c.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
+                  '</div>' +
+                '</div>').join('')) +
+              '</div>' +
+            '</div>';
+          }
+          
+          function renderSubcontractorsSettings() {
+            return '<div class="space-y-4">' +
+              '<div class="flex justify-end">' +
+                '<button onclick="openEditModal(\\'subcontractor\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Subcontractor</button>' +
+              '</div>' +
+              '<div class="grid gap-4">' +
+                (state.subcontractors.length === 0 ? '<p class="text-slate-400 text-center py-8">No subcontractors yet. Add your first one above.</p>' :
+                state.subcontractors.map(s => '<div class="card rounded-xl p-5">' +
+                  '<div class="flex items-start justify-between mb-3">' +
+                    '<div><h4 class="font-semibold text-white">' + s.name + '</h4>' +
+                    '<p class="text-sm text-slate-400">' + (s.contactPerson || 'No contact on file') + '</p></div>' +
+                  '</div>' +
+                  '<div class="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-3">' +
+                    '<div><span class="block text-slate-500">Phone</span><span class="text-white font-medium">' + (s.phone || '—') + '</span></div>' +
+                    '<div><span class="block text-slate-500">Email</span><span class="text-white font-medium">' + (s.email || '—') + '</span></div>' +
+                  '</div>' +
+                  '<div class="flex gap-2">' +
+                    '<button onclick="openEditModal(\\'subcontractor\\', ' + (s.id ? '\\'' + s.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' +
+                    '<button onclick="deleteItem(\\'subcontractor\\', ' + (s.id ? '\\'' + s.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' +
                   '</div>' +
                 '</div>').join('')) +
               '</div>' +
@@ -2241,6 +2345,16 @@ export default async function SolTrendApp() {
                   '<div><label class="text-xs text-slate-500 mb-2 block">Planned Modules</label>' +
                   '<input type="number" id="modalTotalModules" value="' + (p.totalModules || 0) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '</div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Racking Profile</label>' +
+                '<select id="modalRackingProfileId" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
+                  '<option value="">None</option>' +
+                  state.rackingProfiles.map(function(r) { return '<option value="' + r.id + '" ' + (p.rackingProfileId === r.id ? 'selected' : '') + '>' + r.name + '</option>'; }).join('') +
+                '</select></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Coordinates (for this project\\'s weather forecast)</label>' +
+                '<div class="grid grid-cols-2 gap-3">' +
+                  '<div><input type="number" step="any" id="modalLatitude" value="' + (p.latitude ?? '') + '" placeholder="Latitude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                  '<div><input type="number" step="any" id="modalLongitude" value="' + (p.longitude ?? '') + '" placeholder="Longitude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '</div><p class="text-xs text-slate-500 mt-1">Leave blank to use the default Phoenix, AZ forecast.</p></div>' +
                 '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Status</label>' +
                 '<select id="modalStatus" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
                   '<option value="active" ' + (p.status === 'active' ? 'selected' : '') + '>Active</option>' +
@@ -2296,6 +2410,18 @@ export default async function SolTrendApp() {
                 '</select></div>' +
                 (!item.id ? '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Password</label>' +
                 '<input type="password" id="modalPassword" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white" placeholder="Enter password"></div>' : '');
+            } else if (item.type === 'subcontractor') {
+              title = item.id ? 'Edit Subcontractor' : 'New Subcontractor';
+              const s = item.id ? state.subcontractors.find(x => x.id === item.id) || {} : {};
+              formContent = 
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Company Name</label>' +
+                '<input type="text" id="modalName" value="' + (s.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Contact Person</label>' +
+                '<input type="text" id="modalContactPerson" value="' + (s.contactPerson || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Phone</label>' +
+                '<input type="tel" id="modalPhone" value="' + (s.phone || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Email</label>' +
+                '<input type="email" id="modalSubEmail" value="' + (s.email || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>';
             }
             
             return '<div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onclick="if(event.target === this) closeEditModal()">' +
@@ -2335,6 +2461,11 @@ export default async function SolTrendApp() {
                 totalModules: parseInt(document.getElementById('modalTotalModules')?.value) || 0,
                 status: document.getElementById('modalStatus')?.value || 'active',
               };
+              const latVal = document.getElementById('modalLatitude')?.value;
+              const lngVal = document.getElementById('modalLongitude')?.value;
+              data.latitude = latVal ? parseFloat(latVal) : null;
+              data.longitude = lngVal ? parseFloat(lngVal) : null;
+              data.rackingProfileId = document.getElementById('modalRackingProfileId')?.value || null;
               // totalPiles is NOT sent here - the API recomputes it from
               // totalRows/pilesPerRow itself, but only when those actually
               // changed, so it can't silently clobber a totalPiles value
@@ -2368,6 +2499,13 @@ export default async function SolTrendApp() {
               };
               const pw = document.getElementById('modalPassword')?.value;
               if (pw) data.password = pw;
+            } else if (item.type === 'subcontractor') {
+              data = {
+                name: document.getElementById('modalName')?.value || '',
+                contactPerson: document.getElementById('modalContactPerson')?.value || '',
+                phone: document.getElementById('modalPhone')?.value || '',
+                email: document.getElementById('modalSubEmail')?.value || '',
+              };
             }
             
             if (item.id) data.id = item.id;
@@ -2487,6 +2625,11 @@ export default async function SolTrendApp() {
             state.currentProject = project;
             state.heatmap.totalRows = project.totalRows || 50;
             state.heatmap.pilesPerRow = project.pilesPerRow || 30;
+            // Projects can each have their own weather coordinates now, so
+            // a forecast cached for the previous project can't be reused -
+            // clear it and let the Insights tab re-fetch for wherever this
+            // project actually is.
+            state.predictiveWeather = null;
             render();
             loadProjectData();
           }

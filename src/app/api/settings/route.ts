@@ -178,6 +178,8 @@ export async function POST(request: NextRequest) {
               totalModules: data.totalModules || 0,
               rackingProfileId: data.rackingProfileId,
               status: data.status,
+              latitude: data.latitude ?? null,
+              longitude: data.longitude ?? null,
             }
           })
           return NextResponse.json(project)
@@ -196,6 +198,8 @@ export async function POST(request: NextRequest) {
               totalModules: data.totalModules || 0,
               rackingProfileId: data.rackingProfileId,
               status: data.status || 'active',
+              latitude: data.latitude ?? null,
+              longitude: data.longitude ?? null,
               companyId,
             }
           })
