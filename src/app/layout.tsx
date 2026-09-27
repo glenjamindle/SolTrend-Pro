@@ -3,6 +3,11 @@ import type { Metadata } from 'next'
 export const metadata: Metadata = {
   title: 'SolTrend Pro - Solar Construction Platform',
   description: 'Solar construction management platform',
+  appleWebApp: {
+    capable: true,
+    title: 'SolTrend',
+    statusBarStyle: 'black-translucent',
+  },
 }
 
 export const viewport = {

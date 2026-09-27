@@ -58,22 +58,15 @@ export default function LoginForm() {
     >
       <div style={{ width: '100%', maxWidth: 400 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32, justifyContent: 'center' }}>
-          <div
+          <img
+            src="/logo-mark.png"
+            alt="SolTrend Pro"
             style={{
               width: 44,
               height: 44,
               borderRadius: 12,
-              background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: 700,
-              fontSize: 20,
-              color: 'white',
             }}
-          >
-            S
-          </div>
+          />
           <div>
             <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 20 }}>SolTrend</div>
             <div style={{ fontSize: 10, color: '#94a3b8', letterSpacing: 1, textTransform: 'uppercase' }}>Pro</div>
