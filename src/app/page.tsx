@@ -2128,7 +2128,7 @@ export default async function SolTrendApp() {
                     '<span class="px-2 py-1 text-xs rounded ' + (p.status === 'active' ? 'bg-green-500/20 text-green-400' : p.status === 'completed' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-500/20 text-slate-400') + '">' + p.status + '</span>' +
                   '</div>' +
                   '<div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mb-3">' +
-                    '<div><span class="block text-slate-500">Total Piles</span><span class="text-white font-medium">' + (p.totalRows * p.pilesPerRow) + '</span></div>' +
+                    '<div><span class="block text-slate-500">Total Piles</span><span class="text-white font-medium">' + p.totalPiles + '</span></div>' +
                     '<div><span class="block text-slate-500">Rows</span><span class="text-white font-medium">' + p.totalRows + '</span></div>' +
                     '<div><span class="block text-slate-500">Piles/Row</span><span class="text-white font-medium">' + p.pilesPerRow + '</span></div>' +
                   '</div>' +
@@ -2335,7 +2335,10 @@ export default async function SolTrendApp() {
                 totalModules: parseInt(document.getElementById('modalTotalModules')?.value) || 0,
                 status: document.getElementById('modalStatus')?.value || 'active',
               };
-              data.totalPiles = data.totalRows * data.pilesPerRow;
+              // totalPiles is NOT sent here - the API recomputes it from
+              // totalRows/pilesPerRow itself, but only when those actually
+              // changed, so it can't silently clobber a totalPiles value
+              // that doesn't match rows*pilesPerRow (see settings route).
             } else if (item.type === 'crew') {
               data = {
                 name: document.getElementById('modalName')?.value || '',

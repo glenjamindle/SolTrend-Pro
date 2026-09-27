@@ -152,6 +152,17 @@ export async function POST(request: NextRequest) {
       
       case 'project': {
         if (data.id) {
+          // totalPiles used to be recomputed from totalRows*pilesPerRow on
+          // EVERY save of this form, even when those two fields hadn't
+          // changed - so saving just the project name, status, or planned
+          // Tables/Modules could silently overwrite a totalPiles value that
+          // had been corrected by hand to not match rows*pilesPerRow (the
+          // grid shape and the real pile count aren't always the same
+          // thing - a project can be re-scoped without its row layout
+          // changing). Only recompute it when the grid shape itself is
+          // actually part of this save.
+          const existing = await prisma.project.findUnique({ where: { id: data.id }, select: { totalRows: true, pilesPerRow: true } })
+          const gridShapeChanged = !existing || existing.totalRows !== data.totalRows || existing.pilesPerRow !== data.pilesPerRow
           const project = await prisma.project.update({
             where: { id: data.id },
             data: {
@@ -162,7 +173,7 @@ export async function POST(request: NextRequest) {
               dailyTarget: data.dailyTarget,
               totalRows: data.totalRows,
               pilesPerRow: data.pilesPerRow,
-              totalPiles: data.totalRows * data.pilesPerRow,
+              ...(gridShapeChanged ? { totalPiles: data.totalRows * data.pilesPerRow } : {}),
               totalTables: data.totalTables || 0,
               totalModules: data.totalModules || 0,
               rackingProfileId: data.rackingProfileId,
