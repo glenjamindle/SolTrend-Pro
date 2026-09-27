@@ -101,8 +101,17 @@ export default async function SolTrendApp() {
         .donut-ring { fill: none; stroke-width: 12; }
         .donut-segment { fill: none; stroke-width: 12; stroke-linecap: round; }
         .donut-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+        #app { visibility: hidden; }
+        .app-loading-screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: var(--bg); z-index: 9999; }
+        .app-loading-screen img { width: 56px; height: 56px; border-radius: 14px; box-shadow: 0 8px 24px rgba(245, 158, 11, 0.25); animation: appLoadingPulse 1.6s ease-in-out infinite; }
+        @keyframes appLoadingPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.94); } }
+        .app-loading-text { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; color: var(--fg-muted); letter-spacing: 0.5px; }
       ` }} />
-      <div id="app" dangerouslySetInnerHTML={{ __html: '<p style="color: white; padding: 20px;">Loading SolTrend Pro v2.1...</p>' }} />
+      <div id="app-loading" className="app-loading-screen">
+        <img src="/logo-mark.png" alt="SolTrend Pro" />
+        <div className="app-loading-text">Loading SolTrend Pro...</div>
+      </div>
+      <div id="app" />
       <Script src="https://cdn.tailwindcss.com" strategy="beforeInteractive" />
       <Script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" strategy="afterInteractive" />
       <Script id="soltrend-app" strategy="afterInteractive">
@@ -3124,11 +3133,30 @@ export default async function SolTrendApp() {
             if (projectSelect) { projectSelect.addEventListener('change', (e) => { switchToProject(state.projects.find(p => p.id === e.target.value)); }); }
           }
 
+          // Tailwind's CDN build (loaded from cdn.tailwindcss.com) generates
+          // utility CSS in the browser by scanning the DOM after it changes,
+          // instead of shipping a pre-built stylesheet. Since the whole app
+          // gets dropped into #app in one big innerHTML swap, there's a
+          // window where the raw, unstyled markup is visible before
+          // Tailwind's scan catches up - a jumbled flash, worse on a cold
+          // page load. #app starts hidden (see the style block above) behind
+          // a branded loading screen; revealApp() swaps them back once the
+          // browser has had a paint cycle for Tailwind to finish, with a
+          // timeout as a fallback in case something upstream goes wrong.
+          function revealApp() {
+            const app = document.getElementById('app');
+            const loadingScreen = document.getElementById('app-loading');
+            if (app) app.style.visibility = 'visible';
+            if (loadingScreen) loadingScreen.style.display = 'none';
+          }
+          setTimeout(revealApp, 5000);
+
           // INITIALIZATION - Load data from database
           async function initializeApp() {
             // Show loading state
             render();
-            
+            requestAnimationFrame(() => requestAnimationFrame(revealApp));
+
             // Try to load settings from database first
             await loadSettings();
             
