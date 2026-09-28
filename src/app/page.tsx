@@ -646,7 +646,6 @@ export default async function SolTrendApp() {
                 { id: 'delays', label: 'Delays', icon: 'cloud-rain' },
                 { id: 'materials', label: 'Materials', icon: 'package' },
                 { id: 'heatmap', label: 'Pile Map', icon: 'map' },
-                { id: 'pileLayout', label: 'Pile Layout', icon: 'layout-grid' },
               ]},
               { title: 'Safety', items: [
                 { id: 'safety', label: 'Safety', icon: 'hard-hat' },
@@ -2204,7 +2203,7 @@ export default async function SolTrendApp() {
             ];
 
             // Zone breakdown - only exists once a project has a real custom
-            // layout with zones assigned (see the Pile Layout page). A
+            // layout with zones assigned (Settings -> Pile Layout). A
             // project still on the default procedural grid has no zones to
             // report on, so this section just doesn't render for it.
             const isCustom = project?.pileLayoutMode === 'custom' && state.piles.length > 0;
@@ -2344,7 +2343,7 @@ export default async function SolTrendApp() {
             });
 
             // Zone breakdown - only meaningful once a project has a real
-            // custom pile layout with zones (Pile Layout page).
+            // custom pile layout with zones (Settings -> Pile Layout).
             const isCustom = project?.pileLayoutMode === 'custom' && state.piles.length > 0;
             const zoneRows = [];
             if (isCustom) {
@@ -2522,7 +2521,7 @@ export default async function SolTrendApp() {
                 rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-500 font-mono text-right pr-1">' + row + '</span>' + cells + '</div>';
               }
             }
-            const editLayoutBtn = hasRole('manager') ? '<button onclick="navigateTo(\\'pileLayout\\')" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('layout-grid', 'w-3.5 h-3.5') + ' Edit Layout</button>' : '';
+            const editLayoutBtn = hasRole('manager') ? '<button onclick="state.settingsTab=\\'pileLayout\\'; navigateTo(\\'settings\\')" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('layout-grid', 'w-3.5 h-3.5') + ' Edit Layout</button>' : '';
             return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Pile Map</h1><p class="text-slate-400">' + headerNote + '</p></div><div class="flex items-center gap-2">' + editLayoutBtn + '<button onclick="zoomOut()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-out', 'w-4 h-4') + '</button><span class="text-sm text-slate-400 w-12 text-center">' + Math.round(zoom * 100) + '%</span><button onclick="zoomIn()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-in', 'w-4 h-4') + '</button></div></div><div class="flex flex-wrap items-center gap-3 bg-slate-800/50 border border-slate-700 rounded-xl p-3"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-green-500"></div><span class="text-xs text-slate-300">Passed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-red-500"></div><span class="text-xs text-slate-300">Failed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-orange-500"></div><span class="text-xs text-slate-300">Refusal</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-slate-500"></div><span class="text-xs text-slate-300">Not Started</span></div><div class="flex items-center gap-2 ml-auto"><input type="text" id="pileMapSearch" value="' + (search || '') + '" oninput="filterPileMap(this.value)" placeholder="Search pile, e.g. 12-7" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-40">' + (term ? '<span class="text-xs text-slate-500">' + matchCount + ' match' + (matchCount === 1 ? '' : 'es') + '</span>' : '') + '</div></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4 overflow-x-auto" style="max-height: 60vh; overflow-y: auto;"><div class="inline-block">' + rows + '</div></div></div><div id="pileModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop"><div class="bg-slate-800 border border-slate-700 rounded-xl max-w-sm w-full" id="pileModalContent"></div></div>';
           }
 
@@ -2798,7 +2797,7 @@ export default async function SolTrendApp() {
             '</div>';
           }
 
-          function renderPileLayout() {
+          function renderPileLayoutSettings() {
             const project = state.currentProject;
             const isCustom = project?.pileLayoutMode === 'custom';
             const canEdit = hasRole('manager');
@@ -2858,8 +2857,8 @@ export default async function SolTrendApp() {
               '<button onclick="clearCustomLayout()" class="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('trash-2', 'w-3.5 h-3.5') + ' Clear custom layout</button>' +
               '</div>' : '';
 
-            return '<div class="space-y-4 animate-fade-in max-w-3xl">' +
-              '<div><h1 class="font-display text-2xl font-bold text-white">Pile Layout</h1><p class="text-slate-400">Import or edit the real pile-by-pile layout so the Pile Map and QC tolerances follow the actual site, gaps included.</p></div>' +
+            return '<div class="space-y-4 max-w-3xl">' +
+              '<p class="text-sm text-slate-400">Import or edit the real pile-by-pile layout so the Pile Map and QC tolerances follow the actual site, gaps included.</p>' +
               statusBanner + importCard + manualCard + dangerCard +
               renderPileEditModal(typeOptions) +
             '</div>';
@@ -4469,6 +4468,7 @@ export default async function SolTrendApp() {
               { id: 'crews', label: 'Crews', icon: 'users' },
               { id: 'subcontractors', label: 'Subcontractors', icon: 'hard-hat' },
               { id: 'racking', label: 'Racking', icon: 'sliders-horizontal' },
+              { id: 'pileLayout', label: 'Pile Layout', icon: 'layout-grid' },
               { id: 'users', label: 'Users', icon: 'user' },
             ];
             
@@ -4489,6 +4489,7 @@ export default async function SolTrendApp() {
               case 'crews': return renderCrewsSettings();
               case 'subcontractors': return renderSubcontractorsSettings();
               case 'racking': return renderRackingSettings();
+              case 'pileLayout': return renderPileLayoutSettings();
               case 'users': return renderUsersSettings();
               default: return renderCompanySettings();
             }
@@ -5060,7 +5061,7 @@ export default async function SolTrendApp() {
 
           // MAIN RENDER
           function render() {
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, pileLayout: renderPileLayout, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();
@@ -5184,7 +5185,7 @@ export default async function SolTrendApp() {
                 if (savedProject) state.currentProject = savedProject;
               }
               const savedView = localStorage.getItem('soltrend_lastView');
-              const validViews = ['company', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'pileLayout', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
+              const validViews = ['company', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
               const projectIndependentViews = ['company', 'settings'];
               if (savedView && validViews.indexOf(savedView) !== -1 && (projectIndependentViews.indexOf(savedView) !== -1 || state.currentProject)) {
                 state.currentView = savedView;
