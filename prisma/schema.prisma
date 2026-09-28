@@ -72,6 +72,14 @@ model Project {
   pilesPerRow       Int      @default(30)
   totalPiles        Int      @default(1500)
   pileNamingPrefix  String?  // e.g., "P", "Pile"
+  // "grid" (default): the pile map is the procedural totalRows x pilesPerRow
+  // rectangle above, as it always has been. "custom": this project has real
+  // Pile records (imported or entered by hand) and the map renders those
+  // instead - real row lengths, gaps for obstacles, per-pile type. Flips to
+  // "custom" automatically the first time a Pile row is written for this
+  // project; a manager can reset it back via the "clear custom layout"
+  // action, which also deletes every Pile row for the project.
+  pileLayoutMode    String   @default("grid")
 
   // Coordinates for this project's real weather forecast - optional; the
   // frontend falls back to a fixed Phoenix, AZ location when unset.
@@ -101,6 +109,7 @@ model Project {
   
   company           Company           @relation(fields: [companyId], references: [id])
   rackingProfile    RackingProfile?  @relation(fields: [rackingProfileId], references: [id])
+  piles             Pile[]
   inspections       Inspection[]
   refusals          Refusal[]
   productionEntries ProductionEntry[]
@@ -173,6 +182,36 @@ model RackingProfile {
   
   company   Company?   @relation(fields: [companyId], references: [id])
   projects  Project[]
+}
+
+// Pile - a single real pile position in a project's layout. Doesn't exist
+// at all until a project is imported or hand-entered (Project.pileLayoutMode
+// flips from "grid" to "custom" the first time one is written) - most
+// projects still just use the procedural totalRows x pilesPerRow rectangle
+// and have zero rows here. pileId follows the same "row-position" format
+// Inspection/Refusal already key on (e.g. "35-22"), so nothing about how an
+// inspection or refusal is recorded or looked up has to change.
+model Pile {
+  id       String   @id @default(cuid())
+  pileId   String   // "row-position", matches Inspection/Refusal.pileId
+  row      Int
+  position Int      // order within the row - rows don't have to be contiguous
+  zone     String?  // free text, e.g. "Zone 1" - groups rows in the Pile Layout view
+  pileType String?  // id of a RackingProfile pile type spec (pileTypeSpecs[].id)
+  color    String?  // vendor color-plan label, kept even when pileType isn't matched
+  skip     Boolean  @default(false) // true = gap/obstacle placeholder, not a real pile
+  lat      Float?
+  lng      Float?
+  notes    String?
+
+  projectId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project @relation(fields: [projectId], references: [id])
+
+  @@unique([projectId, pileId])
+  @@index([projectId, row])
 }
 
 // Inspection - QC inspection records

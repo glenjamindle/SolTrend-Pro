@@ -144,6 +144,9 @@ export default async function SolTrendApp() {
             subcontractors: [],
             rackingProfiles: [],
             editingRackingTypes: [],
+            piles: [],
+            pileCsvPreview: null,
+            editingPile: null,
             users: [],
             recentActivity: [],
             currentRow: 35, currentPile: 22,
@@ -641,6 +644,7 @@ export default async function SolTrendApp() {
                 { id: 'delays', label: 'Delays', icon: 'cloud-rain' },
                 { id: 'materials', label: 'Materials', icon: 'package' },
                 { id: 'heatmap', label: 'Pile Map', icon: 'map' },
+                { id: 'pileLayout', label: 'Pile Layout', icon: 'layout-grid' },
               ]},
               { title: 'Safety', items: [
                 { id: 'safety', label: 'Safety', icon: 'hard-hat' },
@@ -2104,19 +2108,62 @@ export default async function SolTrendApp() {
             const { zoom, totalRows, pilesPerRow, search } = state.heatmap;
             const cellSize = Math.round(20 * zoom);
             const term = (search || '').trim().toLowerCase();
+            const isCustom = state.currentProject?.pileLayoutMode === 'custom' && state.piles && state.piles.length > 0;
             let matchCount = 0;
             let rows = '';
-            for (let row = 1; row <= totalRows; row++) {
-              let cells = '';
-              for (let pile = 1; pile <= pilesPerRow; pile++) {
-                const pileId = row + '-' + pile;
-                const isMatch = !term || pileId.indexOf(term) !== -1;
-                if (term && isMatch) matchCount++;
-                cells += '<button onclick="showPileDetails(\\'' + pileId + '\\')" class="heat-cell status-' + getInspectionStatus(pileId) + (term && !isMatch ? ' dimmed' : '') + '" style="width: ' + cellSize + 'px; height: ' + cellSize + 'px" title="' + pileId + '"></button>';
+            let headerNote = 'Showing all ' + totalRows + ' rows';
+            if (isCustom) {
+              // Real layout: group by row (as imported/entered, not a fixed
+              // rectangle), sorted by position within each row, and grouped
+              // under zone headers when the piles carry a zone. A "skip"
+              // pile is a gap/obstacle placeholder - it still occupies a
+              // cell so the row's real shape is visible, but it's not
+              // clickable and doesn't count toward matches.
+              const activeProfile = state.rackingProfiles.find(function(r) { return r.id === state.currentProject?.rackingProfileId; });
+              const typeLabels = {};
+              ((activeProfile && activeProfile.pileTypeSpecs) || []).forEach(function(t) { typeLabels[t.id] = t.label || t.profile || 'Type'; });
+              const byRow = {};
+              state.piles.forEach(function(p) { (byRow[p.row] = byRow[p.row] || []).push(p); });
+              const rowNums = Object.keys(byRow).map(Number).sort(function(a, b) { return a - b; });
+              let realPileCount = 0;
+              let currentZone = undefined;
+              rowNums.forEach(function(rowNum) {
+                const rowPiles = byRow[rowNum].slice().sort(function(a, b) { return a.position - b.position; });
+                const rowZone = rowPiles.find(function(p) { return p.zone; })?.zone || null;
+                if (rowZone !== currentZone) {
+                  currentZone = rowZone;
+                  rows += '<div class="text-xs font-semibold text-amber-400/90 uppercase tracking-wider mt-3 mb-1 first:mt-0">' + (rowZone || 'Ungrouped') + '</div>';
+                }
+                let cells = '';
+                rowPiles.forEach(function(p) {
+                  if (p.skip) {
+                    cells += '<span class="heat-cell-gap" style="width: ' + cellSize + 'px; height: ' + cellSize + 'px" title="Gap / obstacle"></span>';
+                    return;
+                  }
+                  realPileCount++;
+                  const isMatch = !term || p.pileId.indexOf(term) !== -1;
+                  if (term && isMatch) matchCount++;
+                  const typeLabel = p.pileType && typeLabels[p.pileType] ? typeLabels[p.pileType] : (p.color || '');
+                  const borderColor = p.color ? p.color.toLowerCase().replace(/\s+/g, '') : '';
+                  cells += '<button onclick="showPileDetails(\\'' + p.pileId + '\\')" class="heat-cell status-' + getInspectionStatus(p.pileId) + (term && !isMatch ? ' dimmed' : '') + '" style="width: ' + cellSize + 'px; height: ' + cellSize + 'px' + (borderColor && borderColor !== 'nocolor' ? '; border-bottom: 3px solid ' + borderColor : '') + '" title="' + p.pileId + (typeLabel ? ' · ' + typeLabel : '') + '"></button>';
+                });
+                rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-500 font-mono text-right pr-1">' + rowNum + '</span>' + cells + '</div>';
+              });
+              headerNote = 'Custom layout · ' + realPileCount + ' piles across ' + rowNums.length + ' rows';
+            } else {
+              for (let row = 1; row <= totalRows; row++) {
+                let cells = '';
+                for (let pile = 1; pile <= pilesPerRow; pile++) {
+                  const pileId = row + '-' + pile;
+                  const isMatch = !term || pileId.indexOf(term) !== -1;
+                  if (term && isMatch) matchCount++;
+                  cells += '<button onclick="showPileDetails(\\'' + pileId + '\\')" class="heat-cell status-' + getInspectionStatus(pileId) + (term && !isMatch ? ' dimmed' : '') + '" style="width: ' + cellSize + 'px; height: ' + cellSize + 'px" title="' + pileId + '"></button>';
+                }
+                rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-500 font-mono text-right pr-1">' + row + '</span>' + cells + '</div>';
               }
-              rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-500 font-mono text-right pr-1">' + row + '</span>' + cells + '</div>';
             }
-            return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Pile Map</h1><p class="text-slate-400">Showing all ' + totalRows + ' rows</p></div><div class="flex items-center gap-2"><button onclick="zoomOut()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-out', 'w-4 h-4') + '</button><span class="text-sm text-slate-400 w-12 text-center">' + Math.round(zoom * 100) + '%</span><button onclick="zoomIn()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-in', 'w-4 h-4') + '</button></div></div><div class="flex flex-wrap items-center gap-3 bg-slate-800/50 border border-slate-700 rounded-xl p-3"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-green-500"></div><span class="text-xs text-slate-300">Passed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-red-500"></div><span class="text-xs text-slate-300">Failed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-orange-500"></div><span class="text-xs text-slate-300">Refusal</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-slate-500"></div><span class="text-xs text-slate-300">Not Started</span></div><div class="flex items-center gap-2 ml-auto"><input type="text" id="pileMapSearch" value="' + (search || '') + '" oninput="filterPileMap(this.value)" placeholder="Search pile, e.g. 12-7" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-40">' + (term ? '<span class="text-xs text-slate-500">' + matchCount + ' match' + (matchCount === 1 ? '' : 'es') + '</span>' : '') + '</div></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4 overflow-x-auto" style="max-height: 60vh; overflow-y: auto;"><div class="inline-block">' + rows + '</div></div></div><div id="pileModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop"><div class="bg-slate-800 border border-slate-700 rounded-xl max-w-sm w-full" id="pileModalContent"></div></div>';
+            const editLayoutBtn = hasRole('manager') ? '<button onclick="navigateTo(\\'pileLayout\\')" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('layout-grid', 'w-3.5 h-3.5') + ' Edit Layout</button>' : '';
+            return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Pile Map</h1><p class="text-slate-400">' + headerNote + '</p></div><div class="flex items-center gap-2">' + editLayoutBtn + '<button onclick="zoomOut()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-out', 'w-4 h-4') + '</button><span class="text-sm text-slate-400 w-12 text-center">' + Math.round(zoom * 100) + '%</span><button onclick="zoomIn()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-in', 'w-4 h-4') + '</button></div></div><div class="flex flex-wrap items-center gap-3 bg-slate-800/50 border border-slate-700 rounded-xl p-3"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-green-500"></div><span class="text-xs text-slate-300">Passed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-red-500"></div><span class="text-xs text-slate-300">Failed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-orange-500"></div><span class="text-xs text-slate-300">Refusal</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-slate-500"></div><span class="text-xs text-slate-300">Not Started</span></div><div class="flex items-center gap-2 ml-auto"><input type="text" id="pileMapSearch" value="' + (search || '') + '" oninput="filterPileMap(this.value)" placeholder="Search pile, e.g. 12-7" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-40">' + (term ? '<span class="text-xs text-slate-500">' + matchCount + ' match' + (matchCount === 1 ? '' : 'es') + '</span>' : '') + '</div></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4 overflow-x-auto" style="max-height: 60vh; overflow-y: auto;"><div class="inline-block">' + rows + '</div></div></div><div id="pileModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop"><div class="bg-slate-800 border border-slate-700 rounded-xl max-w-sm w-full" id="pileModalContent"></div></div>';
           }
 
           // Live-filters the pile map as the user types without a full
@@ -2145,10 +2192,318 @@ export default async function SolTrendApp() {
             content.innerHTML = '<div class="p-5 border-b border-slate-700/50 flex justify-between items-center"><h3 class="font-display text-lg font-bold text-white">Pile ' + pileId + '</h3><button onclick="closePileModal()" class="p-1 text-slate-400 hover:text-white">' + icon('x', 'w-5 h-5') + '</button></div><div class="p-5"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-full ' + info.bg + ' flex items-center justify-center ' + info.color + '">' + icon(info.icon, 'w-5 h-5') + '</div><div><span class="' + info.color + ' font-bold text-lg">' + info.label + '</span><p class="text-xs text-slate-500">' + (status !== 'notstarted' ? 'Recorded' : 'No data') + '</p></div></div>' + (status !== 'notstarted' ? '<div class="space-y-2 mb-4 text-sm"><div class="flex justify-between text-slate-300"><span class="text-slate-500">Inspector:</span><span>' + userString + '</span></div><div class="flex justify-between text-slate-300"><span class="text-slate-500">Timestamp:</span><span>' + timeString + '</span></div>' + (inspection?.depth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Depth:</span><span>' + inspection.depth + '"</span></div>' : '') + (inspection?.plumbNS ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Plumb N-S:</span><span>' + inspection.plumbNS + '°</span></div>' : '') + (status === 'refusal' ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Reason:</span><span class="capitalize">' + (refusal?.reason || 'N/A') + '</span></div>' + (refusal?.achievedDepth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Achieved Depth:</span><span>' + refusal.achievedDepth + '"</span></div>' : '') + (refusal?.notes ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Notes:</span><span class="text-right">' + refusal.notes + '</span></div>' : '') : '') + '</div>' : '') + '<div class="grid grid-cols-2 gap-2 mt-4">' + (status === 'fail' || status === 'refusal' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('refresh-cw', 'w-4 h-4') + ' Reinspect</button><button onclick="closePileModal()" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>' : status === 'notstarted' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="col-span-2 w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('plus', 'w-4 h-4') + ' Inspect Now</button>' : '<button onclick="closePileModal()" class="col-span-2 w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>') + '</div></div>';
             modal.classList.remove('hidden'); modal.classList.add('flex'); lucide.createIcons();
           }
-          function reinspectPile(pileId) { const { row, pile } = parsePileId(pileId); state.currentRow = row; state.currentPile = pile; closePileModal(); navigateTo('inspection'); }
+          function reinspectPile(pileId) { const { row, pile } = parsePileId(pileId); state.currentRow = row; state.currentPile = pile; syncInspectionPileTypeFromLayout(); closePileModal(); navigateTo('inspection'); }
           function closePileModal() { document.getElementById('pileModal').classList.add('hidden'); }
           function zoomIn() { state.heatmap.zoom = Math.min(2, state.heatmap.zoom + 0.25); render(); }
           function zoomOut() { state.heatmap.zoom = Math.max(0.5, state.heatmap.zoom - 0.25); render(); }
+
+          // PILE LAYOUT - real per-pile data backing a "custom" (irregular)
+          // pile map, as an alternative to the default procedural
+          // totalRows x pilesPerRow rectangle. A project stays in 'grid'
+          // mode (the original behavior, unchanged) until a CSV import or a
+          // manual pile add switches it to 'custom' - see Project.pileLayoutMode
+          // and the Pile model in schema.prisma, and /api/piles.
+          //
+          // Known limitation (accepted for this round): Inspection's
+          // sequential prev/next navigation still steps through the
+          // totalRows/pilesPerRow rectangle, not the real row lengths - it
+          // just looks up a matching Pile record at each stop to
+          // auto-fill the pile type. The Pile Map's tap-to-inspect flow
+          // (reinspectPile) is the precise entry point once a project has
+          // a real irregular layout, since it always jumps to a real pile.
+          function syncInspectionPileTypeFromLayout() {
+            if (!state.piles || state.piles.length === 0) return;
+            const pid = getPileId(state.currentRow, state.currentPile);
+            const match = state.piles.find(function(p) { return p.pileId === pid; });
+            if (match && match.pileType) state.inspectionPileType = match.pileType;
+          }
+
+          // Keeps the project's cached layout-mode/totals in sync locally
+          // right after a pile write, so the Pile Map header, Company
+          // Dashboard, etc. don't wait on a full loadSettings() round trip
+          // to reflect a change that just happened. Mirrors exactly what
+          // recomputeProjectPileStats() does server-side.
+          function syncProjectPileMode(mode) {
+            if (!state.currentProject) return;
+            state.currentProject.pileLayoutMode = mode;
+            if (mode === 'custom') {
+              const real = state.piles.filter(function(p) { return !p.skip; });
+              const maxRow = state.piles.reduce(function(m, p) { return Math.max(m, p.row); }, 0);
+              state.currentProject.totalPiles = real.length;
+              if (maxRow) state.currentProject.totalRows = maxRow;
+            } else {
+              state.currentProject.totalPiles = (state.currentProject.totalRows || 0) * (state.currentProject.pilesPerRow || 0);
+            }
+            const idx = state.projects.findIndex(function(p) { return p.id === state.currentProject.id; });
+            if (idx !== -1) state.projects[idx] = Object.assign({}, state.projects[idx], { pileLayoutMode: state.currentProject.pileLayoutMode, totalPiles: state.currentProject.totalPiles, totalRows: state.currentProject.totalRows });
+          }
+
+          function parseCsvLine(line) {
+            const out = []; let cur = ''; let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+              const c = line[i];
+              if (inQuotes) {
+                if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else { inQuotes = false; } }
+                else cur += c;
+              } else {
+                if (c === '"') inQuotes = true;
+                else if (c === ',') { out.push(cur); cur = ''; }
+                else cur += c;
+              }
+            }
+            out.push(cur);
+            return out;
+          }
+          // Generic column format (see the pending-tasks writeup): row,
+          // position, zone, pileType, color, skip, lat, lng, notes, pileId.
+          // pileType is matched by label (or profile) against the project's
+          // active racking profile - there's no real Hogan/OMCO stakeout
+          // export to build against yet, so this stays a generic importer
+          // rather than one tuned to a specific vendor format.
+          function parsePileCsvText(text) {
+            const lines = text.split(/\\r?\\n/).filter(function(l) { return l.trim().length > 0; });
+            if (lines.length < 2) return { rows: [], warnings: ['The file needs a header row plus at least one data row.'] };
+            const header = parseCsvLine(lines[0]).map(function(h) { return h.trim().toLowerCase(); });
+            const idx = {};
+            header.forEach(function(h, i) { idx[h] = i; });
+            if (idx.row === undefined || idx.position === undefined) {
+              return { rows: [], warnings: ['The CSV must include "row" and "position" columns.'] };
+            }
+            const activeProfile = state.rackingProfiles.find(function(r) { return r.id === state.currentProject?.rackingProfileId; });
+            const typeSpecs = (activeProfile && activeProfile.pileTypeSpecs) || [];
+            const rows = []; const warnings = [];
+            for (let li = 1; li < lines.length; li++) {
+              const cells = parseCsvLine(lines[li]);
+              const get = function(key) { return idx[key] !== undefined ? (cells[idx[key]] || '').trim() : ''; };
+              const rowNum = parseInt(get('row'), 10);
+              const posNum = parseInt(get('position'), 10);
+              if (!rowNum || !posNum) { warnings.push('Line ' + (li + 1) + ': missing or invalid row/position - skipped.'); continue; }
+              const zone = get('zone') || null;
+              const typeLabel = get('piletype');
+              const colorRaw = get('color') || null;
+              const skipRaw = get('skip').toLowerCase();
+              const skip = skipRaw === 'true' || skipRaw === 'yes' || skipRaw === '1' || skipRaw === 'y';
+              const latRaw = get('lat'); const lngRaw = get('lng');
+              const notes = get('notes') || null;
+              const pileIdOverride = get('pileid');
+              let pileType = null;
+              if (typeLabel) {
+                const match = typeSpecs.find(function(t) { return (t.label || '').trim().toLowerCase() === typeLabel.toLowerCase() || (t.profile || '').trim().toLowerCase() === typeLabel.toLowerCase(); });
+                if (match) pileType = match.id;
+                else warnings.push('Line ' + (li + 1) + ': pile type "' + typeLabel + '" doesn\\'t match any type on the active racking profile - imported with no type set.');
+              }
+              rows.push({
+                pileId: pileIdOverride || (rowNum + '-' + posNum),
+                row: rowNum, position: posNum, zone: zone, pileType: pileType,
+                color: colorRaw, skip: skip,
+                lat: latRaw ? parseFloat(latRaw) : null, lng: lngRaw ? parseFloat(lngRaw) : null,
+                notes: notes, typeLabelRaw: typeLabel || '',
+              });
+            }
+            return { rows: rows, warnings: warnings };
+          }
+          function downloadPileCsvTemplate() {
+            const rows = [
+              { row: 1, position: 1, zone: 'Zone A', pileType: '', color: '', skip: 'false', lat: '', lng: '', notes: '', pileId: '' },
+              { row: 1, position: 2, zone: 'Zone A', pileType: '', color: '', skip: 'false', lat: '', lng: '', notes: '', pileId: '' },
+              { row: 1, position: 3, zone: 'Zone A', pileType: '', color: '', skip: 'true', lat: '', lng: '', notes: 'obstacle - existing culvert', pileId: '' },
+              { row: 2, position: 1, zone: 'Zone B', pileType: '', color: '', skip: 'false', lat: '', lng: '', notes: '', pileId: '' },
+            ];
+            downloadCSV('pile-layout-template.csv', toCSV(rows, ['row', 'position', 'zone', 'pileType', 'color', 'skip', 'lat', 'lng', 'notes', 'pileId']));
+          }
+          function triggerPileCsvInput() { document.getElementById('pileCsvInput').click(); }
+          function handlePileCsvSelect(event) {
+            const file = event.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+              const parsed = parsePileCsvText(String(e.target.result || ''));
+              state.pileCsvPreview = Object.assign({ fileName: file.name }, parsed);
+              render();
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+          }
+          function cancelPileCsvImport() { state.pileCsvPreview = null; render(); }
+          async function confirmPileCsvImport() {
+            const preview = state.pileCsvPreview;
+            if (!preview || !preview.rows || preview.rows.length === 0) return;
+            try {
+              const res = await fetch('/api/piles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: state.currentProject.id, piles: preview.rows }),
+              });
+              if (res.ok) {
+                state.pileCsvPreview = null;
+                await loadPiles();
+                syncProjectPileMode('custom');
+                render();
+              } else {
+                const err = await res.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to import the pile layout.');
+              }
+            } catch (e) { console.error('Pile import error:', e); alert('Failed to import the pile layout.'); }
+          }
+
+          function openPileModal(pileId) {
+            if (pileId) {
+              const p = state.piles.find(function(x) { return x.pileId === pileId; });
+              state.editingPile = p ? Object.assign({}, p) : null;
+            } else {
+              const maxRow = state.piles.reduce(function(m, x) { return Math.max(m, x.row); }, 0);
+              state.editingPile = { pileId: null, row: maxRow || 1, position: 1, zone: '', pileType: '', color: '', skip: false, lat: '', lng: '', notes: '' };
+            }
+            render();
+          }
+          function closePileEditModal() { state.editingPile = null; render(); }
+          async function savePileEditModal() {
+            const p = state.editingPile; if (!p) return;
+            const row = parseInt(p.row, 10); const position = parseInt(p.position, 10);
+            if (!row || !position) { alert('Row and position are required.'); return; }
+            const payload = {
+              pileId: p.pileId || undefined, row: row, position: position,
+              zone: p.zone || null, pileType: p.pileType || null, color: p.color || null,
+              skip: !!p.skip,
+              lat: (p.lat !== '' && p.lat != null) ? parseFloat(p.lat) : null,
+              lng: (p.lng !== '' && p.lng != null) ? parseFloat(p.lng) : null,
+              notes: p.notes || null,
+            };
+            try {
+              const res = await fetch('/api/piles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: state.currentProject.id, piles: [payload] }),
+              });
+              if (res.ok) {
+                await loadPiles();
+                syncProjectPileMode('custom');
+                closePileEditModal();
+              } else {
+                const err = await res.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to save the pile.');
+              }
+            } catch (e) { console.error('Save pile error:', e); alert('Failed to save the pile.'); }
+          }
+          async function deletePileRow(pileId) {
+            if (!confirm('Remove pile ' + pileId + ' from the layout?')) return;
+            try {
+              const res = await fetch('/api/piles?projectId=' + state.currentProject.id + '&pileId=' + encodeURIComponent(pileId), { method: 'DELETE' });
+              if (res.ok) { await loadPiles(); syncProjectPileMode('custom'); render(); }
+              else { const err = await res.json().catch(function() { return {}; }); alert(err.error || 'Failed to delete the pile.'); }
+            } catch (e) { console.error('Delete pile error:', e); alert('Failed to delete the pile.'); }
+          }
+          async function clearCustomLayout() {
+            if (!confirm('Clear the entire custom pile layout for this project and revert to the standard grid? This cannot be undone.')) return;
+            try {
+              const res = await fetch('/api/piles?projectId=' + state.currentProject.id + '&clearAll=true', { method: 'DELETE' });
+              if (res.ok) { state.piles = []; syncProjectPileMode('grid'); render(); }
+              else { const err = await res.json().catch(function() { return {}; }); alert(err.error || 'Failed to clear the layout.'); }
+            } catch (e) { console.error('Clear layout error:', e); alert('Failed to clear the layout.'); }
+          }
+
+          function renderPileEditModal(typeOptions) {
+            const p = state.editingPile;
+            if (!p) return '';
+            const title = p.pileId ? 'Edit Pile ' + p.pileId : 'Add Pile';
+            return '<div class="fixed inset-0 z-50 overflow-y-auto modal-backdrop">' +
+              '<div class="min-h-full flex items-center justify-center p-4" onclick="if(event.target === this) closePileEditModal()">' +
+                '<div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md my-8">' +
+                  '<div class="flex items-center justify-between mb-6"><h3 class="font-display font-semibold text-white text-lg">' + title + '</h3><button onclick="closePileEditModal()" class="p-2 hover:bg-slate-800 rounded-lg text-slate-400">' + icon('x', 'w-5 h-5') + '</button></div>' +
+                  '<div class="space-y-4">' +
+                    '<div class="grid grid-cols-2 gap-3">' +
+                      '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Row</label><input type="number" value="' + (p.row ?? '') + '" oninput="state.editingPile.row=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                      '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Position in Row</label><input type="number" value="' + (p.position ?? '') + '" oninput="state.editingPile.position=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                    '</div>' +
+                    '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Zone (optional)</label><input type="text" value="' + (p.zone || '') + '" oninput="state.editingPile.zone=this.value" placeholder="e.g. Zone A" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                    '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Pile Type</label><select onchange="state.editingPile.pileType=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
+                      '<option value="">Not set</option>' +
+                      typeOptions.map(function(t) { return '<option value="' + t.id + '" ' + (p.pileType === t.id ? 'selected' : '') + '>' + (t.label || t.profile || 'Type') + '</option>'; }).join('') +
+                    '</select></div>' +
+                    '<div class="grid grid-cols-2 gap-3">' +
+                      '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Color (vendor plan)</label><input type="text" value="' + (p.color || '') + '" oninput="state.editingPile.color=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                      '<div class="flex items-end pb-3"><label class="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" ' + (p.skip ? 'checked' : '') + ' onchange="state.editingPile.skip=this.checked" class="w-4 h-4"> Gap / obstacle (no pile here)</label></div>' +
+                    '</div>' +
+                    '<div class="grid grid-cols-2 gap-3">' +
+                      '<div><input type="number" step="any" value="' + (p.lat ?? '') + '" oninput="state.editingPile.lat=this.value" placeholder="Latitude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                      '<div><input type="number" step="any" value="' + (p.lng ?? '') + '" oninput="state.editingPile.lng=this.value" placeholder="Longitude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                    '</div>' +
+                    '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Notes</label><textarea oninput="state.editingPile.notes=this.value" rows="2" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' + (p.notes || '') + '</textarea></div>' +
+                  '</div>' +
+                  '<div class="flex gap-3 mt-6">' +
+                    '<button onclick="closePileEditModal()" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium">Cancel</button>' +
+                    '<button onclick="savePileEditModal()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-semibold">Save</button>' +
+                  '</div>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+          }
+
+          function renderPileLayout() {
+            const project = state.currentProject;
+            const isCustom = project?.pileLayoutMode === 'custom';
+            const canEdit = hasRole('manager');
+            const canClear = hasRole('admin');
+            const activeProfile = state.rackingProfiles.find(function(r) { return r.id === project?.rackingProfileId; });
+            const typeOptions = (activeProfile && activeProfile.pileTypeSpecs) || [];
+            const typeLabels = {};
+            typeOptions.forEach(function(t) { typeLabels[t.id] = t.label || t.profile || 'Type'; });
+
+            const statusBanner = '<div class="card rounded-xl p-4 flex items-center gap-3">' +
+              '<div class="w-10 h-10 rounded-full ' + (isCustom ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-700/50 text-slate-400') + ' flex items-center justify-center">' + icon(isCustom ? 'layout-grid' : 'grid-3x3', 'w-5 h-5') + '</div>' +
+              '<div class="flex-1"><p class="text-sm font-semibold text-white">' + (isCustom ? 'Custom layout' : 'Standard grid') + '</p>' +
+              '<p class="text-xs text-slate-500">' + (isCustom ? state.piles.filter(function(p) { return !p.skip; }).length + ' piles across ' + (project.totalRows || 0) + ' rows, imported or entered manually.' : 'Procedural ' + (project?.totalRows || 0) + ' x ' + (project?.pilesPerRow || 0) + ' rectangle - the default until a CSV is imported or a pile is added below.') + '</p></div>' +
+              '</div>';
+
+            const preview = state.pileCsvPreview;
+            const importCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
+              '<div class="flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Import from CSV</h3>' +
+              '<button onclick="downloadPileCsvTemplate()" class="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">' + icon('download', 'w-3.5 h-3.5') + ' Download template</button></div>' +
+              '<p class="text-xs text-slate-500">Columns: row, position, zone, pileType, color, skip, lat, lng, notes, pileId. Only row and position are required - pileType is matched by label against ' + (activeProfile ? '"' + activeProfile.name + '"' : 'the project\\'s racking profile') + '; mark a gap or obstacle with skip=true.</p>' +
+              '<input type="file" id="pileCsvInput" accept=".csv,text/csv" class="hidden" onchange="handlePileCsvSelect(event)">' +
+              '<button onclick="triggerPileCsvInput()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('upload', 'w-3.5 h-3.5') + ' Choose CSV file</button>' +
+              (preview ? (
+                '<div class="border-t border-slate-700/50 pt-3 space-y-2">' +
+                '<p class="text-xs text-slate-400"><span class="text-white font-medium">' + preview.fileName + '</span> - ' + preview.rows.length + ' pile' + (preview.rows.length === 1 ? '' : 's') + ' ready to import' + (preview.warnings.length > 0 ? ', ' + preview.warnings.length + ' warning' + (preview.warnings.length === 1 ? '' : 's') : '') + '.</p>' +
+                (preview.warnings.length > 0 ? '<div class="max-h-28 overflow-y-auto space-y-1">' + preview.warnings.slice(0, 15).map(function(w) { return '<p class="text-xs text-amber-400/90">' + w + '</p>'; }).join('') + (preview.warnings.length > 15 ? '<p class="text-xs text-slate-500">+ ' + (preview.warnings.length - 15) + ' more</p>' : '') + '</div>' : '') +
+                (preview.rows.length > 0 ? '<div class="max-h-40 overflow-y-auto rounded-lg border border-slate-700/50"><table class="w-full text-xs"><thead class="bg-slate-800/70 text-slate-400"><tr><th class="text-left px-2 py-1.5">Pile</th><th class="text-left px-2 py-1.5">Zone</th><th class="text-left px-2 py-1.5">Type</th><th class="text-left px-2 py-1.5">Skip</th></tr></thead><tbody>' +
+                  preview.rows.slice(0, 25).map(function(r) { return '<tr class="border-t border-slate-800"><td class="px-2 py-1 text-slate-300">' + r.pileId + '</td><td class="px-2 py-1 text-slate-400">' + (r.zone || '-') + '</td><td class="px-2 py-1 text-slate-400">' + (r.pileType ? (typeLabels[r.pileType] || r.pileType) : (r.typeLabelRaw || '-')) + '</td><td class="px-2 py-1 text-slate-400">' + (r.skip ? 'Yes' : '') + '</td></tr>'; }).join('') +
+                '</tbody></table>' + (preview.rows.length > 25 ? '<p class="text-xs text-slate-500 px-2 py-1.5">+ ' + (preview.rows.length - 25) + ' more row' + (preview.rows.length - 25 === 1 ? '' : 's') + ' not shown</p>' : '') + '</div>' : '') +
+                '<div class="flex gap-2 pt-1">' +
+                  '<button onclick="cancelPileCsvImport()" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium">Cancel</button>' +
+                  (preview.rows.length > 0 ? '<button onclick="confirmPileCsvImport()" class="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-sm font-semibold">Import ' + preview.rows.length + ' pile' + (preview.rows.length === 1 ? '' : 's') + '</button>' : '') +
+                '</div>' +
+                '</div>'
+              ) : '') +
+              '</div>';
+
+            const byRow = {};
+            state.piles.forEach(function(p) { (byRow[p.row] = byRow[p.row] || []).push(p); });
+            const rowNums = Object.keys(byRow).map(Number).sort(function(a, b) { return a - b; });
+            const manualCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
+              '<div class="flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Piles (' + state.piles.length + ')</h3>' +
+              '<button onclick="openPileModal(null)" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-xs flex items-center gap-1">' + icon('plus', 'w-3.5 h-3.5') + ' Add Pile</button></div>' +
+              (state.piles.length === 0 ? '<p class="text-sm text-slate-500 text-center py-6">No custom piles yet. Import a CSV above or add piles one at a time.</p>' :
+                '<div class="max-h-96 overflow-y-auto rounded-lg border border-slate-700/50"><table class="w-full text-xs"><thead class="bg-slate-800/70 text-slate-400 sticky top-0"><tr><th class="text-left px-2 py-1.5">Row</th><th class="text-left px-2 py-1.5">Pile</th><th class="text-left px-2 py-1.5">Zone</th><th class="text-left px-2 py-1.5">Type</th><th class="text-left px-2 py-1.5">Skip</th><th class="text-right px-2 py-1.5">Actions</th></tr></thead><tbody>' +
+                rowNums.map(function(rowNum) {
+                  return byRow[rowNum].sort(function(a, b) { return a.position - b.position; }).map(function(p) {
+                    return '<tr class="border-t border-slate-800' + (p.skip ? ' opacity-50' : '') + '"><td class="px-2 py-1.5 text-slate-400">' + rowNum + '</td><td class="px-2 py-1.5 text-slate-200 font-mono">' + p.pileId + '</td><td class="px-2 py-1.5 text-slate-400">' + (p.zone || '-') + '</td><td class="px-2 py-1.5 text-slate-400">' + (p.pileType && typeLabels[p.pileType] ? typeLabels[p.pileType] : '-') + '</td><td class="px-2 py-1.5 text-slate-400">' + (p.skip ? 'Yes' : '') + '</td><td class="px-2 py-1.5 text-right"><button onclick="openPileModal(\\'' + p.pileId + '\\')" class="text-slate-400 hover:text-white p-1">' + icon('pencil', 'w-3.5 h-3.5') + '</button><button onclick="deletePileRow(\\'' + p.pileId + '\\')" class="text-red-400 hover:text-red-300 p-1">' + icon('trash-2', 'w-3.5 h-3.5') + '</button></td></tr>';
+                  }).join('');
+                }).join('')
+              + '</tbody></table></div>') +
+              '</div>';
+
+            const dangerCard = (canClear && isCustom) ? '<div class="card rounded-xl p-4 border-red-500/30 space-y-2">' +
+              '<h3 class="font-display font-semibold text-red-400 text-sm">Danger Zone</h3>' +
+              '<p class="text-xs text-slate-500">Deletes every custom pile record for this project and reverts the Pile Map back to the standard procedural grid.</p>' +
+              '<button onclick="clearCustomLayout()" class="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('trash-2', 'w-3.5 h-3.5') + ' Clear custom layout</button>' +
+              '</div>' : '';
+
+            return '<div class="space-y-4 animate-fade-in max-w-3xl">' +
+              '<div><h1 class="font-display text-2xl font-bold text-white">Pile Layout</h1><p class="text-slate-400">Import or edit the real pile-by-pile layout so the Pile Map and QC tolerances follow the actual site, gaps included.</p></div>' +
+              statusBanner + importCard + manualCard + dangerCard +
+              renderPileEditModal(typeOptions) +
+            '</div>';
+          }
 
           // INSPECTION - WITH PHOTO CAPTURE
           function renderInspection() {
@@ -2199,10 +2554,10 @@ export default async function SolTrendApp() {
             ) : '';
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">QC Inspection</h1></div><div class="flex items-center gap-2"><span class="badge-pass px-3 py-1.5 rounded-full text-sm">' + state.session.passed + ' Pass</span><span class="badge-fail px-3 py-1.5 rounded-full text-sm">' + state.session.failed + ' Fail</span></div></div><div class="flex gap-2"><button onclick="setInspectionMode(\\'quick\\')" class="mode-btn ' + (state.inspectionMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">quick</button><button onclick="setInspectionMode(\\'detailed\\')" class="mode-btn ' + (state.inspectionMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">detailed</button></div><div class="pile-display p-6"><p class="text-xs text-slate-500 uppercase tracking-wider text-center mb-3">INSPECTING</p><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.currentRow + '</span><button onclick="incRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div>' + detailedPanel + '<div class="grid grid-cols-2 gap-3"><button onclick="recordInspection(\\'pass\\')" class="btn-action bg-green-600 text-white flex flex-col items-center justify-center gap-2">' + icon('check-circle', 'w-12 h-12') + '<span>PASS</span></button><button onclick="recordInspection(\\'fail\\')" class="btn-action bg-red-600 text-white flex flex-col items-center justify-center gap-2">' + icon('x-circle', 'w-12 h-12') + '<span>FAIL</span></button></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('inspection') + '</div></div>';
           }
-          function incPile() { hapticFeedback(); if (state.currentPile < state.heatmap.pilesPerRow) state.currentPile++; render(); }
-          function decPile() { hapticFeedback(); if (state.currentPile > 1) state.currentPile--; render(); }
-          function incRow() { hapticFeedback(); if (state.currentRow < state.heatmap.totalRows) state.currentRow++; render(); }
-          function decRow() { hapticFeedback(); if (state.currentRow > 1) state.currentRow--; render(); }
+          function incPile() { hapticFeedback(); if (state.currentPile < state.heatmap.pilesPerRow) state.currentPile++; syncInspectionPileTypeFromLayout(); render(); }
+          function decPile() { hapticFeedback(); if (state.currentPile > 1) state.currentPile--; syncInspectionPileTypeFromLayout(); render(); }
+          function incRow() { hapticFeedback(); if (state.currentRow < state.heatmap.totalRows) state.currentRow++; syncInspectionPileTypeFromLayout(); render(); }
+          function decRow() { hapticFeedback(); if (state.currentRow > 1) state.currentRow--; syncInspectionPileTypeFromLayout(); render(); }
           function setInspectionMode(mode) { state.inspectionMode = mode; render(); }
           function selectInspectionFailReason(reason) { hapticFeedback(); state.inspectionFailReason = state.inspectionFailReason === reason ? null : reason; render(); }
           function recordInspection(status) {
@@ -2307,13 +2662,22 @@ export default async function SolTrendApp() {
             state.deliveries = [];
             state.rfis = [];
             state.submittals = [];
+            state.piles = [];
             await Promise.all([
               loadInspections(), loadRefusals(), loadProduction(), loadDelays(), loadPunchItems(),
               loadToolboxTalks(), loadSafetyObservations(), loadSafetyIncidents(),
               loadMilestones(), loadDocuments(), loadCois(), loadMaterials(), loadDeliveries(),
-              loadRfis(), loadSubmittals()
+              loadRfis(), loadSubmittals(), loadPiles()
             ]);
             render();
+          }
+          async function loadPiles() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/piles?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.piles = data; render(); }
+            } catch (e) { console.error('Load piles error:', e); }
           }
 
           async function loadToolboxTalks() {
@@ -4336,7 +4700,7 @@ export default async function SolTrendApp() {
 
           // MAIN RENDER
           function render() {
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, pileLayout: renderPileLayout, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();
@@ -4460,7 +4824,7 @@ export default async function SolTrendApp() {
                 if (savedProject) state.currentProject = savedProject;
               }
               const savedView = localStorage.getItem('soltrend_lastView');
-              const validViews = ['company', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
+              const validViews = ['company', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'pileLayout', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
               const projectIndependentViews = ['company', 'settings'];
               if (savedView && validViews.indexOf(savedView) !== -1 && (projectIndependentViews.indexOf(savedView) !== -1 || state.currentProject)) {
                 state.currentView = savedView;
