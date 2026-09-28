@@ -669,7 +669,7 @@ export default async function SolTrendApp() {
             ];
             return '<aside class="fixed inset-y-0 left-0 z-50 w-60 bg-slate-900/95 border-r border-slate-700/50 transform transition-transform duration-300 ' + (state.sidebarOpen ? 'translate-x-0' : '-translate-x-full') + ' lg:translate-x-0 flex flex-col">' +
               '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-9 h-9 rounded-lg shadow-lg shadow-amber-500/20"><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-500 uppercase tracking-wider">Pro v2.1</p></div></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></div>' +
-              (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + '</option>').join('') + '</select></div>' : '') +
+              (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" onchange="var v=this.value; switchToProject(state.projects.find(function(p) { return p.id === v; }));" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + '</option>').join('') + '</select></div>' : '') +
               '<nav class="flex-1 py-3 overflow-y-auto">' + navSections.map(section => '<div class="mb-4"><h3 class="px-5 mb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">' + section.title + '</h3>' + section.items.map(item => '<button onclick="navigateTo(\\'' + item.id + '\\')" class="nav-item w-full flex items-center gap-3 px-5 py-2.5 text-left text-sm ' + (state.currentView === item.id ? 'active' : 'text-slate-400 hover:text-slate-200') + '">' + icon(item.icon, 'w-4 h-4') + '<span>' + item.label + '</span></button>').join('') + '</div>').join('') + '</nav>' +
               '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">' + (state.currentUser.name || '?').split(' ').map(function(n){return n[0]||'';}).join('').slice(0,2).toUpperCase() + '</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-500 capitalize">' + state.currentUser.role + '</p></div><a href="/api/auth/signout" title="Sign out" class="text-slate-500 hover:text-red-400 transition-colors p-1">' + icon('log-out', 'w-4 h-4') + '</a></div></div>' +
             '</aside>';
@@ -4324,11 +4324,6 @@ export default async function SolTrendApp() {
             else if (e.key === 'f' || e.key === 'F') recordInspection('fail');
           });
 
-          function setupEventListeners() {
-            const projectSelect = document.getElementById('projectSelect');
-            if (projectSelect) { projectSelect.addEventListener('change', (e) => { switchToProject(state.projects.find(p => p.id === e.target.value)); }); }
-          }
-
           // Tailwind's CDN build (loaded from cdn.tailwindcss.com) generates
           // utility CSS in the browser by scanning the DOM after it changes,
           // instead of shipping a pre-built stylesheet. Since the whole app
@@ -4394,7 +4389,6 @@ export default async function SolTrendApp() {
             }
             
             render();
-            setupEventListeners();
 
             // Then seed database and load persisted data
             await seedDatabase();
