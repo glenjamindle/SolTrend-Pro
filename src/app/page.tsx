@@ -514,7 +514,7 @@ export default async function SolTrendApp() {
           // and derives a translucent background/border from it so Safety,
           // Schedule, Documents, and Materials don't need their own CSS.
           function statusBadge(label, hex) {
-            return '<span class="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full" style="background:' + hex + '22;color:' + hex + ';border:1px solid ' + hex + '55;">' + label + '</span>';
+            return '<span class="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full whitespace-nowrap" style="background:' + hex + '22;color:' + hex + ';border:1px solid ' + hex + '55;">' + label + '</span>';
           }
 
           // PHOTO CAPTURE HANDLING
