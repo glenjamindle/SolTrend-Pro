@@ -184,9 +184,7 @@ export default async function SolTrendApp() {
             rfis: [], submittals: [], rfiSubmittalsTab: 'rfis',
             rfiSubject: '', rfiCategory: 'other', rfiSubmittedTo: '', rfiQuestion: '', rfiBlocking: false, rfiPhotos: [],
             rfiAnswerDraft: {}, rfiFilter: 'all', subFilter: 'all',
-            subSpecSection: '', subType: 'product_data', subMaterialId: '', subDueDate: '', subPendingFile: null,
-            // PORTFOLIO REPORT
-            portfolio: null, portfolioLoading: false
+            subSpecSection: '', subType: 'product_data', subMaterialId: '', subDueDate: '', subPendingFile: null
           };
 
           // OFFLINE SUPPORT
@@ -639,7 +637,6 @@ export default async function SolTrendApp() {
             const navSections = [
               { title: 'Overview', items: [
                 { id: 'company', label: 'Company Dashboard', icon: 'building-2' },
-                { id: 'portfolio', label: 'Portfolio Report', icon: 'layers' },
               ]},
               { title: 'Project', items: [
                 { id: 'dashboard', label: 'Project Dashboard', icon: 'layout-dashboard' },
@@ -730,154 +727,20 @@ export default async function SolTrendApp() {
               '</div>' +
               '<div><h2 class="font-display font-semibold text-white mb-4">Active Projects</h2><div class="grid md:grid-cols-2 gap-4">' + state.projects.filter(p => p.status !== 'archived').map(project => {
                 const completionPct = Math.round((project.installedPiles / project.totalPiles) * 100);
+                const cardTablesPct = project.totalTables > 0 ? Math.round(((project.tablesInstalled || 0) / project.totalTables) * 100) : 0;
+                const cardModulesPct = project.totalModules > 0 ? Math.round(((project.modulesInstalled || 0) / project.totalModules) * 100) : 0;
                 const healthColors = { green: 'text-green-400', yellow: 'text-yellow-400', red: 'text-red-400' };
                 return '<div class="card rounded-xl p-5 relative group">' +
                   '<div class="flex items-start gap-3 mb-4"><div class="flex items-center gap-2"><span class="' + healthColors[project.health] + ' text-lg">●</span></div><div class="flex-1 min-w-0"><h3 class="font-display font-semibold text-white truncate">' + project.name + '</h3><p class="text-sm text-slate-400">' + project.location + '</p></div></div>' +
-                  '<div class="mb-4"><div class="flex items-center justify-between text-sm mb-2"><span class="text-slate-400">' + formatNumber(project.installedPiles) + ' / ' + formatNumber(project.totalPiles) + ' piles</span><span class="font-medium text-white">' + completionPct + '%</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all" style="width: ' + completionPct + '%"></div></div></div>' +
+                  '<div class="space-y-3 mb-4">' +
+                    '<div><div class="flex items-center justify-between text-sm mb-1"><span class="text-slate-400 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="font-medium text-white">' + formatNumber(project.installedPiles) + ' / ' + formatNumber(project.totalPiles) + ' <span class="text-slate-500 font-normal">· ' + completionPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all" style="width: ' + completionPct + '%"></div></div></div>' +
+                    (project.totalTables > 0 ? '<div><div class="flex items-center justify-between text-sm mb-1"><span class="text-slate-400 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="font-medium text-white">' + formatNumber(project.tablesInstalled || 0) + ' / ' + formatNumber(project.totalTables) + ' <span class="text-slate-500 font-normal">· ' + cardTablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full transition-all" style="width: ' + cardTablesPct + '%"></div></div></div>' : '') +
+                    (project.totalModules > 0 ? '<div><div class="flex items-center justify-between text-sm mb-1"><span class="text-slate-400 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="font-medium text-white">' + formatNumber(project.modulesInstalled || 0) + ' / ' + formatNumber(project.totalModules) + ' <span class="text-slate-500 font-normal">· ' + cardModulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full transition-all" style="width: ' + cardModulesPct + '%"></div></div></div>' : '') +
+                  '</div>' +
                   '<button onclick="openProject(\\'' + project.id + '\\')" class="w-full py-2.5 bg-slate-700/50 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">Open Project ' + icon('arrow-right', 'w-4 h-4') + '</button>' +
                 '</div>';
               }).join('') + '</div></div>' +
             '</div>';
-          }
-
-          // PORTFOLIO REPORT - company-wide rollup across every active
-          // project: the cached per-project stats already in state.projects
-          // plus fresh cross-project counts (open RFIs, open safety
-          // incidents, overdue submittals, expiring COIs) from /api/portfolio,
-          // which nothing else in the app fetches.
-          function renderPortfolioReport() {
-            if (state.portfolioLoading && !state.portfolio) {
-              return '<div class="flex items-center justify-center min-h-[50vh]"><div class="text-center"><div class="animate-pulse text-amber-400 mb-2">' + icon('loader', 'w-6 h-6 mx-auto') + '</div><p class="text-slate-400 text-sm">Loading portfolio report...</p></div></div>';
-            }
-            if (!state.portfolio) {
-              return '<div class="flex items-center justify-center min-h-[50vh]"><div class="text-center"><p class="text-slate-400 text-sm mb-3">Portfolio report hasn\\'t loaded yet.</p><button onclick="loadPortfolio()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm">Load Report</button></div></div>';
-            }
-            const projects = state.portfolio.projects || [];
-            const weeklyTrend = state.portfolio.weeklyTrend || [];
-            const healthColors = { green: 'text-green-400', yellow: 'text-yellow-400', red: 'text-red-400' };
-            const needsAttention = projects.filter(function(p) { return p.needsAttention; });
-            const warnBanner = needsAttention.length > 0 ? '<div class="px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;">' + icon('alert-triangle', 'w-4 h-4 flex-shrink-0') + '<span>' + needsAttention.length + ' project' + (needsAttention.length === 1 ? ' needs' : 's need') + ' attention: ' + needsAttention.map(function(p) { return p.name; }).join(', ') + '.</span></div>' : '';
-
-            const cards = '<div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">' + projects.map(function(p) {
-              const badges = [];
-              if (p.openRfis > 0) badges.push(statusBadge(p.openRfis + ' Open RFI' + (p.openRfis === 1 ? '' : 's'), '#eab308'));
-              if (p.openIncidents > 0) badges.push(statusBadge(p.openIncidents + ' Safety', '#ef4444'));
-              if (p.overdueSubmittals > 0) badges.push(statusBadge(p.overdueSubmittals + ' Overdue Sub', '#f97316'));
-              if (p.expiringCois > 0) badges.push(statusBadge(p.expiringCois + ' COI', '#f97316'));
-              return '<div class="card rounded-xl p-5">' +
-                '<div class="flex items-start gap-3 mb-3"><span class="' + (healthColors[p.health] || 'text-slate-400') + ' text-lg">●</span><div class="flex-1 min-w-0"><h3 class="font-display font-semibold text-white truncate">' + p.name + '</h3><p class="text-xs text-slate-500">' + p.percentComplete + '% complete · ' + formatNumber(p.installedPiles) + ' / ' + formatNumber(p.totalPiles) + ' piles</p></div></div>' +
-                '<div class="h-2 bg-slate-700 rounded-full overflow-hidden mb-3"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + p.percentComplete + '%"></div></div>' +
-                (badges.length > 0 ? '<div class="flex flex-wrap gap-1.5 mb-3">' + badges.join('') + '</div>' : '<p class="text-xs text-slate-500 mb-3">No open items.</p>') +
-                '<button onclick="openProject(\\'' + p.id + '\\')" class="w-full py-2 bg-slate-700/50 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">Open Project ' + icon('arrow-right', 'w-4 h-4') + '</button>' +
-              '</div>';
-            }).join('') + '</div>';
-
-            const pilesArr = weeklyTrend.map(function(w) { return w.piles; });
-            const maxPiles = Math.max.apply(null, [1].concat(pilesArr));
-            const chart = weeklyTrend.length > 0 ? '<div class="card rounded-xl p-5">' +
-              '<h3 class="font-display font-semibold text-white text-sm mb-4">Combined Weekly Production</h3>' +
-              '<div class="flex items-end gap-2 h-32">' + weeklyTrend.map(function(w) {
-                const pct = Math.round((w.piles / maxPiles) * 100);
-                return '<div class="flex-1 flex flex-col items-center justify-end gap-1"><span class="text-[10px] text-slate-500">' + w.piles + '</span><div class="w-full bg-gradient-to-t from-amber-500 to-amber-400 rounded-t" style="height: ' + Math.max(4, pct) + '%"></div><span class="text-[9px] text-slate-600">' + w.weekStart.slice(5) + '</span></div>';
-              }).join('') + '</div>' +
-            '</div>' : '';
-
-            return '<div class="space-y-4 animate-fade-in">' +
-              '<div class="flex items-center justify-between flex-wrap gap-2"><div><h1 class="font-display text-xl font-bold text-white">Portfolio Report</h1><p class="text-slate-400 text-sm">' + projects.length + ' active project' + (projects.length === 1 ? '' : 's') + ' across ' + (state.company?.name || 'the company') + '</p></div><button onclick="generatePortfolioReport()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button></div>' +
-              warnBanner + cards + chart +
-            '</div>';
-          }
-          async function loadPortfolio() {
-            state.portfolioLoading = true;
-            render();
-            try {
-              const companyId = state.company?.id || 'comp_001';
-              const res = await fetch('/api/portfolio?companyId=' + companyId);
-              const data = await res.json();
-              if (data && Array.isArray(data.projects)) state.portfolio = data;
-            } catch (e) { console.error('Load portfolio error:', e); }
-            state.portfolioLoading = false;
-            render();
-          }
-          function generatePortfolioReport() {
-            if (!state.portfolio) { alert('Load the report first.'); return; }
-            const projects = state.portfolio.projects || [];
-            const weeklyTrend = state.portfolio.weeklyTrend || [];
-            const healthLabel = { green: 'On Track', yellow: 'At Risk', red: 'Needs Attention' };
-            const totalPiles = projects.reduce(function(s, p) { return s + p.totalPiles; }, 0);
-            const installedPiles = projects.reduce(function(s, p) { return s + p.installedPiles; }, 0);
-            const totalOpenRfis = projects.reduce(function(s, p) { return s + p.openRfis; }, 0);
-            const totalOpenIncidents = projects.reduce(function(s, p) { return s + p.openIncidents; }, 0);
-
-            const reportContent = \`
-              <!DOCTYPE html>
-              <html>
-              <head>
-                <title>Portfolio Report - \${localDateStr(Date.now())}</title>
-                <style>
-                  * { margin: 0; padding: 0; box-sizing: border-box; }
-                  body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
-                  .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #f59e0b; padding-bottom: 20px; margin-bottom: 25px; }
-                  .company-info h1 { font-size: 28px; font-weight: 800; color: #1e293b; }
-                  .company-info .company-name { font-size: 14px; color: #f59e0b; font-weight: 600; text-transform: uppercase; }
-                  .report-meta { text-align: right; }
-                  .report-meta .report-type { font-size: 12px; color: #64748b; text-transform: uppercase; }
-                  .report-meta .report-date { font-size: 20px; font-weight: 700; color: #1e293b; }
-                  .section-title { font-size: 16px; font-weight: 700; color: #1e293b; margin-bottom: 15px; margin-top: 10px; }
-                  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 25px; }
-                  .summary-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; text-align: center; }
-                  .summary-card .value { font-size: 28px; font-weight: 800; color: #1e293b; }
-                  .summary-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; }
-                  .activity-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
-                  .activity-table th { background: #1e293b; color: white; padding: 12px 15px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-                  .activity-table td { padding: 12px 15px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #334155; }
-                  .activity-table tr:nth-child(even) { background: #f8fafc; }
-                  .status-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-                  .status-badge.green { background: #dcfce7; color: #166534; }
-                  .status-badge.yellow { background: #fef3c7; color: #92400e; }
-                  .status-badge.red { background: #fee2e2; color: #991b1b; }
-                  .report-footer { border-top: 2px solid #e2e8f0; padding-top: 15px; margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
-                </style>
-              </head>
-              <body>
-                <div class="report-header">
-                  <div class="company-info">
-                    <div class="company-name">\${state.company?.name || 'Apex Solar Construction'}</div>
-                    <h1>Portfolio Report</h1>
-                  </div>
-                  <div class="report-meta">
-                    <div class="report-type">Company-Wide Rollup</div>
-                    <div class="report-date">\${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
-                  </div>
-                </div>
-                <div class="section-title">Company Summary</div>
-                <div class="summary-grid">
-                  <div class="summary-card"><div class="value">\${projects.length}</div><div class="label">Active Projects</div></div>
-                  <div class="summary-card"><div class="value">\${totalPiles > 0 ? Math.round((installedPiles / totalPiles) * 100) : 0}%</div><div class="label">Piles Complete</div></div>
-                  <div class="summary-card"><div class="value">\${totalOpenRfis}</div><div class="label">Open RFIs</div></div>
-                  <div class="summary-card"><div class="value">\${totalOpenIncidents}</div><div class="label">Open Safety Items</div></div>
-                </div>
-                <div class="section-title">Project Status</div>
-                <table class="activity-table">
-                  <thead><tr><th>Project</th><th>Health</th><th>Complete</th><th>Open RFIs</th><th>Safety</th><th>Overdue Submittals</th><th>Expiring COIs</th></tr></thead>
-                  <tbody>
-                    \${projects.map(function(p) {
-                      return '<tr><td>' + p.name + '</td><td><span class="status-badge ' + p.health + '">' + (healthLabel[p.health] || p.health) + '</span></td><td>' + p.percentComplete + '%</td><td>' + p.openRfis + '</td><td>' + p.openIncidents + '</td><td>' + p.overdueSubmittals + '</td><td>' + p.expiringCois + '</td></tr>';
-                    }).join('')}
-                  </tbody>
-                </table>
-                \${weeklyTrend.length > 0 ? '<div class="section-title">Combined Weekly Production (Piles)</div><table class="activity-table"><thead><tr>' + weeklyTrend.map(function(w) { return '<th>' + w.weekStart + '</th>'; }).join('') + '</tr></thead><tbody><tr>' + weeklyTrend.map(function(w) { return '<td>' + w.piles + '</td>'; }).join('') + '</tr></tbody></table>' : ''}
-                <div class="report-footer">
-                  <div>Generated by SolTrend Pro</div>
-                  <div>\${new Date().toLocaleString()}</div>
-                </div>
-              </body>
-              </html>
-            \`;
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(reportContent);
-            printWindow.document.close();
-            printWindow.print();
           }
 
           // PROJECT DASHBOARD
@@ -4388,7 +4251,7 @@ export default async function SolTrendApp() {
 
           // MAIN RENDER
           function render() {
-            const views = { company: renderCompanyDashboard, portfolio: renderPortfolioReport, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();
@@ -4430,7 +4293,7 @@ export default async function SolTrendApp() {
               }
             } catch (e) {}
           }
-          function navigateTo(view) { state.currentView = view; state.sidebarOpen = false; render(); window.scrollTo(0, 0); saveNavState(); if (view === 'portfolio') loadPortfolio(); }
+          function navigateTo(view) { state.currentView = view; state.sidebarOpen = false; render(); window.scrollTo(0, 0); saveNavState(); }
           function toggleSidebar() { state.sidebarOpen = !state.sidebarOpen; render(); }
           // Switching projects previously never reloaded inspections/
           // refusals/production or the heatmap's row/column dimensions for
@@ -4517,8 +4380,8 @@ export default async function SolTrendApp() {
                 if (savedProject) state.currentProject = savedProject;
               }
               const savedView = localStorage.getItem('soltrend_lastView');
-              const validViews = ['company', 'portfolio', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'racking', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
-              const projectIndependentViews = ['company', 'settings', 'portfolio'];
+              const validViews = ['company', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'racking', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
+              const projectIndependentViews = ['company', 'settings'];
               if (savedView && validViews.indexOf(savedView) !== -1 && (projectIndependentViews.indexOf(savedView) !== -1 || state.currentProject)) {
                 state.currentView = savedView;
               }
@@ -4542,11 +4405,6 @@ export default async function SolTrendApp() {
             // "live" story.
             await loadNotifications();
             setInterval(loadNotifications, 60000);
-
-            // A refresh that lands back on the Portfolio Report (it's
-            // project-independent, so a restored view can be this one)
-            // needs its own fetch - it's not part of loadProjectData/seed.
-            if (state.currentView === 'portfolio') loadPortfolio();
           }
 
           initializeApp();
