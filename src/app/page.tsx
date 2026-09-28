@@ -3953,7 +3953,23 @@ export default async function SolTrendApp() {
             if (window.lucide) lucide.createIcons();
           }
 
-          function navigateTo(view) { state.currentView = view; state.sidebarOpen = false; render(); window.scrollTo(0, 0); }
+          // Remembers which view (and, for a project-scoped view, which
+          // project) the person had open, in localStorage rather than in
+          // memory - state itself is rebuilt from scratch on every full
+          // page load, so without this a refresh always dumped everyone
+          // back on the Company Dashboard regardless of what they were
+          // actually working on. Best-effort: a private window or a
+          // browser blocking storage just means the old always-reset
+          // behavior, not a crash.
+          function saveNavState() {
+            try {
+              localStorage.setItem('soltrend_lastView', state.currentView);
+              if (state.currentProject && state.currentProject.id) {
+                localStorage.setItem('soltrend_lastProjectId', state.currentProject.id);
+              }
+            } catch (e) {}
+          }
+          function navigateTo(view) { state.currentView = view; state.sidebarOpen = false; render(); window.scrollTo(0, 0); saveNavState(); }
           function toggleSidebar() { state.sidebarOpen = !state.sidebarOpen; render(); }
           // Switching projects previously never reloaded inspections/
           // refusals/production or the heatmap's row/column dimensions for
@@ -3973,8 +3989,9 @@ export default async function SolTrendApp() {
             state.predictiveWeather = null;
             render();
             loadProjectData();
+            saveNavState();
           }
-          function openProject(id) { switchToProject(state.projects.find(p => p.id === id)); state.currentView = 'dashboard'; render(); }
+          function openProject(id) { switchToProject(state.projects.find(p => p.id === id)); state.currentView = 'dashboard'; render(); saveNavState(); }
 
           document.addEventListener('keydown', (e) => {
             if (state.currentView !== 'inspection') return;
@@ -4025,7 +4042,27 @@ export default async function SolTrendApp() {
               console.log('No data in database, using demo data');
               generateDemoData();
             }
-            
+
+            // Restore whichever project and view were open before a
+            // refresh (see saveNavState) instead of always landing back on
+            // the Company Dashboard. loadSettings() above already picked a
+            // default active project as a fallback for a brand-new
+            // session - this overrides that default only when a
+            // previously-visited project still exists.
+            try {
+              const savedProjectId = localStorage.getItem('soltrend_lastProjectId');
+              if (savedProjectId) {
+                const savedProject = state.projects.find(function(p) { return p.id === savedProjectId; });
+                if (savedProject) state.currentProject = savedProject;
+              }
+              const savedView = localStorage.getItem('soltrend_lastView');
+              const validViews = ['company', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'racking', 'settings', 'safety', 'schedule', 'documents', 'materials'];
+              const projectIndependentViews = ['company', 'settings'];
+              if (savedView && validViews.indexOf(savedView) !== -1 && (projectIndependentViews.indexOf(savedView) !== -1 || state.currentProject)) {
+                state.currentView = savedView;
+              }
+            } catch (e) {}
+
             // Update heatmap config from current project
             if (state.currentProject) {
               state.heatmap.totalRows = state.currentProject.totalRows || 50;
