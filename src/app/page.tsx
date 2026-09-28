@@ -256,6 +256,18 @@ export default async function SolTrendApp() {
             }), { status: 200, headers: { 'Content-Type': 'application/json' } });
           }
 
+          function buildPendingDocUploadResponse(options) {
+            let payload = {};
+            try { payload = JSON.parse(options.body); } catch (e) {}
+            // Same idea as buildPendingUploadResponse, for a single attached
+            // file (Documents, COI certificates, Submittals) instead of a
+            // photo array - the data URL stands in as the file's url until
+            // flushPendingWrites redoes the upload for real.
+            return new Response(JSON.stringify({
+              url: payload.dataUrl, key: null, pendingUpload: true, uploadContext: payload.context
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          }
+
           async function queueWrite(url, options) {
             await idbPut('pendingWrites', { url: url, method: options.method || 'POST', headers: options.headers || { 'Content-Type': 'application/json' }, body: options.body || null, timestamp: Date.now() });
             updatePendingSyncBadge();
@@ -290,6 +302,7 @@ export default async function SolTrendApp() {
                 return await originalFetch(url, options);
               } catch (err) {
                 if (url === '/api/upload') return buildPendingUploadResponse(options);
+                if (url === '/api/upload-document') return buildPendingDocUploadResponse(options);
                 await queueWrite(url, options);
                 return new Response(JSON.stringify({ queued: true }), { status: 202, headers: { 'Content-Type': 'application/json' } });
               }
@@ -305,7 +318,7 @@ export default async function SolTrendApp() {
             for (const item of items) {
               try {
                 let body = item.body;
-                if (typeof body === 'string' && body.indexOf('"pendingUpload":true') !== -1) {
+                if (typeof body === 'string' && (body.indexOf('"pendingUpload":true') !== -1 || body.indexOf('"filePendingUpload":true') !== -1)) {
                   const parsed = JSON.parse(body);
                   if (Array.isArray(parsed.photos)) {
                     for (const photo of parsed.photos) {
@@ -315,6 +328,12 @@ export default async function SolTrendApp() {
                       if (upData.url) { photo.url = upData.url; photo.key = upData.key; }
                       delete photo.pendingUpload; delete photo.uploadContext; delete photo.uploadPileId;
                     }
+                  }
+                  if (parsed.filePendingUpload && parsed.fileUrl) {
+                    const upRes = await originalFetch('/api/upload-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: parsed.fileUrl, context: parsed.fileUploadContext || 'document' }) });
+                    const upData = await upRes.json();
+                    if (upData.url) { parsed.fileUrl = upData.url; parsed.fileKey = upData.key; }
+                    delete parsed.filePendingUpload; delete parsed.fileUploadContext;
                   }
                   body = JSON.stringify(parsed);
                 }
@@ -2865,7 +2884,7 @@ export default async function SolTrendApp() {
               const upRes = await fetch('/api/upload-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: file.dataUrl, context: 'document' }) });
               const upData = await upRes.json();
               if (!upData.url) { console.error('Document upload failed'); return; }
-              const res = await fetch('/api/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, title, category, fileKey: upData.key, fileUrl: upData.url, fileType: upData.contentType, fileSize: upData.size, uploadedBy: state.currentUser.id }) });
+              const res = await fetch('/api/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, title, category, fileKey: upData.key, fileUrl: upData.url, fileType: upData.contentType, fileSize: upData.size, uploadedBy: state.currentUser.id, filePendingUpload: !!upData.pendingUpload, fileUploadContext: 'document' }) });
               const created = await res.json();
               if (created && created.id) {
                 state.documents.unshift({ id: created.id, title: created.title, category: created.category, fileUrl: created.fileUrl, fileType: created.fileType, fileSize: created.fileSize, uploadedBy: state.currentUser.name, createdAt: created.createdAt });
@@ -2924,13 +2943,13 @@ export default async function SolTrendApp() {
           async function saveCoi(subcontractorId, coverageType, expiresAt, file) {
             try {
               const projectId = state.currentProject?.id || 'proj_001';
-              let fileKey = null, fileUrl = null;
+              let fileKey = null, fileUrl = null, filePendingUpload = false;
               if (file) {
                 const upRes = await fetch('/api/upload-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: file.dataUrl, context: 'coi' }) });
                 const upData = await upRes.json();
-                fileKey = upData.key || null; fileUrl = upData.url || null;
+                fileKey = upData.key || null; fileUrl = upData.url || null; filePendingUpload = !!upData.pendingUpload;
               }
-              const res = await fetch('/api/coi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, subcontractorId, coverageType, expiresAt, fileKey, fileUrl, loggedBy: state.currentUser.id }) });
+              const res = await fetch('/api/coi', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, subcontractorId, coverageType, expiresAt, fileKey, fileUrl, loggedBy: state.currentUser.id, filePendingUpload, fileUploadContext: 'coi' }) });
               const created = await res.json();
               if (created && created.id) {
                 const sub = state.subcontractors.find(function(s) { return s.id === subcontractorId; });
@@ -2962,6 +2981,21 @@ export default async function SolTrendApp() {
             { id: 'civil', label: 'Civil' }, { id: 'structural', label: 'Structural' },
             { id: 'electrical', label: 'Electrical' }, { id: 'racking', label: 'Racking' }, { id: 'other', label: 'Other' }
           ];
+          // Tracks the in-flight save promise for each locally-created RFI,
+          // keyed by its temporary "local_..." id. If the user answers,
+          // closes, reopens, or deletes an RFI before its create request has
+          // resolved (spotty jobsite connectivity makes this common),
+          // resolveRfiId waits for that save and swaps in the real server id
+          // instead of firing the mutation against an id that never existed
+          // server-side.
+          const pendingRfiSaves = {};
+          async function resolveRfiId(id) {
+            if (typeof id !== 'string' || id.indexOf('local_') !== 0) return id;
+            const pending = pendingRfiSaves[id];
+            if (!pending) return id;
+            const realId = await pending;
+            return realId || id;
+          }
           function renderRfisTab() {
             const catLabel = {}; RFI_CATEGORIES.forEach(function(c) { catLabel[c.id] = c.label; });
             const canDelete = hasRole('admin');
@@ -2993,9 +3027,10 @@ export default async function SolTrendApp() {
             const cards = filteredRfis.length > 0 ? '<div class="space-y-3">' + filteredRfis.map(function(r) {
               const statusHex = r.status === 'open' ? '#eab308' : r.status === 'answered' ? '#3b82f6' : '#22c55e';
               const statusLabel = r.status === 'open' ? 'Open' : r.status === 'answered' ? 'Answered' : 'Closed';
-              const answerBox = r.status === 'open' && canAnswer ?
-                '<div class="mt-3 pt-3 border-t border-slate-700/50 space-y-2"><textarea id="rfiAnswerInput-' + r.id + '" rows="2" placeholder="Type an answer…" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></textarea><button onclick="submitRfiAnswer(\\'' + r.id + '\\')" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium">Answer</button></div>' :
-                (r.answer ? '<div class="mt-3 pt-3 border-t border-slate-700/50"><p class="text-xs text-slate-500 mb-1">Answer:</p><p class="text-sm text-slate-300">' + r.answer + '</p></div>' : '');
+              const previousAnswer = r.answer ? '<div class="mt-3 pt-3 border-t border-slate-700/50"><p class="text-xs text-slate-500 mb-1">' + (r.status === 'open' ? 'Previous answer:' : 'Answer:') + '</p><p class="text-sm text-slate-300">' + r.answer + '</p></div>' : '';
+              const answerInput = r.status === 'open' && canAnswer ?
+                '<div class="' + (r.answer ? 'mt-2' : 'mt-3 pt-3 border-t border-slate-700/50') + ' space-y-2"><textarea id="rfiAnswerInput-' + r.id + '" oninput="state.rfiAnswerDraft[\\'' + r.id + '\\']=this.value" rows="2" placeholder="Type an answer…" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + (state.rfiAnswerDraft[r.id] || '') + '</textarea><button onclick="submitRfiAnswer(\\'' + r.id + '\\')" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium">Answer</button></div>' : '';
+              const answerBox = previousAnswer + answerInput;
               return '<div class="card rounded-xl p-4">' +
                 '<div class="flex items-start justify-between gap-3">' +
                   '<div class="min-w-0"><p class="text-sm font-medium text-white">' + r.number + ': ' + r.subject + '</p><p class="text-xs text-slate-500">' + (catLabel[r.category] || r.category) + (r.submittedTo ? ' · to ' + r.submittedTo : '') + ' · ' + r.submittedBy + ' · ' + formatDate(r.createdAt) + '</p></div>' +
@@ -3006,6 +3041,7 @@ export default async function SolTrendApp() {
                 answerBox +
                 '<div class="flex items-center gap-3 mt-3">' +
                   (r.status === 'answered' && canAnswer ? '<button onclick="closeRfi(\\'' + r.id + '\\')" class="text-xs text-green-400 hover:text-green-300 font-medium">Mark Closed</button>' : '') +
+                  (r.status === 'closed' && canAnswer ? '<button onclick="reopenRfi(\\'' + r.id + '\\')" class="text-xs text-amber-400 hover:text-amber-300 font-medium">Reopen</button>' : '') +
                   (canDelete ? '<button onclick="deleteRfi(\\'' + r.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') +
                 '</div>' +
               '</div>';
@@ -3023,7 +3059,7 @@ export default async function SolTrendApp() {
             const photosToUpload = state.rfiPhotos;
             state.rfiSubject = ''; state.rfiSubmittedTo = ''; state.rfiQuestion = ''; state.rfiBlocking = false; state.rfiPhotos = [];
             render();
-            saveRfi(rfi, photosToUpload);
+            pendingRfiSaves[rfi.id] = saveRfi(rfi, photosToUpload);
           }
           async function saveRfi(rfi, photosToUpload) {
             try {
@@ -3034,31 +3070,45 @@ export default async function SolTrendApp() {
               if (created && created.id) {
                 const idx = state.rfis.findIndex(function(r) { return r.id === rfi.id; });
                 if (idx >= 0) { state.rfis[idx].id = created.id; state.rfis[idx].number = created.number; state.rfis[idx].photos = uploadedPhotos; render(); }
+                return created.id;
               }
-            } catch (e) { console.error('Save RFI error:', e); }
+              return null;
+            } catch (e) { console.error('Save RFI error:', e); return null; }
+            finally { delete pendingRfiSaves[rfi.id]; }
           }
-          function submitRfiAnswer(id) {
-            const input = document.getElementById('rfiAnswerInput-' + id);
-            const answer = input ? input.value.trim() : '';
+          async function submitRfiAnswer(id) {
+            const answer = (state.rfiAnswerDraft[id] || '').trim();
             if (!answer) { alert('Enter an answer.'); return; }
             hapticFeedback();
-            const idx = state.rfis.findIndex(function(r) { return r.id === id; });
+            const realId = await resolveRfiId(id);
+            delete state.rfiAnswerDraft[id];
+            const idx = state.rfis.findIndex(function(r) { return r.id === realId; });
             if (idx >= 0) { state.rfis[idx].status = 'answered'; state.rfis[idx].answer = answer; }
             render();
-            fetch('/api/rfis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, status: 'answered', answer: answer, projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Answer RFI error:', e); });
+            fetch('/api/rfis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: realId, status: 'answered', answer: answer, projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Answer RFI error:', e); });
           }
-          function closeRfi(id) {
+          async function closeRfi(id) {
             hapticFeedback();
-            const idx = state.rfis.findIndex(function(r) { return r.id === id; });
+            const realId = await resolveRfiId(id);
+            const idx = state.rfis.findIndex(function(r) { return r.id === realId; });
             if (idx >= 0) state.rfis[idx].status = 'closed';
             render();
-            fetch('/api/rfis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, status: 'closed', projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Close RFI error:', e); });
+            fetch('/api/rfis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: realId, status: 'closed', projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Close RFI error:', e); });
           }
-          function deleteRfi(id) {
-            if (!confirm('Delete this RFI?')) return;
-            state.rfis = state.rfis.filter(function(r) { return r.id !== id; });
+          async function reopenRfi(id) {
+            hapticFeedback();
+            const realId = await resolveRfiId(id);
+            const idx = state.rfis.findIndex(function(r) { return r.id === realId; });
+            if (idx >= 0) state.rfis[idx].status = 'open';
             render();
-            fetch('/api/rfis?id=' + id, { method: 'DELETE' }).catch(function(e) { console.error('Delete RFI error:', e); });
+            fetch('/api/rfis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: realId, status: 'open', projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Reopen RFI error:', e); });
+          }
+          async function deleteRfi(id) {
+            if (!confirm('Delete this RFI?')) return;
+            const realId = await resolveRfiId(id);
+            state.rfis = state.rfis.filter(function(r) { return r.id !== realId; });
+            render();
+            fetch('/api/rfis?id=' + realId, { method: 'DELETE' }).catch(function(e) { console.error('Delete RFI error:', e); });
           }
 
           const SUBMITTAL_TYPES = [
@@ -3071,6 +3121,15 @@ export default async function SolTrendApp() {
             { id: 'approved_as_noted', label: 'Approved as Noted', hex: '#22c55e' }, { id: 'revise_resubmit', label: 'Revise & Resubmit', hex: '#f97316' },
             { id: 'rejected', label: 'Rejected', hex: '#ef4444' }
           ];
+          // Same id-race protection as pendingRfiSaves/resolveRfiId, for Submittals.
+          const pendingSubmittalSaves = {};
+          async function resolveSubmittalId(id) {
+            if (typeof id !== 'string' || id.indexOf('local_') !== 0) return id;
+            const pending = pendingSubmittalSaves[id];
+            if (!pending) return id;
+            const realId = await pending;
+            return realId || id;
+          }
           function renderSubmittalsTab() {
             const typeLabel = {}; SUBMITTAL_TYPES.forEach(function(t) { typeLabel[t.id] = t.label; });
             const statusMeta = {}; SUBMITTAL_STATUSES.forEach(function(s) { statusMeta[s.id] = s; });
@@ -3107,7 +3166,8 @@ export default async function SolTrendApp() {
                 const meta = statusMeta[s.status] || { label: s.status, hex: '#64748b' };
                 const canAdvance = notDoneStatuses.indexOf(s.status) === -1;
                 const overdue = s.dueDate && new Date(s.dueDate).getTime() < Date.now() && canAdvance;
-                const statusSelect = canReview && canAdvance ? '<select onchange="advanceSubmittal(\\'' + s.id + '\\', this.value)" class="bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-white text-xs">' + SUBMITTAL_STATUSES.map(function(st) { return '<option value="' + st.id + '"' + (s.status === st.id ? ' selected' : '') + '>' + st.label + '</option>'; }).join('') + '</select>' : statusBadge(meta.label, meta.hex);
+                const reopenLink = canReview && !canAdvance ? ' <button onclick="reopenSubmittal(\\'' + s.id + '\\')" class="text-xs text-amber-400 hover:text-amber-300 ml-2">Reopen</button>' : '';
+                const statusSelect = (canReview && canAdvance ? '<select onchange="advanceSubmittal(\\'' + s.id + '\\', this.value)" class="bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-white text-xs">' + SUBMITTAL_STATUSES.map(function(st) { return '<option value="' + st.id + '"' + (s.status === st.id ? ' selected' : '') + '>' + st.label + '</option>'; }).join('') + '</select>' : statusBadge(meta.label, meta.hex)) + reopenLink;
                 return '<tr class="border-t border-slate-700/50"><td class="p-3 text-white font-medium">' + s.number + '</td><td class="p-3 text-slate-400 text-xs">' + s.specSection + (s.materialName ? ' · ' + s.materialName : '') + '</td><td class="p-3 text-slate-400 text-xs">' + (typeLabel[s.type] || s.type) + '</td><td class="p-3 text-slate-400 text-xs">' + s.revision + '</td><td class="p-3 text-xs ' + (overdue ? 'text-red-400 font-medium' : 'text-slate-400') + '">' + (s.dueDate ? formatDate(s.dueDate) : '—') + '</td><td class="p-3">' + statusSelect + '</td><td class="p-3 text-right">' + (s.fileUrl ? '<a href="' + s.fileUrl + '" target="_blank" rel="noopener" class="text-xs text-blue-400 hover:text-blue-300 mr-2">View</a>' : '') + (canDelete ? '<button onclick="deleteSubmittal(\\'' + s.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') + '</td></tr>';
               }).join('') : '<tr><td class="p-4 text-slate-500 text-sm" colspan="7">No ' + (state.subFilter === 'all' ? 'submittals tracked' : 'matching submittals') + ' yet.</td></tr>') +
             '</tbody></table></div>';
@@ -3124,40 +3184,53 @@ export default async function SolTrendApp() {
             state.submittals.unshift({ id: localId, number: '—', specSection: specSection, type: type, revision: 0, status: 'pending', dueDate: dueDate, fileUrl: null, materialId: materialId, materialName: material ? material.name : null, submittedBy: state.currentUser.name, createdAt: new Date().toISOString() });
             state.subSpecSection = ''; state.subType = 'product_data'; state.subMaterialId = ''; state.subDueDate = ''; state.subPendingFile = null;
             render();
-            saveSubmittal(localId, specSection, type, materialId, dueDate, file);
+            pendingSubmittalSaves[localId] = saveSubmittal(localId, specSection, type, materialId, dueDate, file);
           }
           async function saveSubmittal(localId, specSection, type, materialId, dueDate, file) {
             try {
               const projectId = state.currentProject?.id || 'proj_001';
-              let fileKey = null, fileUrl = null;
+              let fileKey = null, fileUrl = null, filePendingUpload = false;
               if (file) {
                 const upRes = await fetch('/api/upload-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: file.dataUrl, context: 'submittal' }) });
                 const upData = await upRes.json();
-                fileKey = upData.key || null; fileUrl = upData.url || null;
+                fileKey = upData.key || null; fileUrl = upData.url || null; filePendingUpload = !!upData.pendingUpload;
               }
-              const res = await fetch('/api/submittals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, specSection, type, materialId, dueDate, fileKey, fileUrl, submittedBy: state.currentUser.id }) });
+              const res = await fetch('/api/submittals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, specSection, type, materialId, dueDate, fileKey, fileUrl, submittedBy: state.currentUser.id, filePendingUpload, fileUploadContext: 'submittal' }) });
               const created = await res.json();
               if (created && created.id) {
                 const idx = state.submittals.findIndex(function(s) { return s.id === localId; });
                 if (idx >= 0) { state.submittals[idx].id = created.id; state.submittals[idx].number = created.number; state.submittals[idx].fileUrl = fileUrl; render(); }
+                return created.id;
               }
-            } catch (e) { console.error('Save submittal error:', e); }
+              return null;
+            } catch (e) { console.error('Save submittal error:', e); return null; }
+            finally { delete pendingSubmittalSaves[localId]; }
           }
-          function advanceSubmittal(id, status) {
+          async function advanceSubmittal(id, status) {
             hapticFeedback();
-            const idx = state.submittals.findIndex(function(s) { return s.id === id; });
+            const realId = await resolveSubmittalId(id);
+            const idx = state.submittals.findIndex(function(s) { return s.id === realId; });
             if (idx >= 0) {
               if (status === 'revise_resubmit') state.submittals[idx].revision = (state.submittals[idx].revision || 0) + 1;
               state.submittals[idx].status = status;
             }
             render();
-            fetch('/api/submittals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, status: status, projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Advance submittal error:', e); });
+            fetch('/api/submittals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: realId, status: status, projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Advance submittal error:', e); });
           }
-          function deleteSubmittal(id) {
-            if (!confirm('Delete this submittal?')) return;
-            state.submittals = state.submittals.filter(function(s) { return s.id !== id; });
+          async function reopenSubmittal(id) {
+            hapticFeedback();
+            const realId = await resolveSubmittalId(id);
+            const idx = state.submittals.findIndex(function(s) { return s.id === realId; });
+            if (idx >= 0) state.submittals[idx].status = 'under_review';
             render();
-            fetch('/api/submittals?id=' + id, { method: 'DELETE' }).catch(function(e) { console.error('Delete submittal error:', e); });
+            fetch('/api/submittals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: realId, status: 'under_review', projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Reopen submittal error:', e); });
+          }
+          async function deleteSubmittal(id) {
+            if (!confirm('Delete this submittal?')) return;
+            const realId = await resolveSubmittalId(id);
+            state.submittals = state.submittals.filter(function(s) { return s.id !== realId; });
+            render();
+            fetch('/api/submittals?id=' + realId, { method: 'DELETE' }).catch(function(e) { console.error('Delete submittal error:', e); });
           }
 
           // MATERIALS - bill of materials vs. delivered, with a delivery log.
@@ -3346,7 +3419,7 @@ export default async function SolTrendApp() {
                   body: JSON.stringify({ dataUrl: p.url, context, pileId })
                 });
                 const data = await res.json();
-                if (data.url) uploaded.push({ key: data.key, url: data.url, timestamp: p.timestamp, gps: p.gps });
+                if (data.url) uploaded.push({ key: data.key, url: data.url, timestamp: p.timestamp, gps: p.gps, pendingUpload: data.pendingUpload, uploadContext: data.uploadContext, uploadPileId: data.uploadPileId });
               } catch (e) { console.error('Photo upload error:', e); }
             }
             return uploaded;

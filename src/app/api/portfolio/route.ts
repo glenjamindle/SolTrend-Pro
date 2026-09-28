@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     const [openRfiCounts, openIncidentCounts, overdueSubmittalCounts, expiringCoiCounts] = await Promise.all([
       prisma.rfi.groupBy({ by: ['projectId'], where: { projectId: { in: projectIds }, status: { not: 'closed' } }, _count: { id: true } }),
       prisma.safetyIncident.groupBy({ by: ['projectId'], where: { projectId: { in: projectIds }, status: { not: 'closed' } }, _count: { id: true } }),
-      prisma.submittal.groupBy({ by: ['projectId'], where: { projectId: { in: projectIds }, dueDate: { lt: new Date() }, status: { notIn: ['approved', 'approved_as_noted'] } }, _count: { id: true } }),
+      prisma.submittal.groupBy({ by: ['projectId'], where: { projectId: { in: projectIds }, dueDate: { lt: new Date() }, status: { notIn: ['approved', 'approved_as_noted', 'rejected'] } }, _count: { id: true } }),
       prisma.coi.groupBy({ by: ['projectId'], where: { projectId: { in: projectIds }, expiresAt: { lt: soon } }, _count: { id: true } }),
     ])
 
