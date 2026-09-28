@@ -132,7 +132,9 @@ export default async function SolTrendApp() {
               weekly: new Date().toISOString().split('T')[0],
               monthly: new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0'),
               qcStart: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              qcEnd: new Date().toISOString().split('T')[0]
+              qcEnd: new Date().toISOString().split('T')[0],
+              refusalStart: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+              refusalEnd: new Date().toISOString().split('T')[0]
             },
             companyId: null,
             company: null,
@@ -1153,6 +1155,10 @@ export default async function SolTrendApp() {
                 '</div>' +
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('alert-triangle', 'w-8 h-8 text-orange-400') + '<div><h3 class="font-display font-semibold text-white">Refusal Report</h3><p class="text-xs text-slate-500">Refusal analysis</p></div></div>' +
+                  '<div class="grid grid-cols-2 gap-2 mb-3">' +
+                    '<div><label class="text-xs text-slate-500 mb-1 block">Start</label><input type="date" id="refusalStart" value="' + state.reportDates.refusalStart + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm"></div>' +
+                    '<div><label class="text-xs text-slate-500 mb-1 block">End</label><input type="date" id="refusalEnd" value="' + state.reportDates.refusalEnd + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm"></div>' +
+                  '</div>' +
                   '<button onclick="generateRefusalReport()" class="w-full py-2.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
               '</div>' +
@@ -1274,6 +1280,150 @@ export default async function SolTrendApp() {
               95: 'Thunderstorm', 96: 'Thunderstorm with hail', 99: 'Thunderstorm with heavy hail'
             };
             return descriptions[code] || 'Clear';
+          }
+
+          // REPORT CHART HELPERS - small inline-styled HTML bar charts shared
+          // by the QC, Pile Status, and Refusal reports below. Plain
+          // flex/div bars rather than SVG or canvas: they render exactly
+          // the same in the on-screen print preview and in the PDF the
+          // browser's print dialog produces, with no library dependency.
+          // Status colors (pass/fail/refusal/pending) match the palette
+          // already used everywhere else in the app (Pile Map, badges) -
+          // reports should look like they belong to the same product.
+          // REPORT_CATEGORICAL is a separate fixed-order set (used for
+          // fail-reason / refusal-reason / pile-type / zone breakdowns) so
+          // those never collide visually with the status colors.
+          const REPORT_STATUS_COLORS = { pass: '#22c55e', fail: '#ef4444', refusal: '#f97316', pending: '#94a3b8' };
+          const REPORT_CATEGORICAL = ['#2a78d6', '#1baf7a', '#eda100', '#e87ba4', '#4a3aa7', '#94a3b8'];
+          function reportColorFor(index) { return REPORT_CATEGORICAL[index % REPORT_CATEGORICAL.length]; }
+          // A single horizontal bar split into proportional colored
+          // segments (e.g. Passed/Failed/Refusal/Pending out of all
+          // piles), with a legend row underneath. segments: [{label,
+          // value, color}]. A segment's own %-label only renders when
+          // it's wide enough to hold it without crowding its neighbors.
+          // Just the bar itself (no legend) - used inline where many small
+          // bars appear in a list (e.g. one per zone) and repeating a full
+          // legend under each would be noise. showLabels defaults on; pass
+          // false for a compact bar too narrow for in-bar %s to matter.
+          function reportMiniBar(segments, heightPx, showLabels) {
+            const height = heightPx || 22;
+            const total = segments.reduce(function(s, x) { return s + x.value; }, 0);
+            const visible = segments.filter(function(s) { return s.value > 0; });
+            if (total <= 0 || visible.length === 0) return '<div style="height:' + height + 'px;border-radius:' + Math.round(height / 4) + 'px;background:#e2e8f0;"></div>';
+            return '<div style="display:flex;height:' + height + 'px;border-radius:' + Math.round(height / 4) + 'px;overflow:hidden;background:#e2e8f0;">' +
+                visible.map(function(s, i) {
+                  const pct = (s.value / total) * 100;
+                  const showLabel = showLabels !== false && pct >= 12 && height >= 18;
+                  const marginRight = i < visible.length - 1 ? '2px' : '0';
+                  return '<div style="flex:0 0 ' + pct.toFixed(2) + '%;background:' + s.color + ';margin-right:' + marginRight + ';display:flex;align-items:center;justify-content:center;">' +
+                    (showLabel ? '<span style="color:#fff;font-size:10px;font-weight:700;">' + Math.round(pct) + '%</span>' : '') +
+                  '</div>';
+                }).join('') +
+              '</div>';
+          }
+          // The full version: the bar above plus a legend row underneath
+          // (color dot, label, count, share) - the primary chart for a
+          // report's headline status breakdown.
+          function reportStackedBar(segments) {
+            const total = segments.reduce(function(s, x) { return s + x.value; }, 0);
+            const legend = '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;">' +
+              segments.map(function(s) {
+                const pct = total > 0 ? Math.round((s.value / total) * 100) : 0;
+                return '<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#475569;"><span style="width:10px;height:10px;border-radius:2px;background:' + s.color + ';display:inline-block;"></span>' + s.label + ': <strong style="color:#1e293b;">' + s.value + '</strong> (' + pct + '%)</div>';
+              }).join('') +
+            '</div>';
+            return reportMiniBar(segments) + legend;
+          }
+          // A ranked list of horizontal bars, all scaled against the same
+          // max so lengths are directly comparable (not each normalized to
+          // its own 100%). rows: [{label, value, color, sub?}]; sub is an
+          // optional secondary note shown after the value (e.g. a percent).
+          function reportBarList(rows, emptyText) {
+            const real = rows.filter(function(r) { return r.value > 0; });
+            if (real.length === 0) return '<p style="color:#94a3b8;font-size:12px;">' + (emptyText || 'No data yet.') + '</p>';
+            const max = real.reduce(function(m, r) { return Math.max(m, r.value); }, 0) || 1;
+            return '<div style="display:flex;flex-direction:column;gap:10px;">' +
+              real.map(function(r) {
+                const pct = (r.value / max) * 100;
+                return '<div style="display:flex;align-items:center;gap:10px;">' +
+                  '<div style="width:120px;font-size:12px;color:#475569;text-align:right;flex-shrink:0;text-transform:capitalize;">' + r.label + '</div>' +
+                  '<div style="flex:1;background:#f1f5f9;border-radius:4px;height:18px;">' +
+                    '<div style="width:' + pct.toFixed(1) + '%;height:100%;background:' + r.color + ';border-radius:4px;"></div>' +
+                  '</div>' +
+                  '<div style="width:80px;font-size:12px;color:#1e293b;font-weight:600;flex-shrink:0;">' + r.value + (r.sub ? ' <span style="color:#94a3b8;font-weight:400;">(' + r.sub + ')</span>' : '') + '</div>' +
+                '</div>';
+              }).join('') +
+            '</div>';
+          }
+          // Every generate*Report() function used to repeat these same
+          // three lines - open a blank tab, write the HTML, print it.
+          // Centralizing it here so the reports that call it can't drift.
+          function openReportWindow(html) {
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write(html);
+            printWindow.document.close();
+            printWindow.print();
+          }
+          // Fixed category orders, hoisted so the QC/Refusal reports' bar
+          // charts and pile maps always color the same reason the same way.
+          const QC_REASON_ORDER = ['plumb', 'twist', 'height', 'alignment', 'spacing', 'other'];
+          const REFUSAL_REASON_ORDER = ['bedrock', 'cobble', 'obstruction', 'other'];
+
+          // The same row/position layout the live Pile Map renders from -
+          // the procedural totalRows x pilesPerRow rectangle for a project
+          // still in "grid" mode, or the real state.piles rows (gaps and
+          // all) once a project has a custom layout. Reports build their
+          // own pile-map graphics from this rather than duplicating the
+          // grid-vs-custom branch three times.
+          function reportLayoutRows() {
+            const project = state.currentProject;
+            const isCustom = project?.pileLayoutMode === 'custom' && state.piles.length > 0;
+            if (isCustom) {
+              const byRow = {};
+              state.piles.forEach(function(p) { (byRow[p.row] = byRow[p.row] || []).push(p); });
+              return Object.keys(byRow).map(Number).sort(function(a, b) { return a - b; }).map(function(rowNum) {
+                return { row: rowNum, piles: byRow[rowNum].slice().sort(function(a, b) { return a.position - b.position; }) };
+              });
+            }
+            const totalRows = project?.totalRows || 0;
+            const pilesPerRow = project?.pilesPerRow || 0;
+            const rows = [];
+            for (let row = 1; row <= totalRows; row++) {
+              const piles = [];
+              for (let pos = 1; pos <= pilesPerRow; pos++) piles.push({ pileId: row + '-' + pos, row: row, position: pos, skip: false });
+              rows.push({ row: row, piles: piles });
+            }
+            return rows;
+          }
+          // A static, print-safe pile map: one row of small colored cells
+          // per row of piles, same visual language as the live Pile Map -
+          // but never in a scroll box, since a printed report has no
+          // scrollbar; it just flows onto however many pages it needs.
+          // Cell size auto-shrinks to the widest row so a large layout
+          // never runs off the printed page width. cellStatus(pile) ->
+          // {color} or {skip:true} for a gap/obstacle placeholder.
+          function reportPileGrid(rows, cellStatus, legend) {
+            if (rows.length === 0) return '<p style="color:#94a3b8;font-size:12px;">No pile layout data yet.</p>';
+            const maxInRow = rows.reduce(function(m, r) { return Math.max(m, r.piles.length); }, 0) || 1;
+            const usableWidth = 650; // print body is ~40px padding each side on a ~816px page
+            const cellSize = Math.max(3, Math.min(9, Math.floor(usableWidth / maxInRow) - 1));
+            const gridHtml = rows.map(function(r) {
+              const cells = r.piles.map(function(p) {
+                const info = cellStatus(p);
+                if (info.skip) return '<span style="display:inline-block;width:' + cellSize + 'px;height:' + cellSize + 'px;margin:1px;"></span>';
+                return '<span style="display:inline-block;width:' + cellSize + 'px;height:' + cellSize + 'px;margin:1px;border-radius:1px;background:' + info.color + ';"></span>';
+              }).join('');
+              return '<div style="white-space:nowrap;line-height:0;">' +
+                (cellSize >= 6 ? '<span style="display:inline-block;width:22px;font-size:7px;color:#94a3b8;vertical-align:top;">' + r.row + '</span>' : '') +
+                cells +
+              '</div>';
+            }).join('');
+            const legendHtml = '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;">' +
+              legend.map(function(l) {
+                return '<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#475569;"><span style="width:10px;height:10px;border-radius:2px;background:' + l.color + ';display:inline-block;"></span>' + l.label + '</div>';
+              }).join('') +
+            '</div>';
+            return '<div>' + gridHtml + '</div>' + legendHtml;
           }
 
           // PDF GENERATION FUNCTIONS
@@ -1887,7 +2037,58 @@ export default async function SolTrendApp() {
             const passed = rangeInspections.filter(i => i.status === 'pass').length;
             const failed = rangeInspections.filter(i => i.status === 'fail').length;
             const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
-            
+
+            // Failures by reason - fixed order (not by first appearance) so
+            // "plumb" is always the same color report to report.
+            const failedInRange = rangeInspections.filter(i => i.status === 'fail');
+            const reasonRows = QC_REASON_ORDER.map(function(reason, idx) {
+              const count = failedInRange.filter(function(i) { return (i.failReason || 'other') === reason; }).length;
+              return { label: reason, value: count, color: reportColorFor(idx) };
+            });
+
+            // Pile map - current pass/fail/not-yet-inspected status for
+            // every pile in the layout. Deliberately NOT scoped to the
+            // start/end range above: the map answers "what does the site
+            // look like right now", a different question than "how many
+            // inspections happened in this window" - scoping it to the
+            // date range would leave piles inspected outside the window
+            // showing as blank, which misrepresents the real site.
+            const qcLayoutRows = reportLayoutRows();
+            const qcCellStatus = function(p) {
+              if (p.skip) return { skip: true };
+              const insp = state.inspections.find(function(i) { return i.pileId === p.pileId; });
+              if (!insp) return { color: REPORT_STATUS_COLORS.pending };
+              return { color: insp.status === 'pass' ? REPORT_STATUS_COLORS.pass : REPORT_STATUS_COLORS.fail };
+            };
+            const qcMapLegend = [
+              { label: 'Passed', color: REPORT_STATUS_COLORS.pass },
+              { label: 'Failed', color: REPORT_STATUS_COLORS.fail },
+              { label: 'Not yet inspected', color: REPORT_STATUS_COLORS.pending },
+            ];
+
+            // By pile type - only meaningful once a project has real
+            // per-type tolerances (Settings -> Racking) and inspections are
+            // being recorded in detailed mode against them.
+            const activeProfile = state.rackingProfiles.find(function(r) { return r.id === project?.rackingProfileId; });
+            const typeSpecs = (activeProfile && activeProfile.pileTypeSpecs) || [];
+            const byTypeRows = typeSpecs.map(function(t) {
+              const typeInspections = rangeInspections.filter(function(i) { return i.pileType === t.id; });
+              const typePassed = typeInspections.filter(function(i) { return i.status === 'pass'; }).length;
+              const typeRate = typeInspections.length > 0 ? Math.round((typePassed / typeInspections.length) * 100) : null;
+              return { label: t.label || t.profile || 'Type', total: typeInspections.length, passed: typePassed, failed: typeInspections.length - typePassed, rate: typeRate };
+            }).filter(function(r) { return r.total > 0; });
+
+            // By inspector - who's recording the most, and their pass rate.
+            const byInspector = {};
+            rangeInspections.forEach(function(i) {
+              const key = i.user || 'Unknown';
+              if (!byInspector[key]) byInspector[key] = { name: key, total: 0, passed: 0 };
+              byInspector[key].total++;
+              if (i.status === 'pass') byInspector[key].passed++;
+            });
+            const inspectorRows = Object.values(byInspector).sort(function(a, b) { return b.total - a.total; });
+
+            const meterColor = function(rate) { return rate >= 90 ? '#22c55e' : rate >= 70 ? '#eda100' : '#ef4444'; };
             const reportContent = \`
               <!DOCTYPE html>
               <html>
@@ -1909,6 +2110,7 @@ export default async function SolTrendApp() {
                   table { width: 100%; border-collapse: collapse; margin: 15px 0; }
                   th, td { padding: 10px; text-align: left; border-bottom: 1px solid #e2e8f0; }
                   th { background: #f1f5f9; font-weight: 600; }
+                  .note { color: #94a3b8; font-size: 11px; margin-top: 8px; }
                   .footer { margin-top: 40px; text-align: center; color: #94a3b8; font-size: 12px; }
                 </style>
               </head>
@@ -1925,18 +2127,57 @@ export default async function SolTrendApp() {
                     <div class="stat-box"><div class="value fail">\${failed}</div><div class="label">Failed</div></div>
                     <div class="stat-box"><div class="value pass">\${passRate}%</div><div class="label">Pass Rate</div></div>
                   </div>
+                  \${reportStackedBar([{ label: 'Passed', value: passed, color: REPORT_STATUS_COLORS.pass }, { label: 'Failed', value: failed, color: REPORT_STATUS_COLORS.fail }])}
                 </div>
+                <div class="section">
+                  <h2>Pile Map</h2>
+                  \${reportPileGrid(qcLayoutRows, qcCellStatus, qcMapLegend)}
+                  <p class="note">Current status of every pile, not limited to the date range above.</p>
+                </div>
+                <div class="section">
+                  <h2>Failures by Reason</h2>
+                  \${reportBarList(reasonRows, 'No failed inspections in this range.')}
+                </div>
+                \${byTypeRows.length > 0 ? \`
+                <div class="section">
+                  <h2>By Pile Type</h2>
+                  <div style="display:flex;flex-direction:column;gap:10px;">
+                    \${byTypeRows.map(function(r) {
+                      return '<div style="display:flex;align-items:center;gap:10px;">' +
+                        '<div style="width:150px;font-size:12px;color:#475569;text-align:right;flex-shrink:0;">' + r.label + '</div>' +
+                        '<div style="flex:1;background:#f1f5f9;border-radius:4px;height:18px;"><div style="width:' + (r.rate ?? 0) + '%;height:100%;background:' + meterColor(r.rate ?? 0) + ';border-radius:4px;"></div></div>' +
+                        '<div style="width:150px;font-size:12px;color:#1e293b;font-weight:600;flex-shrink:0;">' + (r.rate ?? 0) + '% (' + r.passed + '/' + r.total + ')</div>' +
+                      '</div>';
+                    }).join('')}
+                  </div>
+                </div>
+                \` : ''}
+                \${inspectorRows.length > 0 ? \`
+                <div class="section">
+                  <h2>By Inspector</h2>
+                  <table>
+                    <thead><tr><th>Inspector</th><th>Inspections</th><th>Passed</th><th>Failed</th><th>Pass Rate</th></tr></thead>
+                    <tbody>
+                      \${inspectorRows.map(function(r) {
+                        const rate = r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
+                        return '<tr><td>' + r.name + '</td><td>' + r.total + '</td><td class="pass">' + r.passed + '</td><td class="fail">' + (r.total - r.passed) + '</td><td>' + rate + '%</td></tr>';
+                      }).join('')}
+                    </tbody>
+                  </table>
+                </div>
+                \` : ''}
                 <div class="section">
                   <h2>Failed Inspections in Range</h2>
                   <table>
                     <thead><tr><th>Pile ID</th><th>Reason</th><th>Inspector</th><th>Time</th></tr></thead>
                     <tbody>
-                      \${rangeInspections.filter(i => i.status === 'fail').slice(0, 10).map(i =>
+                      \${failedInRange.slice(0, 20).map(i =>
                         '<tr><td>' + i.pileId + '</td><td class="fail">' + (i.failReason || 'N/A') + '</td><td>' + i.user + '</td><td>' + new Date(i.timestamp).toLocaleString() + '</td></tr>'
                       ).join('')}
-                      \${rangeInspections.filter(i => i.status === 'fail').length === 0 ? '<tr><td colspan="4" style="text-align:center;color:#94a3b8;">No failed inspections in this range</td></tr>' : ''}
+                      \${failedInRange.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:#94a3b8;">No failed inspections in this range</td></tr>' : ''}
                     </tbody>
                   </table>
+                  \${failedInRange.length > 20 ? '<p class="note">+ ' + (failedInRange.length - 20) + ' more not shown - see the Inspections CSV export for the full list.</p>' : ''}
                 </div>
                 <div class="footer">
                   <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
@@ -1944,10 +2185,7 @@ export default async function SolTrendApp() {
               </body>
               </html>
             \`;
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(reportContent);
-            printWindow.document.close();
-            printWindow.print();
+            openReportWindow(reportContent);
           }
 
           function generatePileStatusReport() {
@@ -1956,9 +2194,34 @@ export default async function SolTrendApp() {
               pass: state.inspections.filter(i => i.status === 'pass').length,
               fail: state.inspections.filter(i => i.status === 'fail').length,
               refusal: state.refusals.length,
-              notstarted: (project?.totalPiles || 0) - state.inspections.length - state.refusals.length
+              notstarted: Math.max(0, (project?.totalPiles || 0) - state.inspections.length - state.refusals.length)
             };
-            
+            const overviewSegments = [
+              { label: 'Passed', value: statusCounts.pass, color: REPORT_STATUS_COLORS.pass },
+              { label: 'Failed', value: statusCounts.fail, color: REPORT_STATUS_COLORS.fail },
+              { label: 'Refusal', value: statusCounts.refusal, color: REPORT_STATUS_COLORS.refusal },
+              { label: 'Pending', value: statusCounts.notstarted, color: REPORT_STATUS_COLORS.pending },
+            ];
+
+            // Zone breakdown - only exists once a project has a real custom
+            // layout with zones assigned (see the Pile Layout page). A
+            // project still on the default procedural grid has no zones to
+            // report on, so this section just doesn't render for it.
+            const isCustom = project?.pileLayoutMode === 'custom' && state.piles.length > 0;
+            const zoneRows = [];
+            if (isCustom) {
+              const byZone = {};
+              state.piles.filter(function(p) { return !p.skip; }).forEach(function(p) {
+                const zone = p.zone || 'Ungrouped';
+                if (!byZone[zone]) byZone[zone] = { pass: 0, fail: 0, refusal: 0, notstarted: 0 };
+                const status = getInspectionStatus(p.pileId);
+                byZone[zone][status === 'pass' || status === 'fail' || status === 'refusal' ? status : 'notstarted']++;
+              });
+              Object.keys(byZone).sort().forEach(function(zone) {
+                zoneRows.push({ zone: zone, counts: byZone[zone] });
+              });
+            }
+
             const reportContent = \`
               <!DOCTYPE html>
               <html>
@@ -1979,9 +2242,6 @@ export default async function SolTrendApp() {
                   .fail { color: #ef4444; }
                   .refusal { color: #f97316; }
                   .pending { color: #64748b; }
-                  .legend { display: flex; justify-content: center; gap: 30px; margin: 20px 0; }
-                  .legend-item { display: flex; align-items: center; gap: 8px; }
-                  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
                   .footer { margin-top: 40px; text-align: center; color: #94a3b8; font-size: 12px; }
                 </style>
               </head>
@@ -1996,38 +2256,126 @@ export default async function SolTrendApp() {
                     <div class="stat-box"><div class="value pass">\${statusCounts.pass}</div><div class="label">Passed</div></div>
                     <div class="stat-box"><div class="value fail">\${statusCounts.fail}</div><div class="label">Failed</div></div>
                     <div class="stat-box"><div class="value refusal">\${statusCounts.refusal}</div><div class="label">Refusals</div></div>
-                    <div class="stat-box"><div class="value pending">\${Math.max(0, statusCounts.notstarted)}</div><div class="label">Not Started</div></div>
+                    <div class="stat-box"><div class="value pending">\${statusCounts.notstarted}</div><div class="label">Not Started</div></div>
                   </div>
+                  \${reportStackedBar(overviewSegments)}
+                </div>
+                <div class="section">
+                  <h2>Pile Map</h2>
+                  \${reportPileGrid(reportLayoutRows(), function(p) {
+                    if (p.skip) return { skip: true };
+                    const status = getInspectionStatus(p.pileId);
+                    return { color: status === 'pass' ? REPORT_STATUS_COLORS.pass : status === 'fail' ? REPORT_STATUS_COLORS.fail : status === 'refusal' ? REPORT_STATUS_COLORS.refusal : REPORT_STATUS_COLORS.pending };
+                  }, [
+                    { label: 'Passed', color: REPORT_STATUS_COLORS.pass },
+                    { label: 'Failed', color: REPORT_STATUS_COLORS.fail },
+                    { label: 'Refusal', color: REPORT_STATUS_COLORS.refusal },
+                    { label: 'Not started', color: REPORT_STATUS_COLORS.pending },
+                  ])}
                 </div>
                 <div class="section">
                   <h2>Progress Summary</h2>
-                  <p><strong>Total Piles:</strong> \${project?.totalPiles || 0}</p>
+                  <p><strong>Total Piles:</strong> \${project?.totalPiles || 0}\${isCustom ? ' (custom layout)' : ''}</p>
                   <p><strong>Completion:</strong> \${Math.round(((project?.installedPiles || 0) / (project?.totalPiles || 1)) * 100)}%</p>
-                  <div class="legend">
-                    <div class="legend-item"><div class="legend-dot" style="background: #22c55e;"></div><span>Passed</span></div>
-                    <div class="legend-item"><div class="legend-dot" style="background: #ef4444;"></div><span>Failed</span></div>
-                    <div class="legend-item"><div class="legend-dot" style="background: #f97316;"></div><span>Refusal</span></div>
-                    <div class="legend-item"><div class="legend-dot" style="background: #64748b;"></div><span>Pending</span></div>
-                  </div>
                 </div>
+                \${zoneRows.length > 0 ? \`
+                <div class="section">
+                  <h2>Status by Zone</h2>
+                  <div style="display:flex;flex-direction:column;gap:12px;">
+                    \${zoneRows.map(function(z) {
+                      const total = z.counts.pass + z.counts.fail + z.counts.refusal + z.counts.notstarted;
+                      return '<div style="display:flex;align-items:center;gap:10px;">' +
+                        '<div style="width:110px;font-size:12px;color:#475569;text-align:right;flex-shrink:0;">' + z.zone + ' <span style="color:#94a3b8;">(' + total + ')</span></div>' +
+                        '<div style="flex:1;">' + reportMiniBar([
+                          { value: z.counts.pass, color: REPORT_STATUS_COLORS.pass },
+                          { value: z.counts.fail, color: REPORT_STATUS_COLORS.fail },
+                          { value: z.counts.refusal, color: REPORT_STATUS_COLORS.refusal },
+                          { value: z.counts.notstarted, color: REPORT_STATUS_COLORS.pending },
+                        ], 16, false) + '</div>' +
+                      '</div>';
+                    }).join('')}
+                  </div>
+                  <p style="color:#94a3b8;font-size:11px;margin-top:10px;">Green = passed, red = failed, orange = refusal, gray = not started.</p>
+                </div>
+                \` : ''}
                 <div class="footer">
                   <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
                 </div>
               </body>
               </html>
             \`;
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(reportContent);
-            printWindow.document.close();
-            printWindow.print();
+            openReportWindow(reportContent);
           }
 
           function generateRefusalReport() {
+            const startDate = document.getElementById('refusalStart')?.value || state.reportDates.refusalStart;
+            const endDate = document.getElementById('refusalEnd')?.value || state.reportDates.refusalEnd;
             const project = state.currentProject;
-            const refusalCounts = {};
-            state.refusals.forEach(r => { refusalCounts[r.reason] = (refusalCounts[r.reason] || 0) + 1; });
-            const avgDepth = state.refusals.length > 0 ? Math.round(state.refusals.reduce((s, r) => s + (r.achievedDepth || 0), 0) / state.refusals.length) : 0;
-            const avgShortfallReport = state.refusals.length > 0 ? Math.round(state.refusals.reduce((s, r) => s + ((r.targetDepth || 72) - (r.achievedDepth || 0)), 0) / state.refusals.length) : 0;
+            // Previously ignored any notion of a date range entirely - every
+            // number here was the company's all-time refusal history. Now
+            // scoped the same way the QC report already was.
+            const rangeRefusals = state.refusals.filter(function(r) { const d = localDateStr(r.timestamp); return d >= startDate && d <= endDate; });
+            const avgDepth = rangeRefusals.length > 0 ? Math.round(rangeRefusals.reduce((s, r) => s + (r.achievedDepth || 0), 0) / rangeRefusals.length) : 0;
+            const avgShortfallReport = rangeRefusals.length > 0 ? Math.round(rangeRefusals.reduce((s, r) => s + ((r.targetDepth || 72) - (r.achievedDepth || 0)), 0) / rangeRefusals.length) : 0;
+
+            const reasonRows = REFUSAL_REASON_ORDER.map(function(reason, idx) {
+              const count = rangeRefusals.filter(function(r) { return (r.reason || 'other') === reason; }).length;
+              return { label: reason, value: count, color: reportColorFor(idx) };
+            });
+
+            // Shortfall severity - how far short of target depth, bucketed.
+            // A refusal with a small shortfall is barely worth flagging; a
+            // huge one may point at a real change to the foundation design.
+            const SHORTFALL_BUCKETS = [
+              { label: '< 12"', min: 0, max: 12 },
+              { label: '12-24"', min: 12, max: 24 },
+              { label: '24-48"', min: 24, max: 48 },
+              { label: '48"+', min: 48, max: Infinity },
+            ];
+            const shortfallRows = SHORTFALL_BUCKETS.map(function(b, idx) {
+              const count = rangeRefusals.filter(function(r) {
+                const shortfall = (r.targetDepth || 72) - (r.achievedDepth || 0);
+                return shortfall >= b.min && shortfall < b.max;
+              }).length;
+              // A single hue, light -> dark: magnitude, not identity, so a
+              // sequential ramp rather than the categorical set above.
+              const seqBlues = ['#cde2fb', '#6da7ec', '#256abf', '#0d366b'];
+              return { label: b.label, value: count, color: seqBlues[idx] };
+            });
+
+            // Zone breakdown - only meaningful once a project has a real
+            // custom pile layout with zones (Pile Layout page).
+            const isCustom = project?.pileLayoutMode === 'custom' && state.piles.length > 0;
+            const zoneRows = [];
+            if (isCustom) {
+              const byZone = {};
+              rangeRefusals.forEach(function(r) {
+                const pile = state.piles.find(function(p) { return p.pileId === r.pileId; });
+                const zone = (pile && pile.zone) || 'Ungrouped';
+                byZone[zone] = (byZone[zone] || 0) + 1;
+              });
+              Object.keys(byZone).sort(function(a, b) { return byZone[b] - byZone[a]; }).forEach(function(zone, idx) {
+                zoneRows.push({ label: zone, value: byZone[zone], color: reportColorFor(idx) });
+              });
+            }
+
+            // Pile map - deliberately built from state.refusals directly
+            // (every refusal ever logged for this pile), not scoped to the
+            // date range and not using getInspectionStatus(), which would
+            // hide a refusal behind a later successful re-drive. This map
+            // is a foundation-design tool: it should still show a pile
+            // that had to be redesigned around, even after it was fixed.
+            const refusalLayoutRows = reportLayoutRows();
+            const refusalCellStatus = function(p) {
+              if (p.skip) return { skip: true };
+              const ref = state.refusals.find(function(r) { return r.pileId === p.pileId; });
+              if (!ref) return { color: '#e2e8f0' };
+              const idx = REFUSAL_REASON_ORDER.indexOf(ref.reason || 'other');
+              return { color: reportColorFor(idx >= 0 ? idx : REFUSAL_REASON_ORDER.length - 1) };
+            };
+            const refusalMapLegend = REFUSAL_REASON_ORDER.map(function(reason, idx) {
+              return { label: reason, color: reportColorFor(idx) };
+            }).concat([{ label: 'No refusal', color: '#e2e8f0' }]);
 
             const reportContent = \`
               <!DOCTYPE html>
@@ -2048,39 +2396,54 @@ export default async function SolTrendApp() {
                   table { width: 100%; border-collapse: collapse; margin: 15px 0; }
                   th, td { padding: 10px; text-align: left; border-bottom: 1px solid #e2e8f0; }
                   th { background: #f1f5f9; font-weight: 600; }
-                  .reason-row { display: flex; justify-content: space-between; padding: 10px; background: #f8fafc; margin-bottom: 8px; border-radius: 6px; }
+                  .note { color: #94a3b8; font-size: 11px; margin-top: 8px; }
                   .footer { margin-top: 40px; text-align: center; color: #94a3b8; font-size: 12px; }
                 </style>
               </head>
               <body>
                 <div class="header">
                   <h1>Refusal Analysis Report</h1>
-                  <p>\${project?.name || 'SolTrend Pro'} | \${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+                  <p>\${project?.name || 'SolTrend Pro'} | \${new Date(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                 </div>
                 <div class="section">
                   <h2>Summary</h2>
                   <div class="stats">
-                    <div class="stat-box"><div class="value">\${state.refusals.length}</div><div class="label">Total Refusals</div></div>
+                    <div class="stat-box"><div class="value">\${rangeRefusals.length}</div><div class="label">Total Refusals</div></div>
                     <div class="stat-box"><div class="value">\${avgDepth}"</div><div class="label">Avg Achieved Depth</div></div>
                     <div class="stat-box"><div class="value">\${avgShortfallReport}"</div><div class="label">Avg Shortfall</div></div>
                   </div>
                 </div>
                 <div class="section">
-                  <h2>Refusals by Reason</h2>
-                  \${Object.entries(refusalCounts).map(([reason, count]) => 
-                    '<div class="reason-row"><span class="capitalize">' + reason + '</span><span><strong>' + count + '</strong> (' + Math.round((count / state.refusals.length) * 100) + '%)</span></div>'
-                  ).join('')}
+                  <h2>Refusal Map</h2>
+                  \${reportPileGrid(refusalLayoutRows, refusalCellStatus, refusalMapLegend)}
+                  <p class="note">Shows every pile with a refusal on record, across the project's full history - not limited to the date range above.</p>
                 </div>
                 <div class="section">
-                  <h2>Recent Refusals</h2>
+                  <h2>Refusals by Reason</h2>
+                  \${reportBarList(reasonRows, 'No refusals in this range.')}
+                </div>
+                <div class="section">
+                  <h2>Shortfall Severity</h2>
+                  \${reportBarList(shortfallRows, 'No refusals in this range.')}
+                </div>
+                \${zoneRows.length > 0 ? \`
+                <div class="section">
+                  <h2>Refusals by Zone</h2>
+                  \${reportBarList(zoneRows, 'No refusals in this range.')}
+                </div>
+                \` : ''}
+                <div class="section">
+                  <h2>Refusals in Range</h2>
                   <table>
                     <thead><tr><th>Pile ID</th><th>Reason</th><th>Target Depth</th><th>Achieved</th><th>Shortfall</th></tr></thead>
                     <tbody>
-                      \${state.refusals.slice(0, 15).map(r => 
+                      \${rangeRefusals.slice(0, 25).map(r =>
                         '<tr><td>' + r.pileId + '</td><td class="capitalize">' + r.reason + '</td><td>' + r.targetDepth + '"</td><td>' + (r.achievedDepth || 'N/A') + '"</td><td>' + (r.achievedDepth ? (r.targetDepth - r.achievedDepth) + '"' : '-') + '</td></tr>'
                       ).join('')}
+                      \${rangeRefusals.length === 0 ? '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">No refusals in this range</td></tr>' : ''}
                     </tbody>
                   </table>
+                  \${rangeRefusals.length > 25 ? '<p class="note">+ ' + (rangeRefusals.length - 25) + ' more not shown - see the Refusals CSV export for the full list.</p>' : ''}
                 </div>
                 <div class="footer">
                   <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
@@ -2088,10 +2451,7 @@ export default async function SolTrendApp() {
               </body>
               </html>
             \`;
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(reportContent);
-            printWindow.document.close();
-            printWindow.print();
+            openReportWindow(reportContent);
           }
 
           function showToast(message, type) {
