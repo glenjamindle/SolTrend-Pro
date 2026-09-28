@@ -155,8 +155,17 @@ model RackingProfile {
   id           String   @id @default(cuid())
   name         String
   manufacturer String
-  pileTypes    String   // JSON string: ["interior", "exterior", "motor", "corner"]
-  tolerances   String   // JSON string: { interior: { embedmentMin: 72, plumbNS: 1.5 }, ... }
+  pileTypes    String   // JSON string, legacy: ["interior", "exterior", "motor", "corner"]
+  tolerances   String   // JSON string, legacy: { interior: { embedmentMin: 72, plumbNS: 1.5 }, ... }
+  // pileTypeSpecs replaces pileTypes/tolerances above. Each entry is a real
+  // pile type as the racking manufacturer actually specs it (profile,
+  // length, target embedment, a color to cross-reference the vendor's
+  // color-coded pile plan) plus its own full tolerance set across all six
+  // QC dimensions: { id, label, profile, lengthFt, embedmentTargetFt, color,
+  // tolerances: { embedmentMinIn, embedmentMaxIn, heightMinIn, heightMaxIn,
+  // plumbMaxDeg, twistMaxDeg, spacingTolIn, alignmentTolIn } }. The old
+  // fields stay populated (derived) so nothing that still reads them breaks.
+  pileTypeSpecs String? // JSON string: PileTypeSpec[]
   isActive     Boolean  @default(true)
   companyId    String?
   createdAt    DateTime @default(now())
@@ -176,6 +185,11 @@ model Inspection {
   depth      Int?     // Embedment depth in inches
   plumbNS    Float?   // Plumb tolerance N-S
   plumbEW    Float?   // Plumb tolerance E-W
+  pileType   String?  // id of the RackingProfile pile type spec this pile was checked against
+  heightIn   Float?   // Reveal height above grade, in inches
+  twistDeg   Float?   // Twist about the pile's vertical axis, in degrees
+  spacingIn  Float?   // Deviation from design pile-to-pile spacing, in inches
+  alignmentIn Float?  // Lateral deviation from the row's design line, in inches
   failReason String?
   notes      String?
   photos     String?  // JSON string: Array of photo URLs

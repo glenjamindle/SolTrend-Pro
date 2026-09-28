@@ -29,6 +29,11 @@ export async function GET(request: NextRequest) {
       depth: i.depth,
       plumbNS: i.plumbNS,
       plumbEW: i.plumbEW,
+      pileType: i.pileType,
+      heightIn: i.heightIn,
+      twistDeg: i.twistDeg,
+      spacingIn: i.spacingIn,
+      alignmentIn: i.alignmentIn,
       failReason: i.failReason,
       photos: i.photos ? JSON.parse(i.photos) : [],
       gps: i.gps ? JSON.parse(i.gps) : null,
@@ -42,11 +47,11 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/inspections
-// body: { projectId, pileId, status, inspectedBy, depth?, plumbNS?, plumbEW?, failReason?, photos?, gps? }
+// body: { projectId, pileId, status, inspectedBy, depth?, plumbNS?, plumbEW?, pileType?, heightIn?, twistDeg?, spacingIn?, alignmentIn?, failReason?, photos?, gps? }
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { projectId, pileId, status, inspectedBy, depth, plumbNS, plumbEW, failReason, photos, gps } = body
+    const { projectId, pileId, status, inspectedBy, depth, plumbNS, plumbEW, pileType, heightIn, twistDeg, spacingIn, alignmentIn, failReason, photos, gps } = body
 
     if (!projectId || !pileId || !status) {
       return NextResponse.json({ error: 'projectId, pileId and status are required' }, { status: 400 })
@@ -87,6 +92,11 @@ export async function POST(request: NextRequest) {
         depth: depth ?? undefined,
         plumbNS: plumbNS ?? undefined,
         plumbEW: plumbEW ?? undefined,
+        pileType: pileType ?? undefined,
+        heightIn: heightIn ?? undefined,
+        twistDeg: twistDeg ?? undefined,
+        spacingIn: spacingIn ?? undefined,
+        alignmentIn: alignmentIn ?? undefined,
         failReason: failReason ?? undefined,
         photos: Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : undefined,
         gps: gps ? JSON.stringify(gps) : undefined,
@@ -101,6 +111,11 @@ export async function POST(request: NextRequest) {
         depth: depth ?? undefined,
         plumbNS: plumbNS ?? undefined,
         plumbEW: plumbEW ?? undefined,
+        pileType: pileType ?? undefined,
+        heightIn: heightIn ?? undefined,
+        twistDeg: twistDeg ?? undefined,
+        spacingIn: spacingIn ?? undefined,
+        alignmentIn: alignmentIn ?? undefined,
         failReason: failReason ?? undefined,
         photos: Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : undefined,
         gps: gps ? JSON.stringify(gps) : undefined,

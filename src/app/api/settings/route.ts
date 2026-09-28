@@ -146,6 +146,7 @@ export async function GET(request: NextRequest) {
         ...rp,
         pileTypes: JSON.parse(rp.pileTypes),
         tolerances: JSON.parse(rp.tolerances),
+        pileTypeSpecs: rp.pileTypeSpecs ? JSON.parse(rp.pileTypeSpecs) : [],
       })),
       users,
     })
@@ -300,26 +301,34 @@ export async function POST(request: NextRequest) {
       }
       
       case 'rackingProfile': {
+        // pileTypeSpecs (an array of { id, label, profile, lengthFt,
+        // embedmentTargetFt, color, tolerances: {...} }) is the real data
+        // now. pileTypes/tolerances are legacy columns that are still
+        // required (non-nullable) by the schema, so they're derived here
+        // rather than typed by hand - nothing writes to them directly
+        // anymore, but nothing that might still read them breaks either.
+        const pileTypeSpecs = Array.isArray(data.pileTypeSpecs) ? data.pileTypeSpecs : []
         const profileData = {
           name: data.name,
           manufacturer: data.manufacturer,
-          pileTypes: JSON.stringify(data.pileTypes),
-          tolerances: JSON.stringify(data.tolerances),
+          pileTypes: JSON.stringify(pileTypeSpecs.map((t: any) => t.label || t.profile || t.id)),
+          tolerances: JSON.stringify({}),
+          pileTypeSpecs: JSON.stringify(pileTypeSpecs),
           isActive: data.isActive ?? true,
           companyId,
         }
-        
+
         if (data.id) {
           const profile = await prisma.rackingProfile.update({
             where: { id: data.id },
             data: profileData
           })
-          return NextResponse.json({ ...profile, pileTypes: data.pileTypes, tolerances: data.tolerances })
+          return NextResponse.json({ ...profile, pileTypeSpecs })
         } else {
           const profile = await prisma.rackingProfile.create({
             data: profileData
           })
-          return NextResponse.json({ ...profile, pileTypes: data.pileTypes, tolerances: data.tolerances })
+          return NextResponse.json({ ...profile, pileTypeSpecs })
         }
       }
       

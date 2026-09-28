@@ -143,12 +143,14 @@ export default async function SolTrendApp() {
             crews: [],
             subcontractors: [],
             rackingProfiles: [],
+            editingRackingTypes: [],
             users: [],
             recentActivity: [],
             currentRow: 35, currentPile: 22,
             inspectionPhotos: [], lastInspection: null,
             inspectionFailReason: null,
             inspectionDepth: '', inspectionPlumbNS: '', inspectionPlumbEW: '',
+            inspectionPileType: '', inspectionHeight: '', inspectionTwist: '', inspectionSpacing: '', inspectionAlignment: '',
             predictiveWeather: null,
             session: { passed: 0, failed: 0 },
             refusalRow: 35, refusalPile: 22,
@@ -591,14 +593,6 @@ export default async function SolTrendApp() {
             return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><div class="flex items-center gap-3"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photo</span></button><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn w-12 h-12 rounded-xl flex items-center justify-center text-slate-400 hover:text-white">' + icon('image', 'w-5 h-5') + '</button></div>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
           }
 
-          // RACKING MANUFACTURERS
-          const RACKING_MANUFACTURERS = [
-            { id: 'gamechange', name: 'GameChange Solar', pileTypes: ['interior', 'exterior', 'motor', 'corner'], tolerances: { interior: { embedmentMin: 72, plumbNS: 1.5 }, motor: { embedmentMin: 96, plumbNS: 0.5 } } },
-            { id: 'nextracker', name: 'NEXTracker', pileTypes: ['interior', 'exterior', 'motor', 'boundary'], tolerances: { interior: { embedmentMin: 78, plumbNS: 2.0 } } },
-            { id: 'arraytech', name: 'Array Technologies', pileTypes: ['interior', 'exterior', 'motor'], tolerances: { interior: { embedmentMin: 72, plumbNS: 1.75 } } },
-            { id: 'ftc', name: 'FTC Solar', pileTypes: ['interior', 'exterior'], tolerances: { interior: { embedmentMin: 72, plumbNS: 2.0 } } },
-          ];
-
           // DEMO DATA GENERATION
           function generateDemoData() {
             state.company = { id: 'comp_001', name: 'Apex Solar Construction', tier: 'enterprise', users: 47 };
@@ -663,7 +657,6 @@ export default async function SolTrendApp() {
                 { id: 'reports', label: 'Reports', icon: 'file-text' },
               ]},
               { title: 'Config', items: [
-                { id: 'racking', label: 'Racking Profiles', icon: 'sliders-horizontal' },
                 { id: 'settings', label: 'Settings', icon: 'settings' },
               ]}
             ];
@@ -803,19 +796,12 @@ export default async function SolTrendApp() {
                 '<div class="space-y-3">' +
                   '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-500">Pass Rate</p><p class="font-display text-xl font-bold text-white">' + passRate + '%</p><p class="text-[11px] text-slate-500 mt-0.5"><span class="text-green-400">' + (project.passedInspections || 0) + ' pass</span> · <span class="text-red-400">' + (project.failedInspections || 0) + ' fail</span></p></div><div class="w-12 h-12 rounded-full border-4 border-green-500 flex items-center justify-center text-green-400 font-bold">' + passRate + '</div></div>' +
                   '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-500">Open Issues</p><p class="font-display text-xl font-bold text-white">' + openIssues + '</p></div><div class="w-12 h-12 rounded-full border-4 border-red-500 flex items-center justify-center text-red-400 font-bold">' + openIssues + '</div></div>' +
-                  '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 mb-2">Active Profile</p><p class="text-sm font-medium text-white">' + (state.rackingProfiles.find(r => r.id === project.rackingProfileId)?.name || RACKING_MANUFACTURERS.find(m => m.id === project.rackingProfile)?.name || 'N/A') + '</p></div>' +
+                  '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 mb-2">Active Profile</p><p class="text-sm font-medium text-white">' + (state.rackingProfiles.find(r => r.id === project.rackingProfileId)?.name || 'N/A') + '</p></div>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3 flex items-center justify-between">Needs Attention <span class="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400">' + openIssues + '</span></h3><div class="space-y-2 max-h-48 overflow-y-auto">' + state.inspections.filter(i => i.status === 'fail').slice(0, 3).map(i => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + i.pileId + '</span><span class="text-red-400">Failed</span></div>').join('') + state.refusals.slice(0, 2).map(r => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + r.pileId + '</span><span class="text-orange-400">Refusal</span></div>').join('') + '</div></div>' +
                 '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3">Recent Activity</h3><div class="space-y-3 max-h-48 overflow-y-auto">' + (function() { const feed = computeRecentActivity(); return feed.length > 0 ? feed.map(a => '<div class="activity-item ' + a.type + ' pl-4 py-1"><p class="text-sm text-slate-300">' + a.message + '</p><p class="text-xs text-slate-500">' + a.user + ' · ' + a.time + '</p></div>').join('') : '<p class="text-sm text-slate-500">No activity logged yet.</p>'; })() + '</div></div>' +
               '</div>' +
             '</div>';
-          }
-
-          // RACKING PROFILES
-          function renderRackingProfiles() {
-            return '<div class="space-y-6 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Racking Profiles</h1><p class="text-slate-400">Tolerance configurations</p></div></div><div class="grid lg:grid-cols-2 gap-4 stagger-children">' +
-              RACKING_MANUFACTURERS.map(mfr => '<div class="card rounded-xl overflow-hidden"><div class="p-5 border-b border-slate-700/50"><h3 class="font-display font-semibold text-white">' + mfr.name + '</h3></div><div class="p-4"><table class="w-full text-sm"><thead><tr class="text-xs text-slate-500 uppercase"><th class="text-left pb-2 font-medium">Type</th><th class="text-center pb-2 font-medium">Embed</th><th class="text-center pb-2 font-medium">Plumb</th></tr></thead><tbody class="text-slate-300">' + mfr.pileTypes.slice(0, 4).map(pt => { const t = mfr.tolerances[pt]; return '<tr class="border-t border-slate-700/30"><td class="py-2 capitalize font-medium">' + pt + '</td><td class="text-center text-slate-400">' + (t?.embedmentMin || '-') + '"</td><td class="text-center text-slate-400">' + (t?.plumbNS || '-') + '°</td></tr>'; }).join('') + '</tbody></table></div></div>').join('') +
-            '</div></div>';
           }
 
           // ANALYTICS - FULL IMPLEMENTATION
@@ -2173,14 +2159,36 @@ export default async function SolTrendApp() {
             // validate or change the Pass/Fail logic - that stays a manual
             // call either way.
             const activeProfile = state.rackingProfiles.find(function(r) { return r.id === state.currentProject?.rackingProfileId; });
-            const activeTol = activeProfile?.tolerances?.interior;
+            const activeTypes = (activeProfile && Array.isArray(activeProfile.pileTypeSpecs)) ? activeProfile.pileTypeSpecs : [];
+            const selectedType = activeTypes.find(function(t) { return t.id === state.inspectionPileType; });
+            const selTol = selectedType ? (selectedType.tolerances || {}) : null;
             const detailedPanel = state.inspectionMode === 'detailed' ? (
               '<div class="card rounded-xl p-4 mb-3"><h3 class="font-display font-semibold text-white text-sm mb-3">Detailed Measurements</h3>' +
-              (activeProfile ? '<p class="text-xs text-slate-500 mb-3">Active profile: <span class="text-slate-300">' + activeProfile.name + '</span>' + (activeTol ? ' — min embedment ' + activeTol.embedmentMin + '", max plumb ' + activeTol.plumbNS + '°' : '') + '</p>' : '<p class="text-xs text-slate-500 mb-3">No racking profile set for this project (set one in Settings → Projects)</p>') +
+              (!activeProfile ? '<p class="text-xs text-slate-500 mb-3">No racking profile set for this project (set one in Settings → Projects)</p>' :
+                activeTypes.length === 0 ? '<p class="text-xs text-amber-400/80 mb-3">' + activeProfile.name + ' has no pile types configured yet (Settings → Racking).</p>' :
+                '<label class="text-xs text-slate-500 mb-1 block">Pile Type (' + activeProfile.name + ')</label>' +
+                '<select id="inspPileTypeInput" onchange="state.inspectionPileType=this.value; render();" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm mb-2">' +
+                  '<option value="">Select pile type...</option>' +
+                  activeTypes.map(function(t) { return '<option value="' + t.id + '" ' + (state.inspectionPileType === t.id ? 'selected' : '') + '>' + (t.label || t.profile || 'Type') + '</option>'; }).join('') +
+                '</select>' +
+                (selTol ? '<p class="text-xs text-slate-500 mb-3">Target: ' + [
+                  selTol.embedmentMinIn ? 'min embed ' + selTol.embedmentMinIn + '"' : null,
+                  selTol.plumbMaxDeg ? 'max plumb ' + selTol.plumbMaxDeg + '°' : null,
+                  selTol.twistMaxDeg ? 'max twist ' + selTol.twistMaxDeg + '°' : null,
+                ].filter(Boolean).join(', ') + '</p>' : '<p class="text-xs text-slate-500 mb-3">Pick a pile type to see its tolerances.</p>')
+              ) +
               '<div class="grid grid-cols-3 gap-3 mb-3">' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Depth (in)</label><input type="number" id="inspDepthInput" value="' + (state.inspectionDepth||'') + '" oninput="state.inspectionDepth=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Embedment (in)</label><input type="number" id="inspDepthInput" value="' + (state.inspectionDepth||'') + '" oninput="state.inspectionDepth=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
               '<div><label class="text-xs text-slate-500 mb-1 block">Plumb N-S (°)</label><input type="number" step="0.1" id="inspPlumbNSInput" value="' + (state.inspectionPlumbNS||'') + '" oninput="state.inspectionPlumbNS=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
               '<div><label class="text-xs text-slate-500 mb-1 block">Plumb E-W (°)</label><input type="number" step="0.1" id="inspPlumbEWInput" value="' + (state.inspectionPlumbEW||'') + '" oninput="state.inspectionPlumbEW=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '</div>' +
+              '<div class="grid grid-cols-2 gap-3 mb-3">' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Reveal Height (in)</label><input type="number" step="0.1" id="inspHeightInput" value="' + (state.inspectionHeight||'') + '" oninput="state.inspectionHeight=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Twist (°)</label><input type="number" step="0.1" id="inspTwistInput" value="' + (state.inspectionTwist||'') + '" oninput="state.inspectionTwist=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '</div>' +
+              '<div class="grid grid-cols-2 gap-3 mb-3">' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Spacing (± in)</label><input type="number" step="0.1" id="inspSpacingInput" value="' + (state.inspectionSpacing||'') + '" oninput="state.inspectionSpacing=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Alignment (± in)</label><input type="number" step="0.1" id="inspAlignmentInput" value="' + (state.inspectionAlignment||'') + '" oninput="state.inspectionAlignment=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
               '</div>' +
               '<label class="text-xs text-slate-500 mb-1.5 block">Fail Reason (if failing)</label>' +
               '<div class="grid grid-cols-3 gap-2">' +
@@ -2212,6 +2220,10 @@ export default async function SolTrendApp() {
             const depthVal = state.inspectionMode === 'detailed' ? state.inspectionDepth : '';
             const plumbNSVal = state.inspectionMode === 'detailed' ? state.inspectionPlumbNS : '';
             const plumbEWVal = state.inspectionMode === 'detailed' ? state.inspectionPlumbEW : '';
+            const heightVal = state.inspectionMode === 'detailed' ? state.inspectionHeight : '';
+            const twistVal = state.inspectionMode === 'detailed' ? state.inspectionTwist : '';
+            const spacingVal = state.inspectionMode === 'detailed' ? state.inspectionSpacing : '';
+            const alignmentVal = state.inspectionMode === 'detailed' ? state.inspectionAlignment : '';
             const inspection = {
               pileId,
               status,
@@ -2220,6 +2232,11 @@ export default async function SolTrendApp() {
               depth: depthVal ? parseInt(depthVal, 10) : null,
               plumbNS: plumbNSVal ? parseFloat(plumbNSVal) : null,
               plumbEW: plumbEWVal ? parseFloat(plumbEWVal) : null,
+              pileType: state.inspectionMode === 'detailed' ? (state.inspectionPileType || null) : null,
+              heightIn: heightVal ? parseFloat(heightVal) : null,
+              twistDeg: twistVal ? parseFloat(twistVal) : null,
+              spacingIn: spacingVal ? parseFloat(spacingVal) : null,
+              alignmentIn: alignmentVal ? parseFloat(alignmentVal) : null,
               failReason: status === 'fail' ? state.inspectionFailReason : null
             };
             // Replace, don't append: an earlier local record for this pile
@@ -2247,6 +2264,11 @@ export default async function SolTrendApp() {
             state.inspectionDepth = '';
             state.inspectionPlumbNS = '';
             state.inspectionPlumbEW = '';
+            state.inspectionPileType = '';
+            state.inspectionHeight = '';
+            state.inspectionTwist = '';
+            state.inspectionSpacing = '';
+            state.inspectionAlignment = '';
             render();
             // Save to database
             saveInspection(inspection, photos);
@@ -3308,6 +3330,11 @@ export default async function SolTrendApp() {
                   depth: inspection.depth,
                   plumbNS: inspection.plumbNS,
                   plumbEW: inspection.plumbEW,
+                  pileType: inspection.pileType,
+                  heightIn: inspection.heightIn,
+                  twistDeg: inspection.twistDeg,
+                  spacingIn: inspection.spacingIn,
+                  alignmentIn: inspection.alignmentIn,
                   failReason: inspection.failReason,
                   photos: uploadedPhotos,
                   gps
@@ -3860,6 +3887,9 @@ export default async function SolTrendApp() {
                     '<p class="text-sm text-slate-400">' + (r.manufacturer || r.name) + '</p></div>' +
                     '<span class="px-2 py-1 text-xs rounded ' + (r.isActive ? 'bg-green-500/20 text-green-400' : 'bg-slate-500/20 text-slate-400') + '">' + (r.isActive ? 'Active' : 'Inactive') + '</span>' +
                   '</div>' +
+                  (Array.isArray(r.pileTypeSpecs) && r.pileTypeSpecs.length > 0 ?
+                    '<div class="flex flex-wrap gap-1.5 mb-3">' + r.pileTypeSpecs.map(function(t) { return '<span class="px-2 py-1 text-xs rounded bg-slate-700/50 text-slate-300">' + (t.label || t.profile || 'Type') + '</span>'; }).join('') + '</div>' :
+                    '<p class="text-xs text-amber-400/80 mb-3">No pile types configured yet - edit to add tolerances.</p>') +
                   (canEdit || canDelete ? '<div class="flex gap-2">' +
                     (canEdit ? '<button onclick="openEditModal(\\'rackingProfile\\', ' + (r.id ? '\\'' + r.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
                     (canDelete ? '<button onclick="deleteItem(\\'rackingProfile\\', ' + (r.id ? '\\'' + r.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
@@ -3961,19 +3991,43 @@ export default async function SolTrendApp() {
             } else if (item.type === 'rackingProfile') {
               title = item.id ? 'Edit Racking Profile' : 'New Racking Profile';
               const r = item.id ? state.rackingProfiles.find(x => x.id === item.id) || {} : {};
-              formContent = 
+              const types = state.editingRackingTypes || [];
+              formContent =
                 '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Profile Name</label>' +
                 '<input type="text" id="modalName" value="' + (r.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Manufacturer</label>' +
                 '<input type="text" id="modalManufacturer" value="' + (r.manufacturer || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Pile Types (comma separated)</label>' +
-                '<input type="text" id="modalPileTypes" value="' + ((r.pileTypes || []).join(', ')) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white" placeholder="interior, exterior, motor"></div>' +
-                '<div class="grid grid-cols-2 gap-3">' +
-                  '<div><label class="text-xs text-slate-500 mb-2 block">Min Embedment (in)</label>' +
-                  '<input type="number" id="modalEmbed" value="' + ((r.tolerances?.interior?.embedmentMin) || 72) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                  '<div><label class="text-xs text-slate-500 mb-2 block">Max Plumb (°)</label>' +
-                  '<input type="number" step="0.5" id="modalPlumb" value="' + ((r.tolerances?.interior?.plumbNS) || 2.0) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '</div>';
+                '<div class="flex items-center justify-between pt-2 border-t border-slate-700/50">' +
+                  '<label class="text-xs text-slate-500 uppercase block">Pile Types &amp; Tolerances</label>' +
+                  '<button type="button" onclick="addRackingType()" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-xs flex items-center gap-1">' + icon('plus', 'w-3.5 h-3.5') + ' Add Pile Type</button>' +
+                '</div>' +
+                (types.length === 0 ? '<p class="text-sm text-slate-500 text-center py-6">No pile types yet. Add one for each distinct pile spec this vendor gives you (e.g. by steel profile and embedment depth).</p>' :
+                types.map(function(t, i) {
+                  const tol = t.tolerances || {};
+                  return '<div class="card rounded-xl p-4 space-y-3 bg-slate-800/40">' +
+                    '<div class="flex items-center justify-between"><span class="text-xs text-slate-500 uppercase">Pile Type ' + (i + 1) + '</span>' +
+                    '<button type="button" onclick="removeRackingType(' + i + ')" class="text-red-400 hover:text-red-300 text-xs flex items-center gap-1">' + icon('trash-2', 'w-3.5 h-3.5') + ' Remove</button></div>' +
+                    '<div class="grid grid-cols-2 gap-3">' +
+                      '<div><label class="text-xs text-slate-500 mb-1 block">Label</label><input type="text" value="' + (t.label || '') + '" oninput="state.editingRackingTypes[' + i + '].label=this.value" placeholder="W6x9 - 17.92ft" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                      '<div><label class="text-xs text-slate-500 mb-1 block">Color (vendor plan)</label><input type="text" value="' + (t.color || '') + '" oninput="state.editingRackingTypes[' + i + '].color=this.value" placeholder="Teal" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                    '</div>' +
+                    '<div class="grid grid-cols-3 gap-3">' +
+                      '<div><label class="text-xs text-slate-500 mb-1 block">Profile</label><input type="text" value="' + (t.profile || '') + '" oninput="state.editingRackingTypes[' + i + '].profile=this.value" placeholder="W6x9" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                      '<div><label class="text-xs text-slate-500 mb-1 block">Length (ft)</label><input type="number" step="0.01" value="' + (t.lengthFt ?? '') + '" oninput="state.editingRackingTypes[' + i + '].lengthFt=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                      '<div><label class="text-xs text-slate-500 mb-1 block">Target Embed (ft)</label><input type="number" step="0.01" value="' + (t.embedmentTargetFt ?? '') + '" oninput="state.editingRackingTypes[' + i + '].embedmentTargetFt=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                    '</div>' +
+                    '<div class="border-t border-slate-700/50 pt-3"><p class="text-xs text-slate-500 uppercase mb-2">QC Tolerances</p><div class="grid grid-cols-2 gap-3">' +
+                      rackingTolInput(i, 'embedmentMinIn', 'Embedment Min (in)', tol.embedmentMinIn) +
+                      rackingTolInput(i, 'embedmentMaxIn', 'Embedment Max (in)', tol.embedmentMaxIn) +
+                      rackingTolInput(i, 'heightMinIn', 'Reveal Height Min (in)', tol.heightMinIn) +
+                      rackingTolInput(i, 'heightMaxIn', 'Reveal Height Max (in)', tol.heightMaxIn) +
+                      rackingTolInput(i, 'plumbMaxDeg', 'Max Plumb (\\u00b0)', tol.plumbMaxDeg) +
+                      rackingTolInput(i, 'twistMaxDeg', 'Max Twist (\\u00b0)', tol.twistMaxDeg) +
+                      rackingTolInput(i, 'spacingTolIn', 'Spacing Tolerance (\\u00b1 in)', tol.spacingTolIn) +
+                      rackingTolInput(i, 'alignmentTolIn', 'Alignment Tolerance (\\u00b1 in)', tol.alignmentTolIn) +
+                    '</div></div>' +
+                  '</div>';
+                }).join(''));
             } else if (item.type === 'user') {
               title = item.id ? 'Edit User' : 'Invite User';
               const u = item.id ? state.users.find(x => x.id === item.id) || {} : {};
@@ -4029,8 +4083,37 @@ export default async function SolTrendApp() {
             '</div>';
           }
           
-          function openEditModal(type, id) { state.editingItem = { type, id }; render(); }
-          function closeEditModal() { state.editingItem = null; render(); }
+          function openEditModal(type, id) {
+            state.editingItem = { type, id };
+            if (type === 'rackingProfile') {
+              // Deep-clone into a draft array so edits (including add/
+              // remove) don't touch state.rackingProfiles until Save is
+              // actually pressed - Cancel should leave the real data alone.
+              const r = id ? state.rackingProfiles.find(function(x) { return x.id === id; }) : null;
+              state.editingRackingTypes = (r && Array.isArray(r.pileTypeSpecs) && r.pileTypeSpecs.length > 0)
+                ? JSON.parse(JSON.stringify(r.pileTypeSpecs))
+                : [];
+            }
+            render();
+          }
+          function closeEditModal() { state.editingItem = null; state.editingRackingTypes = []; render(); }
+          function addRackingType() {
+            state.editingRackingTypes = state.editingRackingTypes || [];
+            state.editingRackingTypes.push({
+              id: 'pt_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+              label: '', profile: '', lengthFt: null, embedmentTargetFt: null, color: '',
+              tolerances: { embedmentMinIn: null, embedmentMaxIn: null, heightMinIn: null, heightMaxIn: null, plumbMaxDeg: null, twistMaxDeg: null, spacingTolIn: null, alignmentTolIn: null }
+            });
+            render();
+          }
+          function removeRackingType(idx) {
+            if (!confirm('Remove this pile type? Its tolerances will be lost when you save.')) return;
+            state.editingRackingTypes.splice(idx, 1);
+            render();
+          }
+          function rackingTolInput(i, key, label, val) {
+            return '<div><label class="text-xs text-slate-500 mb-1 block">' + label + '</label><input type="number" step="0.1" value="' + (val ?? '') + '" oninput="state.editingRackingTypes[' + i + '].tolerances.' + key + '=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>';
+          }
           
           async function saveEditModal() {
             const item = state.editingItem;
@@ -4068,17 +4151,24 @@ export default async function SolTrendApp() {
                 status: document.getElementById('modalStatus')?.value || 'active',
               };
             } else if (item.type === 'rackingProfile') {
-              const pileTypesStr = document.getElementById('modalPileTypes')?.value || 'interior, exterior';
+              // Pile type rows (label, profile, tolerances) are kept live in
+              // state.editingRackingTypes via each input's oninput handler -
+              // read that directly rather than the DOM, same reason
+              // recordInspection() reads state instead of getElementById for
+              // fields that can survive a re-render mid-edit.
+              if (!state.editingRackingTypes || state.editingRackingTypes.length === 0) {
+                alert('Add at least one pile type before saving.');
+                return;
+              }
+              const missingLabel = state.editingRackingTypes.some(function(t) { return !t.label; });
+              if (missingLabel) {
+                alert('Every pile type needs a label.');
+                return;
+              }
               data = {
                 name: document.getElementById('modalName')?.value || '',
                 manufacturer: document.getElementById('modalManufacturer')?.value || '',
-                pileTypes: pileTypesStr.split(',').map(s => s.trim()).filter(s => s),
-                tolerances: {
-                  interior: {
-                    embedmentMin: parseInt(document.getElementById('modalEmbed')?.value) || 72,
-                    plumbNS: parseFloat(document.getElementById('modalPlumb')?.value) || 2.0,
-                  }
-                },
+                pileTypeSpecs: state.editingRackingTypes,
                 isActive: true,
               };
             } else if (item.type === 'user') {
@@ -4183,12 +4273,7 @@ export default async function SolTrendApp() {
               if (data.subcontractors) state.subcontractors = data.subcontractors;
               if (data.rackingProfiles) state.rackingProfiles = data.rackingProfiles;
               if (data.users) state.users = data.users;
-              
-              // Update RACKING_MANUFACTURERS for compatibility
-              if (state.rackingProfiles && state.rackingProfiles.length > 0) {
-                window.RACKING_MANUFACTURERS = state.rackingProfiles;
-              }
-              
+
               if (!state.currentProject && state.projects && state.projects.length > 0) {
                 state.currentProject = state.projects.find(p => p.status === 'active') || state.projects[0];
               }
@@ -4251,7 +4336,7 @@ export default async function SolTrendApp() {
 
           // MAIN RENDER
           function render() {
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();
@@ -4375,7 +4460,7 @@ export default async function SolTrendApp() {
                 if (savedProject) state.currentProject = savedProject;
               }
               const savedView = localStorage.getItem('soltrend_lastView');
-              const validViews = ['company', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'racking', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
+              const validViews = ['company', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
               const projectIndependentViews = ['company', 'settings'];
               if (savedView && validViews.indexOf(savedView) !== -1 && (projectIndependentViews.indexOf(savedView) !== -1 || state.currentProject)) {
                 state.currentView = savedView;
