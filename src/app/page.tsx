@@ -179,7 +179,14 @@ export default async function SolTrendApp() {
             // MATERIALS
             materials: [], deliveries: [],
             materialFormOpen: false, materialName: '', materialOrderedQty: '', materialUnit: 'units', materialExpectedDate: '', materialSupplier: '',
-            deliveryFormOpen: false, deliveryMaterialId: '', deliveryQty: '', deliverySupplier: '', deliveryReceivedBy: '', deliveryNotes: ''
+            deliveryFormOpen: false, deliveryMaterialId: '', deliveryQty: '', deliverySupplier: '', deliveryReceivedBy: '', deliveryNotes: '',
+            // RFIS & SUBMITTALS
+            rfis: [], submittals: [], rfiSubmittalsTab: 'rfis',
+            rfiSubject: '', rfiCategory: 'other', rfiSubmittedTo: '', rfiQuestion: '', rfiBlocking: false, rfiPhotos: [],
+            rfiAnswerDraft: {}, rfiFilter: 'all', subFilter: 'all',
+            subSpecSection: '', subType: 'product_data', subMaterialId: '', subDueDate: '', subPendingFile: null,
+            // PORTFOLIO REPORT
+            portfolio: null, portfolioLoading: false
           };
 
           // OFFLINE SUPPORT
@@ -538,6 +545,7 @@ export default async function SolTrendApp() {
                 else if (context === 'punchlist') state.punchPhotos.push(photoObj);
                 else if (context === 'safety-obs') state.obsPhotos.push(photoObj);
                 else if (context === 'safety-incident') state.incidentPhotos.push(photoObj);
+                else if (context === 'rfi') state.rfiPhotos.push(photoObj);
                 render();
               };
             };
@@ -551,6 +559,7 @@ export default async function SolTrendApp() {
             else if (context === 'punchlist') state.punchPhotos = state.punchPhotos.filter(p => p.id !== id);
             else if (context === 'safety-obs') state.obsPhotos = state.obsPhotos.filter(p => p.id !== id);
             else if (context === 'safety-incident') state.incidentPhotos = state.incidentPhotos.filter(p => p.id !== id);
+            else if (context === 'rfi') state.rfiPhotos = state.rfiPhotos.filter(p => p.id !== id);
             render();
           }
           function renderPhotoCapture(context) {
@@ -561,6 +570,7 @@ export default async function SolTrendApp() {
             else if (context === 'punchlist') photos = state.punchPhotos;
             else if (context === 'safety-obs') photos = state.obsPhotos;
             else if (context === 'safety-incident') photos = state.incidentPhotos;
+            else if (context === 'rfi') photos = state.rfiPhotos;
             return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><div class="flex items-center gap-3"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photo</span></button><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn w-12 h-12 rounded-xl flex items-center justify-center text-slate-400 hover:text-white">' + icon('image', 'w-5 h-5') + '</button></div>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
           }
 
@@ -608,7 +618,10 @@ export default async function SolTrendApp() {
           // SIDEBAR
           function renderSidebar() {
             const navSections = [
-              { title: 'Overview', items: [{ id: 'company', label: 'Company Dashboard', icon: 'building-2' }] },
+              { title: 'Overview', items: [
+                { id: 'company', label: 'Company Dashboard', icon: 'building-2' },
+                { id: 'portfolio', label: 'Portfolio Report', icon: 'layers' },
+              ]},
               { title: 'Project', items: [
                 { id: 'dashboard', label: 'Project Dashboard', icon: 'layout-dashboard' },
                 { id: 'schedule', label: 'Schedule', icon: 'calendar-range' },
@@ -624,6 +637,7 @@ export default async function SolTrendApp() {
               ]},
               { title: 'Documents', items: [
                 { id: 'documents', label: 'Documents & COI', icon: 'folder' },
+                { id: 'rfiSubmittals', label: 'RFIs & Submittals', icon: 'file-question' },
               ]},
               { title: 'Closeout', items: [
                 { id: 'punchlist', label: 'Punch List', icon: 'list-checks' },
@@ -705,6 +719,146 @@ export default async function SolTrendApp() {
                 '</div>';
               }).join('') + '</div></div>' +
             '</div>';
+          }
+
+          // PORTFOLIO REPORT - company-wide rollup across every active
+          // project: the cached per-project stats already in state.projects
+          // plus fresh cross-project counts (open RFIs, open safety
+          // incidents, overdue submittals, expiring COIs) from /api/portfolio,
+          // which nothing else in the app fetches.
+          function renderPortfolioReport() {
+            if (state.portfolioLoading && !state.portfolio) {
+              return '<div class="flex items-center justify-center min-h-[50vh]"><div class="text-center"><div class="animate-pulse text-amber-400 mb-2">' + icon('loader', 'w-6 h-6 mx-auto') + '</div><p class="text-slate-400 text-sm">Loading portfolio report...</p></div></div>';
+            }
+            if (!state.portfolio) {
+              return '<div class="flex items-center justify-center min-h-[50vh]"><div class="text-center"><p class="text-slate-400 text-sm mb-3">Portfolio report hasn\\'t loaded yet.</p><button onclick="loadPortfolio()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm">Load Report</button></div></div>';
+            }
+            const projects = state.portfolio.projects || [];
+            const weeklyTrend = state.portfolio.weeklyTrend || [];
+            const healthColors = { green: 'text-green-400', yellow: 'text-yellow-400', red: 'text-red-400' };
+            const needsAttention = projects.filter(function(p) { return p.needsAttention; });
+            const warnBanner = needsAttention.length > 0 ? '<div class="px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;">' + icon('alert-triangle', 'w-4 h-4 flex-shrink-0') + '<span>' + needsAttention.length + ' project' + (needsAttention.length === 1 ? ' needs' : 's need') + ' attention: ' + needsAttention.map(function(p) { return p.name; }).join(', ') + '.</span></div>' : '';
+
+            const cards = '<div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">' + projects.map(function(p) {
+              const badges = [];
+              if (p.openRfis > 0) badges.push(statusBadge(p.openRfis + ' Open RFI' + (p.openRfis === 1 ? '' : 's'), '#eab308'));
+              if (p.openIncidents > 0) badges.push(statusBadge(p.openIncidents + ' Safety', '#ef4444'));
+              if (p.overdueSubmittals > 0) badges.push(statusBadge(p.overdueSubmittals + ' Overdue Sub', '#f97316'));
+              if (p.expiringCois > 0) badges.push(statusBadge(p.expiringCois + ' COI', '#f97316'));
+              return '<div class="card rounded-xl p-5">' +
+                '<div class="flex items-start gap-3 mb-3"><span class="' + (healthColors[p.health] || 'text-slate-400') + ' text-lg">●</span><div class="flex-1 min-w-0"><h3 class="font-display font-semibold text-white truncate">' + p.name + '</h3><p class="text-xs text-slate-500">' + p.percentComplete + '% complete · ' + formatNumber(p.installedPiles) + ' / ' + formatNumber(p.totalPiles) + ' piles</p></div></div>' +
+                '<div class="h-2 bg-slate-700 rounded-full overflow-hidden mb-3"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + p.percentComplete + '%"></div></div>' +
+                (badges.length > 0 ? '<div class="flex flex-wrap gap-1.5 mb-3">' + badges.join('') + '</div>' : '<p class="text-xs text-slate-500 mb-3">No open items.</p>') +
+                '<button onclick="openProject(\\'' + p.id + '\\')" class="w-full py-2 bg-slate-700/50 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">Open Project ' + icon('arrow-right', 'w-4 h-4') + '</button>' +
+              '</div>';
+            }).join('') + '</div>';
+
+            const pilesArr = weeklyTrend.map(function(w) { return w.piles; });
+            const maxPiles = Math.max.apply(null, [1].concat(pilesArr));
+            const chart = weeklyTrend.length > 0 ? '<div class="card rounded-xl p-5">' +
+              '<h3 class="font-display font-semibold text-white text-sm mb-4">Combined Weekly Production</h3>' +
+              '<div class="flex items-end gap-2 h-32">' + weeklyTrend.map(function(w) {
+                const pct = Math.round((w.piles / maxPiles) * 100);
+                return '<div class="flex-1 flex flex-col items-center justify-end gap-1"><span class="text-[10px] text-slate-500">' + w.piles + '</span><div class="w-full bg-gradient-to-t from-amber-500 to-amber-400 rounded-t" style="height: ' + Math.max(4, pct) + '%"></div><span class="text-[9px] text-slate-600">' + w.weekStart.slice(5) + '</span></div>';
+              }).join('') + '</div>' +
+            '</div>' : '';
+
+            return '<div class="space-y-4 animate-fade-in">' +
+              '<div class="flex items-center justify-between flex-wrap gap-2"><div><h1 class="font-display text-xl font-bold text-white">Portfolio Report</h1><p class="text-slate-400 text-sm">' + projects.length + ' active project' + (projects.length === 1 ? '' : 's') + ' across ' + (state.company?.name || 'the company') + '</p></div><button onclick="generatePortfolioReport()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button></div>' +
+              warnBanner + cards + chart +
+            '</div>';
+          }
+          async function loadPortfolio() {
+            state.portfolioLoading = true;
+            render();
+            try {
+              const companyId = state.company?.id || 'comp_001';
+              const res = await fetch('/api/portfolio?companyId=' + companyId);
+              const data = await res.json();
+              if (data && Array.isArray(data.projects)) state.portfolio = data;
+            } catch (e) { console.error('Load portfolio error:', e); }
+            state.portfolioLoading = false;
+            render();
+          }
+          function generatePortfolioReport() {
+            if (!state.portfolio) { alert('Load the report first.'); return; }
+            const projects = state.portfolio.projects || [];
+            const weeklyTrend = state.portfolio.weeklyTrend || [];
+            const healthLabel = { green: 'On Track', yellow: 'At Risk', red: 'Needs Attention' };
+            const totalPiles = projects.reduce(function(s, p) { return s + p.totalPiles; }, 0);
+            const installedPiles = projects.reduce(function(s, p) { return s + p.installedPiles; }, 0);
+            const totalOpenRfis = projects.reduce(function(s, p) { return s + p.openRfis; }, 0);
+            const totalOpenIncidents = projects.reduce(function(s, p) { return s + p.openIncidents; }, 0);
+
+            const reportContent = \`
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <title>Portfolio Report - \${localDateStr(Date.now())}</title>
+                <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
+                  .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #f59e0b; padding-bottom: 20px; margin-bottom: 25px; }
+                  .company-info h1 { font-size: 28px; font-weight: 800; color: #1e293b; }
+                  .company-info .company-name { font-size: 14px; color: #f59e0b; font-weight: 600; text-transform: uppercase; }
+                  .report-meta { text-align: right; }
+                  .report-meta .report-type { font-size: 12px; color: #64748b; text-transform: uppercase; }
+                  .report-meta .report-date { font-size: 20px; font-weight: 700; color: #1e293b; }
+                  .section-title { font-size: 16px; font-weight: 700; color: #1e293b; margin-bottom: 15px; margin-top: 10px; }
+                  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 25px; }
+                  .summary-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; text-align: center; }
+                  .summary-card .value { font-size: 28px; font-weight: 800; color: #1e293b; }
+                  .summary-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; }
+                  .activity-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+                  .activity-table th { background: #1e293b; color: white; padding: 12px 15px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+                  .activity-table td { padding: 12px 15px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #334155; }
+                  .activity-table tr:nth-child(even) { background: #f8fafc; }
+                  .status-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+                  .status-badge.green { background: #dcfce7; color: #166534; }
+                  .status-badge.yellow { background: #fef3c7; color: #92400e; }
+                  .status-badge.red { background: #fee2e2; color: #991b1b; }
+                  .report-footer { border-top: 2px solid #e2e8f0; padding-top: 15px; margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
+                </style>
+              </head>
+              <body>
+                <div class="report-header">
+                  <div class="company-info">
+                    <div class="company-name">\${state.company?.name || 'Apex Solar Construction'}</div>
+                    <h1>Portfolio Report</h1>
+                  </div>
+                  <div class="report-meta">
+                    <div class="report-type">Company-Wide Rollup</div>
+                    <div class="report-date">\${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                  </div>
+                </div>
+                <div class="section-title">Company Summary</div>
+                <div class="summary-grid">
+                  <div class="summary-card"><div class="value">\${projects.length}</div><div class="label">Active Projects</div></div>
+                  <div class="summary-card"><div class="value">\${totalPiles > 0 ? Math.round((installedPiles / totalPiles) * 100) : 0}%</div><div class="label">Piles Complete</div></div>
+                  <div class="summary-card"><div class="value">\${totalOpenRfis}</div><div class="label">Open RFIs</div></div>
+                  <div class="summary-card"><div class="value">\${totalOpenIncidents}</div><div class="label">Open Safety Items</div></div>
+                </div>
+                <div class="section-title">Project Status</div>
+                <table class="activity-table">
+                  <thead><tr><th>Project</th><th>Health</th><th>Complete</th><th>Open RFIs</th><th>Safety</th><th>Overdue Submittals</th><th>Expiring COIs</th></tr></thead>
+                  <tbody>
+                    \${projects.map(function(p) {
+                      return '<tr><td>' + p.name + '</td><td><span class="status-badge ' + p.health + '">' + (healthLabel[p.health] || p.health) + '</span></td><td>' + p.percentComplete + '%</td><td>' + p.openRfis + '</td><td>' + p.openIncidents + '</td><td>' + p.overdueSubmittals + '</td><td>' + p.expiringCois + '</td></tr>';
+                    }).join('')}
+                  </tbody>
+                </table>
+                \${weeklyTrend.length > 0 ? '<div class="section-title">Combined Weekly Production (Piles)</div><table class="activity-table"><thead><tr>' + weeklyTrend.map(function(w) { return '<th>' + w.weekStart + '</th>'; }).join('') + '</tr></thead><tbody><tr>' + weeklyTrend.map(function(w) { return '<td>' + w.piles + '</td>'; }).join('') + '</tr></tbody></table>' : ''}
+                <div class="report-footer">
+                  <div>Generated by SolTrend Pro</div>
+                  <div>\${new Date().toLocaleString()}</div>
+                </div>
+              </body>
+              </html>
+            \`;
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write(reportContent);
+            printWindow.document.close();
+            printWindow.print();
           }
 
           // PROJECT DASHBOARD
@@ -2247,10 +2401,13 @@ export default async function SolTrendApp() {
             state.cois = [];
             state.materials = [];
             state.deliveries = [];
+            state.rfis = [];
+            state.submittals = [];
             await Promise.all([
               loadInspections(), loadRefusals(), loadProduction(), loadDelays(), loadPunchItems(),
               loadToolboxTalks(), loadSafetyObservations(), loadSafetyIncidents(),
-              loadMilestones(), loadDocuments(), loadCois(), loadMaterials(), loadDeliveries()
+              loadMilestones(), loadDocuments(), loadCois(), loadMaterials(), loadDeliveries(),
+              loadRfis(), loadSubmittals()
             ]);
             render();
           }
@@ -2318,6 +2475,22 @@ export default async function SolTrendApp() {
               const data = await res.json();
               if (Array.isArray(data)) { state.deliveries = data; render(); }
             } catch (e) { console.error('Load deliveries error:', e); }
+          }
+          async function loadRfis() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/rfis?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.rfis = data; render(); }
+            } catch (e) { console.error('Load RFIs error:', e); }
+          }
+          async function loadSubmittals() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/submittals?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.submittals = data; render(); }
+            } catch (e) { console.error('Load submittals error:', e); }
           }
 
           // SAFETY - toolbox talks, observations, and incidents. Three
@@ -2639,6 +2812,7 @@ export default async function SolTrendApp() {
               const fileInfo = { name: file.name, type: file.type, size: file.size, dataUrl: e.target.result };
               if (kind === 'document') state.docPendingFile = fileInfo;
               else if (kind === 'coi') state.coiPendingFile = fileInfo;
+              else if (kind === 'submittal') state.subPendingFile = fileInfo;
               render();
             };
             reader.readAsDataURL(file);
@@ -2770,6 +2944,220 @@ export default async function SolTrendApp() {
             state.cois = state.cois.filter(function(c) { return c.id !== id; });
             render();
             fetch('/api/coi?id=' + id, { method: 'DELETE' }).catch(function(e) { console.error('Delete COI error:', e); });
+          }
+
+          // RFIS & SUBMITTALS
+          function renderRfiSubmittals() {
+            const tabs = [{ id: 'rfis', label: 'RFIs' }, { id: 'submittals', label: 'Submittals' }];
+            const tabBar = '<div class="flex gap-2 mb-4 flex-wrap">' + tabs.map(function(t) { return '<button onclick="setRfiSubmittalsTab(\\'' + t.id + '\\')" class="mode-btn ' + (state.rfiSubmittalsTab === t.id ? 'mode-btn-active' : 'mode-btn-inactive') + '">' + t.label + '</button>'; }).join('') + '</div>';
+            const body = state.rfiSubmittalsTab === 'rfis' ? renderRfisTab() : renderSubmittalsTab();
+            return '<div class="space-y-4 animate-fade-in">' +
+              '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">RFIs &amp; Submittals</h1></div>' +
+              tabBar + body +
+            '</div>';
+          }
+          function setRfiSubmittalsTab(tab) { state.rfiSubmittalsTab = tab; render(); }
+
+          const RFI_CATEGORIES = [
+            { id: 'civil', label: 'Civil' }, { id: 'structural', label: 'Structural' },
+            { id: 'electrical', label: 'Electrical' }, { id: 'racking', label: 'Racking' }, { id: 'other', label: 'Other' }
+          ];
+          function renderRfisTab() {
+            const catLabel = {}; RFI_CATEGORIES.forEach(function(c) { catLabel[c.id] = c.label; });
+            const canDelete = hasRole('admin');
+            const canAnswer = hasRole('manager');
+            const openCount = state.rfis.filter(function(r) { return r.status !== 'closed'; }).length;
+            const blockingCount = state.rfis.filter(function(r) { return r.blocking && r.status !== 'closed'; }).length;
+            const statRow = '<div class="grid grid-cols-2 gap-3 mb-4">' +
+              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold text-white">' + openCount + '</p><p class="text-xs text-slate-500">Open RFIs</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold ' + (blockingCount > 0 ? 'text-red-400' : 'text-white') + '">' + blockingCount + '</p><p class="text-xs text-slate-500">Blocking Work</p></div>' +
+            '</div>';
+
+            const form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+              '<h3 class="font-display font-semibold text-white text-sm">Submit an RFI</h3>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Subject</label><input type="text" value="' + (state.rfiSubject || '') + '" oninput="state.rfiSubject=this.value" placeholder="e.g. Pile embedment conflict at row 12" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div class="grid grid-cols-2 gap-3">' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Category</label><select oninput="state.rfiCategory=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + RFI_CATEGORIES.map(function(c) { return '<option value="' + c.id + '"' + (state.rfiCategory === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Submitted To</label><input type="text" value="' + (state.rfiSubmittedTo || '') + '" oninput="state.rfiSubmittedTo=this.value" placeholder="e.g. EPC Engineer" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '</div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Question</label><textarea oninput="state.rfiQuestion=this.value" rows="3" placeholder="What needs to be answered?" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + (state.rfiQuestion || '') + '</textarea></div>' +
+              '<label class="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" ' + (state.rfiBlocking ? 'checked' : '') + ' onchange="state.rfiBlocking=this.checked" class="w-4 h-4"> This is blocking work</label>' +
+              renderPhotoCapture('rfi') +
+              '<button onclick="submitRfi()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Submit RFI</button>' +
+            '</div>';
+
+            const rfiFilters = [{ id: 'open', label: 'Open' }, { id: 'answered', label: 'Answered' }, { id: 'closed', label: 'Closed' }, { id: 'all', label: 'All' }];
+            const filterBar = '<div class="flex gap-1 p-1 bg-slate-800/50 rounded-xl overflow-x-auto max-w-md">' + rfiFilters.map(function(f) { return '<button onclick="setRfiFilter(\\'' + f.id + '\\')" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ' + (state.rfiFilter === f.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white') + '">' + f.label + '</button>'; }).join('') + '</div>';
+            const filteredRfis = state.rfiFilter === 'all' ? state.rfis : state.rfis.filter(function(r) { return r.status === state.rfiFilter; });
+
+            const cards = filteredRfis.length > 0 ? '<div class="space-y-3">' + filteredRfis.map(function(r) {
+              const statusHex = r.status === 'open' ? '#eab308' : r.status === 'answered' ? '#3b82f6' : '#22c55e';
+              const statusLabel = r.status === 'open' ? 'Open' : r.status === 'answered' ? 'Answered' : 'Closed';
+              const answerBox = r.status === 'open' && canAnswer ?
+                '<div class="mt-3 pt-3 border-t border-slate-700/50 space-y-2"><textarea id="rfiAnswerInput-' + r.id + '" rows="2" placeholder="Type an answer…" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></textarea><button onclick="submitRfiAnswer(\\'' + r.id + '\\')" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium">Answer</button></div>' :
+                (r.answer ? '<div class="mt-3 pt-3 border-t border-slate-700/50"><p class="text-xs text-slate-500 mb-1">Answer:</p><p class="text-sm text-slate-300">' + r.answer + '</p></div>' : '');
+              return '<div class="card rounded-xl p-4">' +
+                '<div class="flex items-start justify-between gap-3">' +
+                  '<div class="min-w-0"><p class="text-sm font-medium text-white">' + r.number + ': ' + r.subject + '</p><p class="text-xs text-slate-500">' + (catLabel[r.category] || r.category) + (r.submittedTo ? ' · to ' + r.submittedTo : '') + ' · ' + r.submittedBy + ' · ' + formatDate(r.createdAt) + '</p></div>' +
+                  '<div class="flex items-center gap-2 flex-shrink-0">' + (r.blocking ? statusBadge('Blocking', '#ef4444') : '') + statusBadge(statusLabel, statusHex) + '</div>' +
+                '</div>' +
+                '<p class="text-sm text-slate-300 mt-2">' + r.question + '</p>' +
+                (r.photos && r.photos.length > 0 ? '<div class="photo-grid mt-2">' + r.photos.map(function(p) { return '<div class="photo-thumb"><img src="' + p.url + '" alt="RFI photo"></div>'; }).join('') + '</div>' : '') +
+                answerBox +
+                '<div class="flex items-center gap-3 mt-3">' +
+                  (r.status === 'answered' && canAnswer ? '<button onclick="closeRfi(\\'' + r.id + '\\')" class="text-xs text-green-400 hover:text-green-300 font-medium">Mark Closed</button>' : '') +
+                  (canDelete ? '<button onclick="deleteRfi(\\'' + r.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') +
+                '</div>' +
+              '</div>';
+            }).join('') + '</div>' : '<p class="text-sm text-slate-500">No ' + (state.rfiFilter === 'all' ? '' : state.rfiFilter + ' ') + 'RFIs.</p>';
+
+            return statRow + form + filterBar + cards;
+          }
+          function setRfiFilter(f) { state.rfiFilter = f; render(); }
+          function submitRfi() {
+            hapticFeedback();
+            if (!state.rfiSubject || !state.rfiSubject.trim() || !state.rfiQuestion || !state.rfiQuestion.trim()) { alert('Enter a subject and question.'); return; }
+            const localPhotos = state.rfiPhotos.map(function(p) { return { url: p.url, timestamp: p.timestamp, gps: p.gps }; });
+            const rfi = { id: 'local_' + Date.now(), number: '—', subject: state.rfiSubject.trim(), category: state.rfiCategory, submittedTo: state.rfiSubmittedTo || null, question: state.rfiQuestion.trim(), blocking: !!state.rfiBlocking, status: 'open', answer: null, photos: localPhotos, submittedBy: state.currentUser.name, createdAt: new Date().toISOString() };
+            state.rfis.unshift(rfi);
+            const photosToUpload = state.rfiPhotos;
+            state.rfiSubject = ''; state.rfiSubmittedTo = ''; state.rfiQuestion = ''; state.rfiBlocking = false; state.rfiPhotos = [];
+            render();
+            saveRfi(rfi, photosToUpload);
+          }
+          async function saveRfi(rfi, photosToUpload) {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const uploadedPhotos = await uploadPendingPhotos(photosToUpload, 'rfi', null);
+              const res = await fetch('/api/rfis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, subject: rfi.subject, category: rfi.category, submittedTo: rfi.submittedTo, question: rfi.question, blocking: rfi.blocking, photos: uploadedPhotos, submittedBy: state.currentUser.id }) });
+              const created = await res.json();
+              if (created && created.id) {
+                const idx = state.rfis.findIndex(function(r) { return r.id === rfi.id; });
+                if (idx >= 0) { state.rfis[idx].id = created.id; state.rfis[idx].number = created.number; state.rfis[idx].photos = uploadedPhotos; render(); }
+              }
+            } catch (e) { console.error('Save RFI error:', e); }
+          }
+          function submitRfiAnswer(id) {
+            const input = document.getElementById('rfiAnswerInput-' + id);
+            const answer = input ? input.value.trim() : '';
+            if (!answer) { alert('Enter an answer.'); return; }
+            hapticFeedback();
+            const idx = state.rfis.findIndex(function(r) { return r.id === id; });
+            if (idx >= 0) { state.rfis[idx].status = 'answered'; state.rfis[idx].answer = answer; }
+            render();
+            fetch('/api/rfis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, status: 'answered', answer: answer, projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Answer RFI error:', e); });
+          }
+          function closeRfi(id) {
+            hapticFeedback();
+            const idx = state.rfis.findIndex(function(r) { return r.id === id; });
+            if (idx >= 0) state.rfis[idx].status = 'closed';
+            render();
+            fetch('/api/rfis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, status: 'closed', projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Close RFI error:', e); });
+          }
+          function deleteRfi(id) {
+            if (!confirm('Delete this RFI?')) return;
+            state.rfis = state.rfis.filter(function(r) { return r.id !== id; });
+            render();
+            fetch('/api/rfis?id=' + id, { method: 'DELETE' }).catch(function(e) { console.error('Delete RFI error:', e); });
+          }
+
+          const SUBMITTAL_TYPES = [
+            { id: 'product_data', label: 'Product Data' }, { id: 'shop_drawing', label: 'Shop Drawing' },
+            { id: 'sample', label: 'Sample' }, { id: 'certificate', label: 'Certificate' }
+          ];
+          const SUBMITTAL_STATUSES = [
+            { id: 'pending', label: 'Pending', hex: '#64748b' }, { id: 'submitted', label: 'Submitted', hex: '#3b82f6' },
+            { id: 'under_review', label: 'Under Review', hex: '#eab308' }, { id: 'approved', label: 'Approved', hex: '#22c55e' },
+            { id: 'approved_as_noted', label: 'Approved as Noted', hex: '#22c55e' }, { id: 'revise_resubmit', label: 'Revise & Resubmit', hex: '#f97316' },
+            { id: 'rejected', label: 'Rejected', hex: '#ef4444' }
+          ];
+          function renderSubmittalsTab() {
+            const typeLabel = {}; SUBMITTAL_TYPES.forEach(function(t) { typeLabel[t.id] = t.label; });
+            const statusMeta = {}; SUBMITTAL_STATUSES.forEach(function(s) { statusMeta[s.id] = s; });
+            const canDelete = hasRole('admin');
+            const canReview = hasRole('manager');
+            const notDoneStatuses = ['approved', 'approved_as_noted', 'rejected'];
+            const openCount = state.submittals.filter(function(s) { return notDoneStatuses.indexOf(s.status) === -1; }).length;
+            const overdueCount = state.submittals.filter(function(s) { return s.dueDate && new Date(s.dueDate).getTime() < Date.now() && notDoneStatuses.indexOf(s.status) === -1; }).length;
+            const statRow = '<div class="grid grid-cols-2 gap-3 mb-4">' +
+              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold text-white">' + openCount + '</p><p class="text-xs text-slate-500">In Review</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold ' + (overdueCount > 0 ? 'text-red-400' : 'text-white') + '">' + overdueCount + '</p><p class="text-xs text-slate-500">Overdue</p></div>' +
+            '</div>';
+            const warnBanner = overdueCount > 0 ? '<div class="mb-4 px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;">' + icon('alert-triangle', 'w-4 h-4 flex-shrink-0') + '<span>' + overdueCount + ' submittal' + (overdueCount === 1 ? ' is' : 's are') + ' past its due date.</span></div>' : '';
+
+            const form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+              '<h3 class="font-display font-semibold text-white text-sm">New Submittal</h3>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Spec Section</label><input type="text" value="' + (state.subSpecSection || '') + '" oninput="state.subSpecSection=this.value" placeholder="e.g. 33 11 00" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div class="grid grid-cols-2 gap-3">' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Type</label><select oninput="state.subType=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + SUBMITTAL_TYPES.map(function(t) { return '<option value="' + t.id + '"' + (state.subType === t.id ? ' selected' : '') + '>' + t.label + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Related Material</label><select oninput="state.subMaterialId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">None</option>' + state.materials.map(function(m) { return '<option value="' + m.id + '"' + (state.subMaterialId === m.id ? ' selected' : '') + '>' + m.name + '</option>'; }).join('') + '</select></div>' +
+              '</div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Due Date</label><input type="date" value="' + (state.subDueDate || '') + '" oninput="state.subDueDate=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<input type="file" id="docFileInput-submittal" class="hidden" onchange="handleDocFileSelect(event, \\'submittal\\')">' +
+              '<button onclick="triggerDocFileInput(\\'submittal\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.subPendingFile ? state.subPendingFile.name : 'Attach File (optional)') + '</span></button>' +
+              '<button onclick="submitSubmittal()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add Submittal</button>' +
+            '</div>';
+
+            const subFilters = [{ id: 'all', label: 'All' }].concat(SUBMITTAL_STATUSES.map(function(s) { return { id: s.id, label: s.label }; }));
+            const filterBar = '<div class="flex gap-1 p-1 bg-slate-800/50 rounded-xl overflow-x-auto mb-4">' + subFilters.map(function(f) { return '<button onclick="setSubFilter(\\'' + f.id + '\\')" class="px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ' + (state.subFilter === f.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white') + '">' + f.label + '</button>'; }).join('') + '</div>';
+            const filteredSubmittals = state.subFilter === 'all' ? state.submittals : state.submittals.filter(function(s) { return s.status === state.subFilter; });
+
+            const table = '<div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-500 uppercase"><th class="p-3">Number</th><th class="p-3">Spec Section</th><th class="p-3">Type</th><th class="p-3">Rev</th><th class="p-3">Due</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
+              (filteredSubmittals.length > 0 ? filteredSubmittals.map(function(s) {
+                const meta = statusMeta[s.status] || { label: s.status, hex: '#64748b' };
+                const canAdvance = notDoneStatuses.indexOf(s.status) === -1;
+                const overdue = s.dueDate && new Date(s.dueDate).getTime() < Date.now() && canAdvance;
+                const statusSelect = canReview && canAdvance ? '<select onchange="advanceSubmittal(\\'' + s.id + '\\', this.value)" class="bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-white text-xs">' + SUBMITTAL_STATUSES.map(function(st) { return '<option value="' + st.id + '"' + (s.status === st.id ? ' selected' : '') + '>' + st.label + '</option>'; }).join('') + '</select>' : statusBadge(meta.label, meta.hex);
+                return '<tr class="border-t border-slate-700/50"><td class="p-3 text-white font-medium">' + s.number + '</td><td class="p-3 text-slate-400 text-xs">' + s.specSection + (s.materialName ? ' · ' + s.materialName : '') + '</td><td class="p-3 text-slate-400 text-xs">' + (typeLabel[s.type] || s.type) + '</td><td class="p-3 text-slate-400 text-xs">' + s.revision + '</td><td class="p-3 text-xs ' + (overdue ? 'text-red-400 font-medium' : 'text-slate-400') + '">' + (s.dueDate ? formatDate(s.dueDate) : '—') + '</td><td class="p-3">' + statusSelect + '</td><td class="p-3 text-right">' + (s.fileUrl ? '<a href="' + s.fileUrl + '" target="_blank" rel="noopener" class="text-xs text-blue-400 hover:text-blue-300 mr-2">View</a>' : '') + (canDelete ? '<button onclick="deleteSubmittal(\\'' + s.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') + '</td></tr>';
+              }).join('') : '<tr><td class="p-4 text-slate-500 text-sm" colspan="7">No ' + (state.subFilter === 'all' ? 'submittals tracked' : 'matching submittals') + ' yet.</td></tr>') +
+            '</tbody></table></div>';
+
+            return statRow + warnBanner + form + filterBar + table;
+          }
+          function setSubFilter(f) { state.subFilter = f; render(); }
+          function submitSubmittal() {
+            hapticFeedback();
+            if (!state.subSpecSection || !state.subSpecSection.trim()) { alert('Enter a spec section.'); return; }
+            const specSection = state.subSpecSection.trim(), type = state.subType, materialId = state.subMaterialId || null, dueDate = state.subDueDate || null, file = state.subPendingFile;
+            const material = materialId ? state.materials.find(function(m) { return m.id === materialId; }) : null;
+            const localId = 'local_' + Date.now();
+            state.submittals.unshift({ id: localId, number: '—', specSection: specSection, type: type, revision: 0, status: 'pending', dueDate: dueDate, fileUrl: null, materialId: materialId, materialName: material ? material.name : null, submittedBy: state.currentUser.name, createdAt: new Date().toISOString() });
+            state.subSpecSection = ''; state.subType = 'product_data'; state.subMaterialId = ''; state.subDueDate = ''; state.subPendingFile = null;
+            render();
+            saveSubmittal(localId, specSection, type, materialId, dueDate, file);
+          }
+          async function saveSubmittal(localId, specSection, type, materialId, dueDate, file) {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              let fileKey = null, fileUrl = null;
+              if (file) {
+                const upRes = await fetch('/api/upload-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: file.dataUrl, context: 'submittal' }) });
+                const upData = await upRes.json();
+                fileKey = upData.key || null; fileUrl = upData.url || null;
+              }
+              const res = await fetch('/api/submittals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, specSection, type, materialId, dueDate, fileKey, fileUrl, submittedBy: state.currentUser.id }) });
+              const created = await res.json();
+              if (created && created.id) {
+                const idx = state.submittals.findIndex(function(s) { return s.id === localId; });
+                if (idx >= 0) { state.submittals[idx].id = created.id; state.submittals[idx].number = created.number; state.submittals[idx].fileUrl = fileUrl; render(); }
+              }
+            } catch (e) { console.error('Save submittal error:', e); }
+          }
+          function advanceSubmittal(id, status) {
+            hapticFeedback();
+            const idx = state.submittals.findIndex(function(s) { return s.id === id; });
+            if (idx >= 0) {
+              if (status === 'revise_resubmit') state.submittals[idx].revision = (state.submittals[idx].revision || 0) + 1;
+              state.submittals[idx].status = status;
+            }
+            render();
+            fetch('/api/submittals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, status: status, projectId: state.currentProject?.id || 'proj_001' }) }).catch(function(e) { console.error('Advance submittal error:', e); });
+          }
+          function deleteSubmittal(id) {
+            if (!confirm('Delete this submittal?')) return;
+            state.submittals = state.submittals.filter(function(s) { return s.id !== id; });
+            render();
+            fetch('/api/submittals?id=' + id, { method: 'DELETE' }).catch(function(e) { console.error('Delete submittal error:', e); });
           }
 
           // MATERIALS - bill of materials vs. delivered, with a delivery log.
@@ -3927,7 +4315,7 @@ export default async function SolTrendApp() {
 
           // MAIN RENDER
           function render() {
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials };
+            const views = { company: renderCompanyDashboard, portfolio: renderPortfolioReport, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, racking: renderRackingProfiles, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();
@@ -3969,7 +4357,7 @@ export default async function SolTrendApp() {
               }
             } catch (e) {}
           }
-          function navigateTo(view) { state.currentView = view; state.sidebarOpen = false; render(); window.scrollTo(0, 0); saveNavState(); }
+          function navigateTo(view) { state.currentView = view; state.sidebarOpen = false; render(); window.scrollTo(0, 0); saveNavState(); if (view === 'portfolio') loadPortfolio(); }
           function toggleSidebar() { state.sidebarOpen = !state.sidebarOpen; render(); }
           // Switching projects previously never reloaded inspections/
           // refusals/production or the heatmap's row/column dimensions for
@@ -4056,8 +4444,8 @@ export default async function SolTrendApp() {
                 if (savedProject) state.currentProject = savedProject;
               }
               const savedView = localStorage.getItem('soltrend_lastView');
-              const validViews = ['company', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'racking', 'settings', 'safety', 'schedule', 'documents', 'materials'];
-              const projectIndependentViews = ['company', 'settings'];
+              const validViews = ['company', 'portfolio', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'racking', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
+              const projectIndependentViews = ['company', 'settings', 'portfolio'];
               if (savedView && validViews.indexOf(savedView) !== -1 && (projectIndependentViews.indexOf(savedView) !== -1 || state.currentProject)) {
                 state.currentView = savedView;
               }
@@ -4081,6 +4469,11 @@ export default async function SolTrendApp() {
             // "live" story.
             await loadNotifications();
             setInterval(loadNotifications, 60000);
+
+            // A refresh that lands back on the Portfolio Report (it's
+            // project-independent, so a restored view can be this one)
+            // needs its own fetch - it's not part of loadProjectData/seed.
+            if (state.currentView === 'portfolio') loadPortfolio();
           }
 
           initializeApp();

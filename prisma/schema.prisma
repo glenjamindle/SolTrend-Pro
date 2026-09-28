@@ -50,6 +50,8 @@ model User {
   cois Coi[]
   materials Material[]
   deliveries Delivery[]
+  rfis      Rfi[]
+  submittals Submittal[]
 }
 
 // Project - Solar installation project
@@ -112,6 +114,8 @@ model Project {
   cois               Coi[]
   materials          Material[]
   deliveries         Delivery[]
+  rfis               Rfi[]
+  submittals         Submittal[]
 }
 
 // Crew - Work crews
@@ -414,6 +418,7 @@ model Material {
   project    Project    @relation(fields: [projectId], references: [id])
   user       User       @relation(fields: [userId], references: [id])
   deliveries Delivery[]
+  submittals Submittal[]
 }
 
 // Delivery - Materials - individual delivery log entries against a
@@ -434,6 +439,55 @@ model Delivery {
   material Material @relation(fields: [materialId], references: [id])
   project  Project  @relation(fields: [projectId], references: [id])
   user     User     @relation(fields: [userId], references: [id])
+}
+
+// Rfi - Request for Information. A question raised against a project that
+// needs an answer from engineering/ownership before work can proceed.
+model Rfi {
+  id          String    @id @default(cuid())
+  number      String
+  subject     String
+  category    String    @default("other") // civil, structural, electrical, racking, other
+  question    String
+  submittedTo String?
+  blocking    Boolean   @default(false)
+  status      String    @default("open") // open, answered, closed
+  answer      String?
+  answeredAt  DateTime?
+  photos      String?   // JSON string
+
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// Submittal - Document Control. A product data sheet, shop drawing, sample,
+// or certificate submitted for review/approval, optionally tied to a
+// Material line item.
+model Submittal {
+  id          String    @id @default(cuid())
+  number      String
+  specSection String
+  type        String    @default("product_data") // product_data, shop_drawing, sample, certificate
+  revision    Int       @default(0)
+  status      String    @default("pending") // pending, submitted, under_review, approved, approved_as_noted, revise_resubmit, rejected
+  dueDate     DateTime?
+  fileKey     String?
+  fileUrl     String?
+
+  materialId String?
+  projectId  String
+  userId     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  material  Material? @relation(fields: [materialId], references: [id])
+  project   Project   @relation(fields: [projectId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
 }
 
 // ProductionEntry - Daily production logs
