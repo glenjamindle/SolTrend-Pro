@@ -1354,14 +1354,48 @@ export default async function SolTrendApp() {
               }).join('') +
             '</div>';
           }
-          // Every generate*Report() function used to repeat these same
-          // three lines - open a blank tab, write the HTML, print it.
-          // Centralizing it here so the reports that call it can't drift.
+          // A small in-report control bar (Print + Close, plus a guaranteed
+          // link back to the app) injected into every generated report by
+          // openReportWindow below. "no-print" so it never shows up in the
+          // actual printed/saved-PDF output.
+          function reportToolbarHtml() {
+            return '<div class="report-toolbar no-print" style="position:sticky;top:0;z-index:9999;display:flex;align-items:center;gap:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;margin-bottom:24px;">' +
+              '<a href="/" style="color:#64748b;font-size:13px;font-weight:600;text-decoration:none;margin-right:auto;">&larr; Back to SolTrend Pro</a>' +
+              '<button type="button" onclick="window.print()" style="background:#f59e0b;color:#000;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;">Print / Save PDF</button>' +
+              '<button type="button" onclick="(function(){ try { window.close(); } catch(e) {} setTimeout(function(){ location.href = \\'/\\'; }, 200); })()" style="background:#e2e8f0;color:#1e293b;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;">Close</button>' +
+            '</div>';
+          }
+          // Every generate*Report() function used to repeat the same
+          // open-a-tab-and-print three-liner. Centralizing it here so the
+          // reports that call it can't drift - and so this is the one place
+          // that needed fixing for two real bugs:
+          //   1. It auto-called .print() on open. That's not our call to
+          //      make - showing the report and letting the person decide
+          //      whether to print it is.
+          //   2. window.open('', '_blank') + document.write() is fragile on
+          //      mobile Safari in particular: when it can't actually open a
+          //      new tab (common in a home-screen/standalone PWA context,
+          //      or just depending on iOS Safari's mood that day), it
+          //      silently hands back the CURRENT window, and document.write
+          //      then overwrites the live SolTrend Pro app in place - no
+          //      new history entry, no back gesture, no way out short of
+          //      force-quitting. Opening a real blob: URL instead of an
+          //      empty '' URL gets treated as an actual navigation/new tab
+          //      far more reliably, and the toolbar's "Back to SolTrend
+          //      Pro" link is a guaranteed manual escape hatch even in
+          //      whatever edge case still manages to reuse the same tab.
           function openReportWindow(html) {
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(html);
-            printWindow.document.close();
-            printWindow.print();
+            const printHideStyle = '<style>@media print { .no-print { display: none !important; } }</style>';
+            const withToolbar = html
+              .replace('</head>', printHideStyle + '</head>')
+              .replace('<body>', '<body>' + reportToolbarHtml());
+            const blob = new Blob([withToolbar], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+            // The new tab has its own loaded copy by then; release the
+            // blob after a beat rather than holding it for the rest of the
+            // session. Long enough for a slow mobile connection to finish.
+            setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
           }
           // Fixed category orders, hoisted so the QC/Refusal reports' bar
           // charts and pile maps always color the same reason the same way.
@@ -1619,10 +1653,7 @@ export default async function SolTrendApp() {
               </body>
               </html>
             \`;
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(reportContent);
-            printWindow.document.close();
-            printWindow.print();
+            openReportWindow(reportContent);
           }
 
           async function generateWeeklyReport() {
@@ -1836,10 +1867,7 @@ export default async function SolTrendApp() {
               </body>
               </html>
             \`;
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(reportContent);
-            printWindow.document.close();
-            printWindow.print();
+            openReportWindow(reportContent);
           }
 
           async function generateMonthlyReport() {
@@ -2017,10 +2045,7 @@ export default async function SolTrendApp() {
               </body>
               </html>
             \`;
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(reportContent);
-            printWindow.document.close();
-            printWindow.print();
+            openReportWindow(reportContent);
           }
 
           function generateQCReport() {
@@ -5047,10 +5072,10 @@ export default async function SolTrendApp() {
           // stray click can't take out real history by accident - this
           // deletes rows outright, not something Edit/Undo can fix.
           async function resetProductionData(id, name) {
-            const typed = prompt('This wipes ALL production entries (piles/tables/modules installed) for "' + name + '" and cannot be undone.\n\nType the project name to confirm:');
+            const typed = prompt('This wipes ALL production entries (piles/tables/modules installed) for "' + name + '" and cannot be undone.\\n\\nType the project name to confirm:');
             if (typed === null) return;
             if (typed !== name) { alert('Name did not match "' + name + '" - nothing was deleted.'); return; }
-            const includeQc = confirm('Also clear QC test data (inspections & refusals) for this project?\n\nOK = clear those too. Cancel = leave inspections/refusals untouched.');
+            const includeQc = confirm('Also clear QC test data (inspections & refusals) for this project?\\n\\nOK = clear those too. Cancel = leave inspections/refusals untouched.');
             try {
               const res = await fetch('/api/admin/reset-production-data', {
                 method: 'POST',
