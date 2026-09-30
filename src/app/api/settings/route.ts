@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
-import { authOptions } from '@/lib/auth'
+import { authOptions, hashPassword } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 
 // This route always needs a fresh read of the database - reading
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
           data: {
             email: 'admin@example.com',
             name: 'Marcus Thompson',
-            password: 'admin123', // In production, use hashed password
+            password: hashPassword('admin123'),
             role: 'admin',
             companyId: company.id,
           }
@@ -349,7 +349,7 @@ export async function POST(request: NextRequest) {
             data: {
               name: data.name,
               email: data.email,
-              password: data.password || 'password123',
+              password: hashPassword(data.password || 'password123'),
               role: data.role || 'inspector',
               crewId: data.crewId,
               companyId,

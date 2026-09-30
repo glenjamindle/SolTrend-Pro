@@ -118,3 +118,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to save refusal' }, { status: 500 })
   }
 }
+
+// DELETE /api/refusals?projectId=...&pileId=...
+// Removes a single refusal record and backs out its contribution to the
+// project's cached refusalCount. There was previously no way to correct or
+// remove a bad/misclicked refusal once saved.
+export async function DELETE(request: NextRequest) {
+  try {
+    const projectId = request.nextUrl.searchParams.get('projectId')
+    const pileId = request.nextUrl.searchParams.get('pileId')
+    if (!projectId || !pileId) {
+      return NextResponse.json({ error: 'projectId and pileId are required' }, { status: 400 })
+    }
+
+    const existing = await prisma.refusal.findUnique({
+      where: { projectId_pileId: { projectId, pileId } },
+    })
+    if (!existing) {
+      return NextResponse.json({ error: 'Refusal not found' }, { status: 404 })
+    }
+
+    await prisma.refusal.delete({ where: { projectId_pileId: { projectId, pileId } } })
+    await prisma.project.update({ where: { id: projectId }, data: { refusalCount: { decrement: 1 } } })
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting refusal:', error)
+    return NextResponse.json({ error: 'Failed to delete refusal' }, { status: 500 })
+  }
+}

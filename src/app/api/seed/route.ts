@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { hashPassword } from '@/lib/auth'
 
 // POST /api/seed
 // Idempotent: ensures a default company, the 5 demo-credential users,
@@ -23,6 +24,11 @@ export async function POST() {
       { email: 'inspector@apexsolar.com', name: 'Dana Ruiz', role: 'inspector' },
     ]
 
+    // Hashed once and reused - all five demo accounts share the same demo
+    // password, and bcrypt is deliberately slow, so there's no reason to
+    // pay that cost five times for an identical result.
+    const demoPasswordHash = hashPassword('demo123')
+
     for (const u of demoUsers) {
       await prisma.user.upsert({
         where: { email: u.email },
@@ -31,7 +37,7 @@ export async function POST() {
           email: u.email,
           name: u.name,
           role: u.role,
-          password: 'demo123',
+          password: demoPasswordHash,
           companyId: company.id,
         },
       })

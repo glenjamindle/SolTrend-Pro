@@ -2548,11 +2548,44 @@ export default async function SolTrendApp() {
             const info = labels[status];
             const timeString = (inspection || refusal)?.timestamp ? new Date((inspection || refusal).timestamp).toLocaleString() : 'N/A';
             const userString = (inspection || refusal)?.user || 'Unknown';
-            content.innerHTML = '<div class="p-5 border-b border-slate-700/50 flex justify-between items-center"><h3 class="font-display text-lg font-bold text-white">Pile ' + pileId + '</h3><button onclick="closePileModal()" class="p-1 text-slate-400 hover:text-white">' + icon('x', 'w-5 h-5') + '</button></div><div class="p-5"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-full ' + info.bg + ' flex items-center justify-center ' + info.color + '">' + icon(info.icon, 'w-5 h-5') + '</div><div><span class="' + info.color + ' font-bold text-lg">' + info.label + '</span><p class="text-xs text-slate-500">' + (status !== 'notstarted' ? 'Recorded' : 'No data') + '</p></div></div>' + (status !== 'notstarted' ? '<div class="space-y-2 mb-4 text-sm"><div class="flex justify-between text-slate-300"><span class="text-slate-500">Inspector:</span><span>' + userString + '</span></div><div class="flex justify-between text-slate-300"><span class="text-slate-500">Timestamp:</span><span>' + timeString + '</span></div>' + (inspection?.depth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Depth:</span><span>' + inspection.depth + '"</span></div>' : '') + (inspection?.plumbNS ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Plumb N-S:</span><span>' + inspection.plumbNS + '°</span></div>' : '') + (status === 'refusal' ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Reason:</span><span class="capitalize">' + (refusal?.reason || 'N/A') + '</span></div>' + (refusal?.achievedDepth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Achieved Depth:</span><span>' + refusal.achievedDepth + '"</span></div>' : '') + (refusal?.notes ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Notes:</span><span class="text-right">' + refusal.notes + '</span></div>' : '') : '') + '</div>' : '') + '<div class="grid grid-cols-2 gap-2 mt-4">' + (status === 'fail' || status === 'refusal' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('refresh-cw', 'w-4 h-4') + ' Reinspect</button><button onclick="closePileModal()" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>' : status === 'notstarted' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="col-span-2 w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('plus', 'w-4 h-4') + ' Inspect Now</button>' : '<button onclick="closePileModal()" class="col-span-2 w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>') + '</div></div>';
+            content.innerHTML = '<div class="p-5 border-b border-slate-700/50 flex justify-between items-center"><h3 class="font-display text-lg font-bold text-white">Pile ' + pileId + '</h3><button onclick="closePileModal()" class="p-1 text-slate-400 hover:text-white">' + icon('x', 'w-5 h-5') + '</button></div><div class="p-5"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-full ' + info.bg + ' flex items-center justify-center ' + info.color + '">' + icon(info.icon, 'w-5 h-5') + '</div><div><span class="' + info.color + ' font-bold text-lg">' + info.label + '</span><p class="text-xs text-slate-500">' + (status !== 'notstarted' ? 'Recorded' : 'No data') + '</p></div></div>' + (status !== 'notstarted' ? '<div class="space-y-2 mb-4 text-sm"><div class="flex justify-between text-slate-300"><span class="text-slate-500">Inspector:</span><span>' + userString + '</span></div><div class="flex justify-between text-slate-300"><span class="text-slate-500">Timestamp:</span><span>' + timeString + '</span></div>' + (inspection?.depth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Depth:</span><span>' + inspection.depth + '"</span></div>' : '') + (inspection?.plumbNS ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Plumb N-S:</span><span>' + inspection.plumbNS + '°</span></div>' : '') + (status === 'refusal' ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Reason:</span><span class="capitalize">' + (refusal?.reason || 'N/A') + '</span></div>' + (refusal?.achievedDepth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Achieved Depth:</span><span>' + refusal.achievedDepth + '"</span></div>' : '') + (refusal?.notes ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Notes:</span><span class="text-right">' + refusal.notes + '</span></div>' : '') : '') + '</div>' : '') + '<div class="grid grid-cols-2 gap-2 mt-4">' + (status === 'fail' || status === 'refusal' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('refresh-cw', 'w-4 h-4') + ' Reinspect</button><button onclick="deletePileRecord(\\'' + pileId + '\\')" class="w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button><button onclick="closePileModal()" class="col-span-2 w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>' : status === 'notstarted' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="col-span-2 w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('plus', 'w-4 h-4') + ' Inspect Now</button>' : '<button onclick="deletePileRecord(\\'' + pileId + '\\')" class="w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button><button onclick="closePileModal()" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>') + '</div></div>';
             modal.classList.remove('hidden'); modal.classList.add('flex'); lucide.createIcons();
           }
           function reinspectPile(pileId) { const { row, pile } = parsePileId(pileId); state.currentRow = row; state.currentPile = pile; syncInspectionPileTypeFromLayout(); closePileModal(); navigateTo('inspection'); }
           function closePileModal() { document.getElementById('pileModal').classList.add('hidden'); }
+          // Lets a misclicked QC inspection or refusal be removed straight
+          // from the pile map, instead of it being stuck on the pile
+          // permanently. Works out which record type this pile actually
+          // has (inspection vs. refusal) from its current status, since
+          // they're different tables/endpoints under the hood.
+          async function deletePileRecord(pileId) {
+            const status = getInspectionStatus(pileId);
+            if (status === 'notstarted') return;
+            const isRefusal = status === 'refusal';
+            if (!confirm('Delete this ' + (isRefusal ? 'refusal' : 'inspection') + ' for pile ' + pileId + '? This cannot be undone.')) return;
+            hapticFeedback();
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const endpoint = (isRefusal ? '/api/refusals' : '/api/inspections') + '?projectId=' + encodeURIComponent(projectId) + '&pileId=' + encodeURIComponent(pileId);
+              const res = await fetch(endpoint, { method: 'DELETE' });
+              if (!res.ok) {
+                const err = await res.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to delete. Please try again.');
+                return;
+              }
+              if (isRefusal) {
+                state.refusals = state.refusals.filter(function(r) { return r.pileId !== pileId; });
+                state.openRefusals = Math.max(0, (state.openRefusals || 0) - 1);
+              } else {
+                state.inspections = state.inspections.filter(function(i) { return i.pileId !== pileId; });
+              }
+              closePileModal();
+              render();
+            } catch (e) {
+              console.error('Delete pile record error:', e);
+              alert('Failed to delete. Please try again.');
+            }
+          }
           function zoomIn() { state.heatmap.zoom = Math.min(2, state.heatmap.zoom + 0.25); render(); }
           function zoomOut() { state.heatmap.zoom = Math.max(0.5, state.heatmap.zoom - 0.25); render(); }
 
@@ -4394,7 +4427,8 @@ export default async function SolTrendApp() {
 
           // PRODUCTION - WITH PHOTO CAPTURE
           function renderProduction() {
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div><h1 class="font-display text-xl font-bold text-white">Production Entry</h1></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-5 space-y-4"><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Crew</label><select id="prodCrew" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('') + '</select></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Subcontractor</label><select id="prodSubcontractor" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('') + '</select></div><div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Piles</label><input type="number" id="prodPiles" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Tables</label><input type="number" id="prodTables" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Modules</label><input type="number" id="prodModules" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea id="prodNotes" rows="2" placeholder="Any issues or notes..." class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm"></textarea></div><div>' + renderPhotoCapture('production') + '</div><button onclick="submitProduction()" class="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-lg">Submit</button></div></div>';
+            const todayStr = localDateStr(Date.now());
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div><h1 class="font-display text-xl font-bold text-white">Production Entry</h1></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-5 space-y-4"><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label><input type="date" id="prodDate" value="' + todayStr + '" max="' + todayStr + '" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><p class="text-xs text-slate-500 mt-1">Logging counts/photos for an earlier day? Pick that date here.</p></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Crew</label><select id="prodCrew" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('') + '</select></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Subcontractor</label><select id="prodSubcontractor" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('') + '</select></div><div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Piles</label><input type="number" id="prodPiles" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Tables</label><input type="number" id="prodTables" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Modules</label><input type="number" id="prodModules" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea id="prodNotes" rows="2" placeholder="Any issues or notes..." class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm"></textarea></div><div>' + renderPhotoCapture('production') + '</div><button onclick="submitProduction()" class="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-lg">Submit</button></div></div>';
           }
           // Previously this just showed an alert and threw away everything
           // typed into the form - nothing was ever read from the inputs or
@@ -4406,6 +4440,13 @@ export default async function SolTrendApp() {
           // project's cached installedPiles count in sync with the server.
           async function submitProduction() {
             hapticFeedback();
+            // Defaults to today (the date input is pre-filled and capped at
+            // today), but a field crew logging yesterday's counts the next
+            // morning can back-date this to whichever day the work actually
+            // happened. Picking a date that already has an entry updates
+            // that day's totals rather than adding a second entry for it -
+            // same upsert-by-day behavior /api/production already had.
+            const dateStr = document.getElementById('prodDate')?.value || null;
             const pilesInstalled = parseInt(document.getElementById('prodPiles')?.value) || 0;
             // Was appended into the Notes text as "N tables, N modules" -
             // now stored as real numeric fields so the dashboards can chart
@@ -4433,6 +4474,7 @@ export default async function SolTrendApp() {
                   pilesInstalled,
                   tablesInstalled,
                   modulesInstalled,
+                  date: dateStr || undefined,
                   crewId,
                   subcontractorId,
                   notes: notes || undefined,
@@ -4924,6 +4966,14 @@ export default async function SolTrendApp() {
               
               if (response.ok) {
                 await loadSettings();
+                // Editing your OWN account (name/email/role) here updates
+                // the database, but the login session is a signed cookie
+                // that keeps whatever it was issued with until this fires
+                // - without it, the sidebar and every "logged by" field
+                // would keep showing the old name until a full sign-out.
+                if (item.type === 'user' && item.id && state.currentUser && item.id === state.currentUser.id) {
+                  await refreshSessionUser();
+                }
                 closeEditModal();
               } else {
                 const err = await response.json().catch(function() { return {}; });
@@ -4934,7 +4984,40 @@ export default async function SolTrendApp() {
               alert('Failed to save. Please try again.');
             }
           }
-          
+
+          // Forces NextAuth to re-issue this session's cookie from the
+          // database, instead of the name/role/etc it was issued with at
+          // login. This app has no React SessionProvider (it's plain JS,
+          // not a client component tree), so this calls the same two
+          // endpoints NextAuth's own useSession().update() calls under the
+          // hood: a CSRF token, then a POST to /api/auth/session, which
+          // fires the jwt callback's trigger==='update' branch in
+          // src/lib/auth.ts - that branch re-reads the database itself
+          // rather than trusting anything sent here, so this can only ever
+          // pull in what's actually stored, never grant anything extra.
+          async function refreshSessionUser() {
+            try {
+              const csrfRes = await fetch('/api/auth/csrf');
+              const csrfData = await csrfRes.json();
+              const res = await fetch('/api/auth/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrfToken: csrfData.csrfToken, data: {} }),
+              });
+              const fresh = await res.json();
+              if (fresh && fresh.user) {
+                state.currentUser = Object.assign({}, state.currentUser, {
+                  id: fresh.user.id,
+                  name: fresh.user.name,
+                  role: fresh.user.role,
+                });
+                render();
+              }
+            } catch (e) {
+              console.error('Session refresh error:', e);
+            }
+          }
+
           async function deleteItem(type, id) {
             if (!confirm('Are you sure you want to delete this item?')) return;
             
