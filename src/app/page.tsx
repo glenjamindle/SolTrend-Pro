@@ -1450,10 +1450,22 @@ export default async function SolTrendApp() {
           //      whatever edge case still manages to reuse the same tab.
           function openReportWindow(html) {
             const printHideStyle = '<style>@media print { .no-print { display: none !important; } }</style>';
+            // None of the report templates declare a charset, which never
+            // mattered under the old document.write() approach - that
+            // inherited the already-open window's encoding. A blob: URL is
+            // a fresh document with no encoding hint anywhere, so the
+            // browser has to guess, and mobile Safari and some Windows
+            // browsers guess wrong: every non-ASCII character (degree
+            // signs, the bullet in the project sub-header, etc.) comes out
+            // as mojibake like "Â°" or "â€¢". Meta charset has to be the
+            // first thing inside <head> to reliably take effect, and the
+            // blob's own MIME type needs it too so there's no window where
+            // the browser is sniffing before it reaches that tag.
             const withToolbar = html
+              .replace('<head>', '<head><meta charset="utf-8">')
               .replace('</head>', printHideStyle + '</head>')
               .replace('<body>', '<body>' + reportToolbarHtml());
-            const blob = new Blob([withToolbar], { type: 'text/html' });
+            const blob = new Blob([withToolbar], { type: 'text/html;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             window.open(url, '_blank');
             // The new tab has its own loaded copy by then; release the
