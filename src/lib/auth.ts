@@ -113,7 +113,23 @@ export const authOptions: NextAuthOptions = {
       return token
     },
     async session({ session, token }) {
-      if (session.user) {
+      // A JWT session never expires early on its own (default lifetime is
+      // 30 days) and next-auth normally just trusts a signature-valid
+      // token without re-checking the database - so deleting a user in
+      // Settings -> Users used to do nothing to that user's already-issued
+      // sessions. Any browser still holding their cookie kept working,
+      // silently "logged in" as an account that no longer exists (this is
+      // how the app could show a since-deleted demo user's name as the
+      // active user). Re-verifying on every session check is one extra
+      // indexed lookup by primary key - cheap - and it's the only way a
+      // deletion actually revokes access. Returning a session with no
+      // `user` makes getServerSession()'s `session?.user` check falsy
+      // everywhere it's already used to gate access (see page.tsx).
+      if (session.user && token.id) {
+        const stillExists = await prisma.user.findUnique({ where: { id: token.id as string }, select: { id: true } })
+        if (!stillExists) {
+          return { ...session, user: undefined, expires: session.expires }
+        }
         session.user.id = token.id as string
         session.user.role = token.role as string
         session.user.companyId = token.companyId as string

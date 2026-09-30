@@ -1,16 +1,30 @@
 import Script from 'next/script'
 import { getServerSession } from 'next-auth/next'
+import { redirect } from 'next/navigation'
 import { authOptions } from '@/lib/auth'
 
 export default async function SolTrendApp() {
   const session = await getServerSession(authOptions)
-  const sessionUser = session?.user
-    ? {
-        id: session.user.id,
-        name: session.user.name || 'User',
-        role: session.user.role || 'inspector',
-      }
-    : null
+  // Middleware only checks that a signature-valid JWT is present - it
+  // doesn't (can't, cheaply, from the Edge runtime) verify the user behind
+  // that token still exists. auth.ts's session callback now does that
+  // real check, so a session for a deleted user comes back with no `user`
+  // here even though middleware let the request through. Previously this
+  // fell through to a hardcoded demo fallback ({ name: 'Marcus Thompson',
+  // role: 'admin' }) further down, which is how a since-deleted demo
+  // account could still show up as the logged-in user in the corner of
+  // the app - not a real session, just a silent stand-in nobody could
+  // tell apart from a real one. Redirecting to login is the honest
+  // behavior for "there is no valid user here" in every case, deleted-user
+  // included.
+  if (!session?.user) {
+    redirect('/login')
+  }
+  const sessionUser = {
+    id: session.user.id,
+    name: session.user.name || 'User',
+    role: session.user.role || 'inspector',
+  }
 
   return (
     <>
@@ -119,7 +133,15 @@ export default async function SolTrendApp() {
           // STATE MANAGEMENT
           const state = {
             currentView: 'company',
-            currentUser: window.__SESSION_USER__ || { id: 'user_001', name: 'Marcus Thompson', role: 'admin' },
+            // The server above now redirects to /login whenever there's no
+            // real, currently-valid session, so window.__SESSION_USER__
+            // should always be a real user object by the time this script
+            // runs. This is just a defensive fallback for that assumption
+            // ever being wrong in the future - deliberately NOT a fake
+            // identity (the old default silently pretended to be a demo
+            // "Marcus Thompson / admin", which is exactly the kind of bug
+            // that made a deleted user's stale session look legitimate).
+            currentUser: window.__SESSION_USER__ || { id: '', name: 'Unknown User', role: 'inspector' },
             currentProject: null,
             inspectionMode: 'quick',
             sidebarOpen: false,
@@ -1267,6 +1289,48 @@ export default async function SolTrendApp() {
             };
             return icons[code] || '☀️';
           }
+          // Print-safe stand-in for getWeatherIcon(), used only inside the
+          // generated PDF reports (Daily/Weekly). Emoji look fine on screen
+          // but Chrome/Edge's Print-to-PDF path - Windows especially -
+          // regularly fails to embed the color emoji font and substitutes a
+          // symbol/dingbat font instead, which is why weather icons were
+          // showing up as garbled "Wingdings" characters or blank boxes on
+          // downloaded reports. Plain inline SVG has no font dependency, so
+          // it prints identically everywhere. Six shapes cover every Open-
+          // Meteo weather code the app uses; unknown codes fall back to sun.
+          function weatherIconSvg(code, opts) {
+            const size = (opts && opts.size) || 40;
+            const color = (opts && opts.color) || '#f59e0b';
+            const cloudColor = (opts && opts.cloudColor) || '#94a3b8';
+            const wrap = function(inner) {
+              return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' + inner + '</svg>';
+            };
+            const sun = '<circle cx="12" cy="12" r="4.5" fill="' + color + '"/>' +
+              [0, 45, 90, 135, 180, 225, 270, 315].map(function(deg) {
+                const r1 = 8, r2 = 10.5;
+                const rad = deg * Math.PI / 180;
+                const x1 = 12 + r1 * Math.cos(rad), y1 = 12 + r1 * Math.sin(rad);
+                const x2 = 12 + r2 * Math.cos(rad), y2 = 12 + r2 * Math.sin(rad);
+                return '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" stroke="' + color + '" stroke-width="1.6" stroke-linecap="round"/>';
+              }).join('');
+            const cloud = '<path d="M6.5 18a3.5 3.5 0 0 1-.5-6.96A4.5 4.5 0 0 1 14.5 9.5a3.5 3.5 0 0 1 2 6.4A3 3 0 0 1 15.5 18h-9z" fill="' + cloudColor + '"/>';
+            const smallSun = '<circle cx="8" cy="8" r="3" fill="' + color + '"/>';
+            const fogLines = [15, 18, 21].map(function(y) { return '<line x1="5" y1="' + y + '" x2="19" y2="' + y + '" stroke="' + cloudColor + '" stroke-width="1.5" stroke-linecap="round"/>'; }).join('');
+            const rainDrops = [8, 12, 16].map(function(x) { return '<line x1="' + x + '" y1="18" x2="' + (x - 1) + '" y2="21.5" stroke="' + color + '" stroke-width="1.6" stroke-linecap="round"/>'; }).join('');
+            const snowDots = [8, 12, 16].map(function(x) { return '<circle cx="' + x + '" cy="19.5" r="1.1" fill="' + cloudColor + '"/>'; }).join('');
+            const bolt = '<path d="M13 15.5h-3l1.5-4.5L9 12.5h3l-1.5 4.5L13 15.5z" fill="' + color + '"/>';
+            const shapes = {
+              0: wrap(sun), 1: wrap(smallSun + cloud),
+              2: wrap(smallSun + cloud), 3: wrap(cloud),
+              45: wrap(cloud + fogLines), 48: wrap(cloud + fogLines),
+              51: wrap(cloud + rainDrops), 53: wrap(cloud + rainDrops), 55: wrap(cloud + rainDrops),
+              61: wrap(cloud + rainDrops), 63: wrap(cloud + rainDrops), 65: wrap(cloud + rainDrops),
+              71: wrap(cloud + snowDots), 73: wrap(cloud + snowDots), 75: wrap(cloud + snowDots),
+              80: wrap(cloud + rainDrops), 81: wrap(cloud + rainDrops),
+              82: wrap(cloud + bolt), 95: wrap(cloud + bolt), 96: wrap(cloud + bolt), 99: wrap(cloud + bolt),
+            };
+            return shapes[code] || wrap(sun);
+          }
           
           function getWeatherDescription(code) {
             const descriptions = {
@@ -1488,7 +1552,7 @@ export default async function SolTrendApp() {
             const isToday = date === localDateStr(Date.now());
             const weather = isToday ? await fetchWeatherData() : null;
             const currentWeather = weather?.current;
-            const weatherIcon = currentWeather ? getWeatherIcon(currentWeather.weather_code) : '📅';
+            const weatherIcon = currentWeather ? weatherIconSvg(currentWeather.weather_code, { size: 48 }) : '<div style="font-size:13px;color:#94a3b8;">No data</div>';
             const weatherHeading = isToday ? "Today's Weather" : 'Weather';
             const temp = currentWeather ? Math.round(currentWeather.temperature_2m) : null;
             const humidity = currentWeather ? currentWeather.relative_humidity_2m : null;
@@ -1793,13 +1857,13 @@ export default async function SolTrendApp() {
                 <div class="weather-week">
                   \${dailyWeather ? dailyWeather.time.slice(0, 5).map((d, i) => {
                     const code = dailyWeather.weather_code[i];
-                    const icon = getWeatherIcon(code);
+                    const icon = weatherIconSvg(code, { size: 28 });
                     const maxT = Math.round(dailyWeather.temperature_2m_max[i]);
                     const minT = Math.round(dailyWeather.temperature_2m_min[i]);
                     const dayName = new Date(d).toLocaleDateString('en-US', { weekday: 'short' });
                     const bgClass = code <= 3 ? 'sunny' : code >= 51 ? 'rainy' : 'cloudy';
                     return '<div class="weather-day ' + bgClass + '"><div class="icon">' + icon + '</div><div class="day">' + dayName + '</div><div class="temp">' + maxT + '°F</div></div>';
-                  }).join('') : '<div class="weather-day" style="background:#e2e8f0;"><div class="icon">📅</div><div class="day" style="color:#475569;">' + (includesToday ? 'Forecast unavailable' : 'Historical weather not available for past date ranges') + '</div></div>'}
+                  }).join('') : '<div class="weather-day" style="background:#e2e8f0;"><div class="day" style="color:#475569;">' + (includesToday ? 'Forecast unavailable' : 'Historical weather not available for past date ranges') + '</div></div>'}
                 </div>
                 <div class="section-title">Week at a Glance</div>
                 <div class="week-summary">
@@ -2027,8 +2091,12 @@ export default async function SolTrendApp() {
                     <div class="section-title">Crew Performance Rankings</div>
                     <div class="crew-rankings">
                       \${crewRankings.length > 0 ? crewRankings.map((c, i) => {
-                        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
+                        // Plain numbered badge instead of a medal emoji - the
+                        // same Windows Print-to-PDF font-substitution bug
+                        // that garbled weather icons hits medal emoji too.
+                        const rankColor = i === 0 ? '#d97706' : i === 1 ? '#94a3b8' : '#b45309';
                         const cls = i === 0 ? 'gold' : i === 1 ? 'silver' : 'bronze';
+                        const medal = '<span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:' + rankColor + ';color:#fff;font-weight:700;font-size:13px;">' + (i + 1) + '</span>';
                         return '<div class="crew-item ' + cls + '"><span class="crew-rank">' + medal + '</span><div class="crew-info"><div class="crew-name">' + c.name + '</div><div class="crew-lead">Lead: ' + (c.lead || 'Not assigned') + '</div></div><div class="crew-stats"><div class="crew-rate">' + (c.rate === null ? 'No data' : c.rate + '%') + '</div></div></div>';
                       }).join('') : '<p style="color:#94a3b8;font-size:13px;">No crews on file.</p>'}
                     </div>
