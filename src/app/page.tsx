@@ -4580,13 +4580,14 @@ export default async function SolTrendApp() {
                   '</div>' +
                   (canEdit || canDelete ? '<div class="flex gap-2">' +
                     (canEdit ? '<button onclick="openEditModal(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
+                    (canDelete ? '<button onclick="resetProductionData(\\'' + p.id + '\\', \\'' + p.name.replace(/'/g, "\\\\'") + '\\')" title="Reset production/QC test data" class="py-2 px-3 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded-lg text-sm">' + icon('eraser', 'w-4 h-4') + '</button>' : '') +
                     (canDelete ? '<button onclick="deleteItem(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
                   '</div>' : '') +
                 '</div>').join('')) +
               '</div>' +
             '</div>';
           }
-          
+
           function renderCrewsSettings() {
             const canEdit = hasRole('manager');
             const canDelete = hasRole('admin');
@@ -5040,6 +5041,36 @@ export default async function SolTrendApp() {
             }
           }
           
+          // Admin-only: wipe test/demo Production Entry data (and,
+          // optionally, test Inspection/Refusal data) for one project before
+          // real field data starts. Requires typing the project name so a
+          // stray click can't take out real history by accident - this
+          // deletes rows outright, not something Edit/Undo can fix.
+          async function resetProductionData(id, name) {
+            const typed = prompt('This wipes ALL production entries (piles/tables/modules installed) for "' + name + '" and cannot be undone.\n\nType the project name to confirm:');
+            if (typed === null) return;
+            if (typed !== name) { alert('Name did not match "' + name + '" - nothing was deleted.'); return; }
+            const includeQc = confirm('Also clear QC test data (inspections & refusals) for this project?\n\nOK = clear those too. Cancel = leave inspections/refusals untouched.');
+            try {
+              const res = await fetch('/api/admin/reset-production-data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: id, includeQc: includeQc }),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                let msg = 'Reset complete for ' + data.project + ': ' + data.productionEntriesDeleted + ' production ' + (data.productionEntriesDeleted === 1 ? 'entry' : 'entries') + ' deleted.';
+                if (includeQc) msg += ' Also cleared ' + data.inspectionsDeleted + ' inspection(s) and ' + data.refusalsDeleted + ' refusal(s).';
+                alert(msg);
+                await loadSettings();
+                render();
+              } else {
+                const err = await res.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to reset production data.');
+              }
+            } catch (e) { console.error('Reset production data error:', e); alert('Failed to reset production data.'); }
+          }
+
           async function saveCompanySettings() {
             const name = document.getElementById('companyName')?.value;
             const tier = document.getElementById('companyTier')?.value;
