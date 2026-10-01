@@ -120,6 +120,10 @@ export default async function SolTrendApp() {
         .app-loading-screen img { width: 56px; height: 56px; border-radius: 14px; box-shadow: 0 8px 24px rgba(245, 158, 11, 0.25); animation: appLoadingPulse 1.6s ease-in-out infinite; }
         @keyframes appLoadingPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.94); } }
         .app-loading-text { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; color: var(--fg-muted); letter-spacing: 0.5px; }
+        .project-order-row { touch-action: none; }
+        .project-order-row.dragging { position: relative; z-index: 10; box-shadow: 0 12px 24px rgba(0,0,0,0.4); cursor: grabbing; }
+        .project-drag-handle { cursor: grab; color: #64748b; padding: 4px; touch-action: none; flex-shrink: 0; }
+        .project-drag-handle:hover { color: #94a3b8; }
       ` }} />
       <div id="app-loading" className="app-loading-screen">
         <img src="/logo-mark.png" alt="SolTrend Pro" />
@@ -1264,6 +1268,7 @@ export default async function SolTrendApp() {
                 'https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lon +
                 '&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code,uv_index' +
                 '&daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,precipitation_probability_max' +
+                '&temperature_unit=fahrenheit&wind_speed_unit=mph' +
                 '&timezone=auto&forecast_days=7'
               );
               const data = await response.json();
@@ -4666,31 +4671,133 @@ export default async function SolTrendApp() {
           function renderProjectsSettings() {
             const canEdit = hasRole('manager');
             const canDelete = hasRole('admin');
+            const canReorder = canEdit && state.projects.length > 1;
             return '<div class="space-y-4">' +
               (canEdit ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'project\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Project</button>' +
               '</div>' : '<p class="text-xs text-slate-500">View only - ask a manager or admin to make changes.</p>') +
-              '<div class="grid gap-4">' +
+              (canReorder ? '<p class="text-xs text-slate-500">Drag ' + icon('grip-vertical', 'w-3 h-3 inline -mt-0.5') + ' to reorder - this is the order used everywhere projects are listed (sidebar, dashboard, here).</p>' : '') +
+              '<div class="grid gap-4" id="projectOrderList">' +
                 (state.projects.length === 0 ? '<p class="text-slate-400 text-center py-8">No projects yet. Create your first project above.</p>' :
-                state.projects.map(p => '<div class="card rounded-xl p-5">' +
-                  '<div class="flex items-start justify-between mb-3">' +
-                    '<div><h4 class="font-semibold text-white">' + p.name + '</h4>' +
-                    '<p class="text-sm text-slate-400">' + p.location + '</p></div>' +
-                    '<span class="px-2 py-1 text-xs rounded ' + (p.status === 'active' ? 'bg-green-500/20 text-green-400' : p.status === 'completed' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-500/20 text-slate-400') + '">' + p.status + '</span>' +
+                state.projects.map(p => '<div class="card rounded-xl p-5 project-order-row" id="project-card-' + p.id + '" data-project-id="' + p.id + '">' +
+                  '<div class="flex items-start gap-3">' +
+                    (canReorder ? '<div class="project-drag-handle" onpointerdown="startProjectReorder(event, \\'' + p.id + '\\')" title="Drag to reorder">' + icon('grip-vertical', 'w-5 h-5') + '</div>' : '') +
+                    '<div class="flex-1 min-w-0">' +
+                      '<div class="flex items-start justify-between mb-3">' +
+                        '<div><h4 class="font-semibold text-white">' + p.name + '</h4>' +
+                        '<p class="text-sm text-slate-400">' + p.location + '</p></div>' +
+                        '<span class="px-2 py-1 text-xs rounded ' + (p.status === 'active' ? 'bg-green-500/20 text-green-400' : p.status === 'completed' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-500/20 text-slate-400') + '">' + p.status + '</span>' +
+                      '</div>' +
+                      '<div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mb-3">' +
+                        '<div><span class="block text-slate-500">Total Piles</span><span class="text-white font-medium">' + p.totalPiles + '</span></div>' +
+                        '<div><span class="block text-slate-500">Rows</span><span class="text-white font-medium">' + p.totalRows + '</span></div>' +
+                        '<div><span class="block text-slate-500">Piles/Row</span><span class="text-white font-medium">' + p.pilesPerRow + '</span></div>' +
+                      '</div>' +
+                      (canEdit || canDelete ? '<div class="flex gap-2">' +
+                        (canEdit ? '<button onclick="openEditModal(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
+                        (canDelete ? '<button onclick="resetProductionData(\\'' + p.id + '\\', \\'' + p.name.replace(/'/g, "\\\\'") + '\\')" title="Reset production/QC test data" class="py-2 px-3 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded-lg text-sm">' + icon('eraser', 'w-4 h-4') + '</button>' : '') +
+                        (canDelete ? '<button onclick="deleteItem(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
+                      '</div>' : '') +
+                    '</div>' +
                   '</div>' +
-                  '<div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mb-3">' +
-                    '<div><span class="block text-slate-500">Total Piles</span><span class="text-white font-medium">' + p.totalPiles + '</span></div>' +
-                    '<div><span class="block text-slate-500">Rows</span><span class="text-white font-medium">' + p.totalRows + '</span></div>' +
-                    '<div><span class="block text-slate-500">Piles/Row</span><span class="text-white font-medium">' + p.pilesPerRow + '</span></div>' +
-                  '</div>' +
-                  (canEdit || canDelete ? '<div class="flex gap-2">' +
-                    (canEdit ? '<button onclick="openEditModal(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
-                    (canDelete ? '<button onclick="resetProductionData(\\'' + p.id + '\\', \\'' + p.name.replace(/'/g, "\\\\'") + '\\')" title="Reset production/QC test data" class="py-2 px-3 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 rounded-lg text-sm">' + icon('eraser', 'w-4 h-4') + '</button>' : '') +
-                    (canDelete ? '<button onclick="deleteItem(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="py-2 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
-                  '</div>' : '') +
                 '</div>').join('')) +
               '</div>' +
             '</div>';
+          }
+
+          // Manual project ordering (Settings -> Projects): drag the grip
+          // handle to reorder, the same interaction as iOS Weather's city
+          // cards. Pointer Events (not HTML5 drag-and-drop, which mobile
+          // Safari/Chrome don't support) so one code path handles mouse and
+          // touch. The pointermove/pointerup listeners below go on the
+          // document object, never on anything inside #app - render()
+          // replaces that entire subtree on nearly any state change (see
+          // the addEventListener note elsewhere in this file), so a
+          // listener attached to a row would be dragging an orphaned node
+          // the moment an unrelated state change re-rendered mid-drag. The
+          // document object itself is never replaced, so it's safe for the
+          // drag's lifetime.
+          let projectDragState = null;
+
+          function startProjectReorder(e, projectId) {
+            e.preventDefault();
+            const row = document.getElementById('project-card-' + projectId);
+            const list = document.getElementById('projectOrderList');
+            if (!row || !list) return;
+            const gap = parseFloat(getComputedStyle(list).rowGap) || 16;
+            projectDragState = {
+              projectId: projectId,
+              row: row,
+              rows: Array.from(list.querySelectorAll('.project-order-row')),
+              startY: e.clientY,
+              rowHeight: row.offsetHeight + gap,
+              order: state.projects.map(function(p) { return p.id; }),
+            };
+            row.classList.add('dragging');
+            document.addEventListener('pointermove', onProjectReorderMove);
+            document.addEventListener('pointerup', endProjectReorder);
+            document.addEventListener('pointercancel', endProjectReorder);
+          }
+
+          function onProjectReorderMove(e) {
+            const d = projectDragState;
+            if (!d) return;
+            d.row.style.transform = 'translateY(' + (e.clientY - d.startY) + 'px)';
+
+            // The dragged row is the only element actually under the
+            // pointer - everything else gets repositioned with a CSS
+            // transform based on its slot in the in-memory order, never
+            // moved in the real DOM, so the drag can't be interrupted by a
+            // render().
+            const draggedIndex = d.order.indexOf(d.projectId);
+            const draggedRect = d.row.getBoundingClientRect();
+            const draggedMid = draggedRect.top + draggedRect.height / 2;
+            d.rows.forEach(function(sibling) {
+              const siblingId = sibling.dataset.projectId;
+              if (siblingId === d.projectId) return;
+              const siblingIndex = d.order.indexOf(siblingId);
+              const rect = sibling.getBoundingClientRect();
+              const siblingMid = rect.top + rect.height / 2;
+              const movingDown = siblingIndex > draggedIndex;
+              const crossed = movingDown ? draggedMid > siblingMid : draggedMid < siblingMid;
+              if (crossed) {
+                d.order.splice(draggedIndex, 1);
+                const newIndex = d.order.indexOf(siblingId);
+                d.order.splice(movingDown ? newIndex + 1 : newIndex, 0, d.projectId);
+              }
+            });
+            d.rows.forEach(function(el) {
+              const id = el.dataset.projectId;
+              if (id === d.projectId) return;
+              const originalIndex = d.rows.indexOf(el);
+              const newIndex = d.order.indexOf(id);
+              el.style.transition = 'transform 0.15s ease';
+              el.style.transform = 'translateY(' + ((newIndex - originalIndex) * d.rowHeight) + 'px)';
+            });
+          }
+
+          async function endProjectReorder() {
+            const d = projectDragState;
+            if (!d) return;
+            document.removeEventListener('pointermove', onProjectReorderMove);
+            document.removeEventListener('pointerup', endProjectReorder);
+            document.removeEventListener('pointercancel', endProjectReorder);
+            projectDragState = null;
+
+            const newOrder = d.order;
+            state.projects = newOrder.map(function(id) { return state.projects.find(function(p) { return p.id === id; }); }).filter(Boolean);
+            render();
+
+            try {
+              const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'reorderProjects', companyId: state.companyId, data: { orderedIds: newOrder } }),
+              });
+              if (!response.ok) console.error('Failed to save project order:', response.status);
+            } catch (err) {
+              console.error('Failed to save project order:', err);
+            }
           }
 
           function renderCrewsSettings() {
@@ -5292,11 +5399,37 @@ export default async function SolTrendApp() {
             } catch (e) { console.error('Mark all notifications read error:', e); }
           }
 
+          // Mobile header's center brand slot. Normally just the logo
+          // wordmark, but on a project-scoped view it swaps to the current
+          // project's name instead - the sidebar (where the project
+          // dropdown lives) closes itself after picking a nav item on
+          // mobile (navigateTo sets sidebarOpen=false), so previously
+          // nothing on screen said which project you were looking at once
+          // you'd navigated away from the sidebar. Tapping it reopens the
+          // sidebar, same as the hamburger button, so it doubles as a
+          // shortcut back to the project switcher. Kept deliberately small
+          // (same header height, truncates on long names) since mobile
+          // screen space is tight.
+          function mobileHeaderBrand() {
+            // Mirrors the projectIndependentViews array near
+            // initializeApp/saveNavState - those are the views with no
+            // single "current" project to show (company-wide or settings).
+            const projectIndependentViews = ['company', 'settings'];
+            if (!state.currentProject || projectIndependentViews.indexOf(state.currentView) !== -1) {
+              return '<div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div>';
+            }
+            return '<button onclick="toggleSidebar()" class="flex items-center gap-1.5 min-w-0 max-w-[58vw]" title="' + state.currentProject.name.replace(/"/g, '&quot;') + ' - tap to switch project">' +
+              '<img src="/logo-mark.png" alt="SolTrend Pro" class="w-7 h-7 rounded-lg flex-shrink-0">' +
+              '<span class="font-display font-semibold text-white text-sm truncate">' + state.currentProject.name + '</span>' +
+              icon('chevron-down', 'w-3.5 h-3.5 text-slate-400 flex-shrink-0') +
+            '</button>';
+          }
+
           // MAIN RENDER
           function render() {
             const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
-            document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button><div class="flex items-center gap-2"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-8 h-8 rounded-lg"><span class="font-display font-bold text-white">SolTrend</span></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
+            document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button>' + mobileHeaderBrand() + '<span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();
           }
 

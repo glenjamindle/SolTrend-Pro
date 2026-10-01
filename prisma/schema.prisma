@@ -61,6 +61,12 @@ model Project {
   location          String
   status            String   @default("active")  // active, completed, on_hold, archived
   health            String   @default("green")   // green, yellow, red
+  // Manual drag-to-reorder position (Settings -> Projects), used everywhere
+  // the project list renders - sidebar dropdown, Company Dashboard, Active
+  // Projects grid. Not unique by itself; see the self-heal note on the
+  // settings GET route for how pre-existing rows (all defaulted to 0) get
+  // backfilled to stable values the first time this ships.
+  sortOrder         Int      @default(0)
   client            String?
   startDate         DateTime?
   plannedEndDate    DateTime?

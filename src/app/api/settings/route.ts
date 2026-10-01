@@ -128,15 +128,37 @@ export async function GET(request: NextRequest) {
     }
     
     // Fetch all data for the company
-    const [company, projects, crews, subcontractors, rackingProfiles, users] = await Promise.all([
+    const [company, rawProjects, crews, subcontractors, rackingProfiles, users] = await Promise.all([
       prisma.company.findUnique({ where: { id: companyId } }),
-      prisma.project.findMany({ where: { companyId }, include: { rackingProfile: true } }),
+      // Explicit order, not whatever order Postgres happens to return rows
+      // in. That used to be left implicit, which worked by accident until
+      // Glen noticed the project list rearranging itself after editing a
+      // project's details - an UPDATE can relocate a row's physical storage
+      // position, so an unordered findMany has no guarantee of staying
+      // stable across edits. sortOrder is the field reorderProjects (below)
+      // and drag-reordering in Settings write to; createdAt is just a
+      // tiebreaker for rows that happen to share a sortOrder.
+      prisma.project.findMany({ where: { companyId }, include: { rackingProfile: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
       prisma.crew.findMany({ where: { companyId }, include: { members: true } }),
       prisma.subcontractor.findMany({ where: { companyId } }),
       prisma.rackingProfile.findMany({ where: { companyId } }),
       prisma.user.findMany({ where: { companyId }, select: { id: true, email: true, name: true, role: true, crewId: true } }),
     ])
-    
+
+    // One-time self-heal: every project created before sortOrder existed
+    // defaults to 0, so right after this ships they'd all tie and silently
+    // fall back to the createdAt order above. Detect a tie (more than one
+    // project sharing a sortOrder) and assign each a unique value matching
+    // its current position - no separate migration script needed, and this
+    // check is cheap enough to just leave in permanently rather than ship
+    // then remove it.
+    let projects = rawProjects
+    const hasDuplicateSortOrder = projects.length > 1 && new Set(projects.map(p => p.sortOrder)).size < projects.length
+    if (hasDuplicateSortOrder) {
+      await prisma.$transaction(projects.map((p, i) => prisma.project.update({ where: { id: p.id }, data: { sortOrder: i } })))
+      projects = projects.map((p, i) => ({ ...p, sortOrder: i }))
+    }
+
     return NextResponse.json({
       company,
       projects,
@@ -178,7 +200,7 @@ export async function POST(request: NextRequest) {
     if (type === 'user' && !hasRole(role, 'admin')) {
       return NextResponse.json({ error: 'Only admins can manage users' }, { status: 403 })
     }
-    if (['project', 'crew', 'subcontractor', 'rackingProfile'].includes(type) && !hasRole(role, 'manager')) {
+    if (['project', 'crew', 'subcontractor', 'rackingProfile', 'reorderProjects'].includes(type) && !hasRole(role, 'manager')) {
       return NextResponse.json({ error: 'Only managers and admins can make this change' }, { status: 403 })
     }
 
@@ -225,6 +247,11 @@ export async function POST(request: NextRequest) {
           })
           return NextResponse.json(project)
         } else {
+          // New projects go at the end of the manual order, not the front -
+          // sortOrder defaults to 0 like everything else, which would jump
+          // a brand-new project to the top of the dropdown/dashboard ahead
+          // of projects someone deliberately arranged.
+          const maxOrder = await prisma.project.aggregate({ where: { companyId }, _max: { sortOrder: true } })
           const project = await prisma.project.create({
             data: {
               name: data.name,
@@ -241,13 +268,33 @@ export async function POST(request: NextRequest) {
               status: data.status || 'active',
               latitude: data.latitude ?? null,
               longitude: data.longitude ?? null,
+              sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
               companyId,
             }
           })
           return NextResponse.json(project)
         }
       }
-      
+
+      // Drag-reordering in Settings sends the full new project id order for
+      // this company; sortOrder just becomes each id's index in that list.
+      // A transaction keeps a page refresh mid-drag from ever seeing a half
+      // -applied order. Prisma's update `where` needs a unique field alone
+      // (no compound id+companyId constraint exists), so ownership is
+      // checked up front instead: only ids this company's own findMany
+      // actually returned get written.
+      case 'reorderProjects': {
+        const orderedIds: string[] = data.orderedIds || []
+        const owned = await prisma.project.findMany({ where: { id: { in: orderedIds }, companyId }, select: { id: true } })
+        const ownedIds = new Set(owned.map(p => p.id))
+        await prisma.$transaction(
+          orderedIds
+            .filter(id => ownedIds.has(id))
+            .map((id, i) => prisma.project.update({ where: { id }, data: { sortOrder: i } }))
+        )
+        return NextResponse.json({ ok: true })
+      }
+
       case 'crew': {
         if (data.id) {
           const crew = await prisma.crew.update({
