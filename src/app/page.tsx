@@ -124,16 +124,6 @@ export default async function SolTrendApp() {
         .project-order-row.dragging { position: relative; z-index: 10; box-shadow: 0 12px 24px rgba(0,0,0,0.4); cursor: grabbing; }
         .project-drag-handle { cursor: grab; color: #64748b; padding: 4px; touch-action: none; flex-shrink: 0; }
         .project-drag-handle:hover { color: #94a3b8; }
-        /* iOS Safari renders a native type="date" input's value as a
-           rounded "pill" inside the field, sized by WebKit's own shadow DOM
-           rather than the input's CSS box - width:100% on the input itself
-           doesn't reliably constrain it, so on a narrow phone screen (and
-           worst on the big touch-friendly date fields in Production/Delays)
-           that pill can render wider than the card around it. appearance:
-           none drops into WebKit's plain text-field rendering instead,
-           which does respect the box; tapping the field still opens the
-           native date picker either way. */
-        input[type="date"] { -webkit-appearance: none; appearance: none; width: 100%; min-width: 0; box-sizing: border-box; }
         /* Submit-pending spinner (Production Entry and anywhere else a
            button needs an in-flight state) - a small rotating ring in the
            button's own text color so it reads correctly on either the
@@ -212,7 +202,11 @@ export default async function SolTrendApp() {
             // re-render can't lose what was typed.
             productionEntry: { date: null, crew: null, subcontractor: null, piles: '', tables: '', modules: '', notes: '', photos: [] },
             productionSubmitting: false,
-            prodCalendarOpen: false, prodCalendarCursor: null,
+            // Shared by every calendarField() instance app-wide - only one
+            // calendar dropdown can be open at a time, identified by the
+            // state path (string) of the field it's editing. See the
+            // CALENDAR_CONFIG/calendarField block near renderProduction.
+            calendarOpenField: null, calendarCursor: null,
             isListening: false,
             heatmap: { zoom: 1, totalRows: 50, pilesPerRow: 30, search: '' },
             notifications: [], unreadCount: 0, notifPanelOpen: false,
@@ -431,9 +425,10 @@ export default async function SolTrendApp() {
 
           // DATE HELPERS FOR REPORTS
           // localDateStr() renders an epoch-ms timestamp as a YYYY-MM-DD string
-          // in the browser's local timezone - the report date pickers (<input
-          // type="date">) also hand back plain YYYY-MM-DD strings, so comparing
-          // these directly as strings sidesteps the timezone bug you'd otherwise
+          // in the browser's local timezone - calendarField() (the app's date
+          // picker, see CALENDAR_CONFIG near renderProduction) also stores
+          // plain YYYY-MM-DD strings, so comparing these directly as strings
+          // sidesteps the timezone bug you'd otherwise
           // get from doing new Date('2026-09-22') (parsed as UTC midnight) vs
           // new Date(timestamp).toDateString() (rendered in local time) - those
           // two disagree by a day for any timezone west of UTC, e.g. Phoenix.
@@ -1216,12 +1211,12 @@ export default async function SolTrendApp() {
               '<div class="grid md:grid-cols-3 gap-4 stagger-children">' +
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('file-text', 'w-8 h-8 text-amber-400') + '<div><h3 class="font-display font-semibold text-white">Daily Report</h3><p class="text-xs text-slate-500">Production summary</p></div></div>' +
-                  '<input type="date" id="dailyReportDate" value="' + state.reportDates.daily + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm mb-3">' +
+                  '<div class="mb-3">' + calendarField('reportDates.daily') + '</div>' +
                   '<button onclick="generateDailyReport()" class="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('calendar', 'w-8 h-8 text-blue-400') + '<div><h3 class="font-display font-semibold text-white">Weekly Report</h3><p class="text-xs text-slate-500">7-day analysis</p></div></div>' +
-                  '<input type="date" id="weeklyReportDate" value="' + state.reportDates.weekly + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm mb-3">' +
+                  '<div class="mb-3">' + calendarField('reportDates.weekly') + '</div>' +
                   '<button onclick="generateWeeklyReport()" class="w-full py-2.5 bg-blue-500 hover:bg-blue-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5">' +
@@ -1234,8 +1229,8 @@ export default async function SolTrendApp() {
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('clipboard-check', 'w-8 h-8 text-purple-400') + '<div><h3 class="font-display font-semibold text-white">QC Report</h3><p class="text-xs text-slate-500">Inspection summary</p></div></div>' +
                   '<div class="grid grid-cols-2 gap-2 mb-3">' +
-                    '<div><label class="text-xs text-slate-500 mb-1 block">Start</label><input type="date" id="qcStart" value="' + state.reportDates.qcStart + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm"></div>' +
-                    '<div><label class="text-xs text-slate-500 mb-1 block">End</label><input type="date" id="qcEnd" value="' + state.reportDates.qcEnd + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm"></div>' +
+                    '<div><label class="text-xs text-slate-500 mb-1 block">Start</label>' + calendarField('reportDates.qcStart') + '</div>' +
+                    '<div><label class="text-xs text-slate-500 mb-1 block">End</label>' + calendarField('reportDates.qcEnd') + '</div>' +
                   '</div>' +
                   '<button onclick="generateQCReport()" class="w-full py-2.5 bg-purple-500 hover:bg-purple-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
@@ -1246,8 +1241,8 @@ export default async function SolTrendApp() {
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('alert-triangle', 'w-8 h-8 text-orange-400') + '<div><h3 class="font-display font-semibold text-white">Refusal Report</h3><p class="text-xs text-slate-500">Refusal analysis</p></div></div>' +
                   '<div class="grid grid-cols-2 gap-2 mb-3">' +
-                    '<div><label class="text-xs text-slate-500 mb-1 block">Start</label><input type="date" id="refusalStart" value="' + state.reportDates.refusalStart + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm"></div>' +
-                    '<div><label class="text-xs text-slate-500 mb-1 block">End</label><input type="date" id="refusalEnd" value="' + state.reportDates.refusalEnd + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-sm"></div>' +
+                    '<div><label class="text-xs text-slate-500 mb-1 block">Start</label>' + calendarField('reportDates.refusalStart') + '</div>' +
+                    '<div><label class="text-xs text-slate-500 mb-1 block">End</label>' + calendarField('reportDates.refusalEnd') + '</div>' +
                   '</div>' +
                   '<button onclick="generateRefusalReport()" class="w-full py-2.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
@@ -1607,7 +1602,7 @@ export default async function SolTrendApp() {
 
           // PDF GENERATION FUNCTIONS
           async function generateDailyReport() {
-            const date = document.getElementById('dailyReportDate')?.value || localDateStr(Date.now());
+            const date = state.reportDates.daily || localDateStr(Date.now());
             const project = state.currentProject;
             // Was always state.production[state.production.length - 1] (the
             // most recent entry) regardless of which date was picked - now
@@ -1838,7 +1833,7 @@ export default async function SolTrendApp() {
             // count, none of which line up with an actual calendar week or
             // respond to the picked date at all. Now derives a real 7-day
             // window ending on the selected date.
-            const endStr = document.getElementById('weeklyReportDate')?.value || state.reportDates.weekly;
+            const endStr = state.reportDates.weekly;
             const startStr = addDaysStr(endStr, -6);
             const prevEndStr = addDaysStr(startStr, -1);
             const prevStartStr = addDaysStr(prevEndStr, -6);
@@ -2284,8 +2279,8 @@ export default async function SolTrendApp() {
           }
 
           function generateQCReport() {
-            const startDate = document.getElementById('qcStart')?.value || state.reportDates.qcStart;
-            const endDate = document.getElementById('qcEnd')?.value || state.reportDates.qcEnd;
+            const startDate = state.reportDates.qcStart;
+            const endDate = state.reportDates.qcEnd;
             const project = state.currentProject;
             // Was reading startDate/endDate only to print them in the header -
             // every number below (total/passed/failed and the failed-pile
@@ -2567,8 +2562,8 @@ export default async function SolTrendApp() {
           }
 
           function generateRefusalReport() {
-            const startDate = document.getElementById('refusalStart')?.value || state.reportDates.refusalStart;
-            const endDate = document.getElementById('refusalEnd')?.value || state.reportDates.refusalEnd;
+            const startDate = state.reportDates.refusalStart;
+            const endDate = state.reportDates.refusalEnd;
             const project = state.currentProject;
             // Previously ignored any notion of a date range entirely - every
             // number here was the company's all-time refusal history. Now
@@ -3664,10 +3659,10 @@ export default async function SolTrendApp() {
               '<h3 class="font-display font-semibold text-white text-sm">' + (state.editingMilestoneId ? 'Edit Phase' : 'New Phase') + '</h3>' +
               '<div><label class="text-xs text-slate-500 mb-1 block">Phase Name</label><input type="text" value="' + state.milestonePhase + '" oninput="state.milestonePhase=this.value" placeholder="e.g. Racking Install" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '<div class="grid grid-cols-2 gap-3">' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Planned Start</label><input type="date" value="' + state.milestonePlannedStart + '" oninput="state.milestonePlannedStart=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Planned End</label><input type="date" value="' + state.milestonePlannedEnd + '" oninput="state.milestonePlannedEnd=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Actual Start</label><input type="date" value="' + state.milestoneActualStart + '" oninput="state.milestoneActualStart=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Actual End</label><input type="date" value="' + state.milestoneActualEnd + '" oninput="state.milestoneActualEnd=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Planned Start</label>' + calendarField('milestonePlannedStart') + '</div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Planned End</label>' + calendarField('milestonePlannedEnd') + '</div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Actual Start</label>' + calendarField('milestoneActualStart') + '</div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Actual End</label>' + calendarField('milestoneActualEnd') + '</div>' +
               '</div>' +
               '<div class="grid grid-cols-2 gap-3">' +
                 '<div><label class="text-xs text-slate-500 mb-1 block">Status</label><select oninput="state.milestoneStatus=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + statuses.map(function(s) { return '<option value="' + s + '"' + (state.milestoneStatus === s ? ' selected' : '') + '>' + s.replace(/_/g, ' ') + '</option>'; }).join('') + '</select></div>' +
@@ -3818,7 +3813,7 @@ export default async function SolTrendApp() {
                 '<div><label class="text-xs text-slate-500 mb-1 block">Subcontractor</label><select oninput="state.coiSubcontractorId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">Select…</option>' + state.subcontractors.map(function(s) { return '<option value="' + s.id + '"' + (state.coiSubcontractorId === s.id ? ' selected' : '') + '>' + s.name + '</option>'; }).join('') + '</select></div>' +
                 '<div><label class="text-xs text-slate-500 mb-1 block">Coverage</label><select oninput="state.coiCoverageType=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + coverageTypes.map(function(c) { return '<option value="' + c.id + '"' + (state.coiCoverageType === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
               '</div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Expires</label><input type="date" value="' + (state.coiExpiresAt || '') + '" oninput="state.coiExpiresAt=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Expires</label>' + calendarField('coiExpiresAt') + '</div>' +
               '<input type="file" id="docFileInput-coi" class="hidden" onchange="handleDocFileSelect(event, \\'coi\\')">' +
               '<button onclick="triggerDocFileInput(\\'coi\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.coiPendingFile ? state.coiPendingFile.name : 'Attach Certificate (optional)') + '</span></button>' +
               '<button onclick="submitCoi()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add Certificate</button>' +
@@ -4052,7 +4047,7 @@ export default async function SolTrendApp() {
                 '<div><label class="text-xs text-slate-500 mb-1 block">Type</label><select oninput="state.subType=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + SUBMITTAL_TYPES.map(function(t) { return '<option value="' + t.id + '"' + (state.subType === t.id ? ' selected' : '') + '>' + t.label + '</option>'; }).join('') + '</select></div>' +
                 '<div><label class="text-xs text-slate-500 mb-1 block">Related Material</label><select oninput="state.subMaterialId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">None</option>' + state.materials.map(function(m) { return '<option value="' + m.id + '"' + (state.subMaterialId === m.id ? ' selected' : '') + '>' + m.name + '</option>'; }).join('') + '</select></div>' +
               '</div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Due Date</label><input type="date" value="' + (state.subDueDate || '') + '" oninput="state.subDueDate=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Due Date</label>' + calendarField('subDueDate') + '</div>' +
               '<input type="file" id="docFileInput-submittal" class="hidden" onchange="handleDocFileSelect(event, \\'submittal\\')">' +
               '<button onclick="triggerDocFileInput(\\'submittal\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.subPendingFile ? state.subPendingFile.name : 'Attach File (optional)') + '</span></button>' +
               '<button onclick="submitSubmittal()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add Submittal</button>' +
@@ -4152,7 +4147,7 @@ export default async function SolTrendApp() {
               '<div class="grid grid-cols-2 gap-3">' +
                 '<div><label class="text-xs text-slate-500 mb-1 block">Ordered Qty</label><input type="number" min="0" value="' + (state.materialOrderedQty || '') + '" oninput="state.materialOrderedQty=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
                 '<div><label class="text-xs text-slate-500 mb-1 block">Unit</label><input type="text" value="' + (state.materialUnit || 'units') + '" oninput="state.materialUnit=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Expected Date</label><input type="date" value="' + (state.materialExpectedDate || '') + '" oninput="state.materialExpectedDate=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 mb-1 block">Expected Date</label>' + calendarField('materialExpectedDate') + '</div>' +
                 '<div><label class="text-xs text-slate-500 mb-1 block">Supplier</label><input type="text" value="' + (state.materialSupplier || '') + '" oninput="state.materialSupplier=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '</div>' +
               '<div class="flex gap-3"><button onclick="state.materialFormOpen=false; render();" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-medium">Cancel</button><button onclick="submitMaterial()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add</button></div>' +
@@ -4472,7 +4467,7 @@ export default async function SolTrendApp() {
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto">' +
               '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Delays</h1><span class="text-sm text-slate-500">' + state.delays.length + ' logged</span></div>' +
               '<div class="card rounded-xl p-5 space-y-4">' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label><input type="date" id="delayDateInput" value="' + state.delayDate + '" oninput="state.delayDate=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label>' + calendarField('delayDate') + '</div>' +
                 '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Reason</label><div class="grid grid-cols-3 gap-2">' + reasons.map(r => '<button onclick="setDelayReason(\\'' + r.id + '\\')" class="reason-btn ' + (state.delayReason === r.id ? 'reason-btn-selected' : '') + '"><span class="text-xs text-white">' + r.label + '</span></button>').join('') + '</div></div>' +
                 '<div><label class="text-xs text-slate-500 mb-1 block">Hours Lost (optional)</label><input type="number" step="0.5" min="0" max="24" id="delayHoursInput" value="' + (state.delayHours || '') + '" oninput="state.delayHours=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white font-bold"></div>' +
                 '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea id="delayDescInput" rows="2" placeholder="Any detail worth keeping for the record..." oninput="state.delayDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (state.delayDescription || '') + '</textarea></div>' +
@@ -4555,7 +4550,7 @@ export default async function SolTrendApp() {
                 '</div>' +
                 '<div class="grid grid-cols-2 gap-3">' +
                   '<div><label class="text-xs text-slate-500 mb-1 block">Priority</label><div class="grid grid-cols-3 gap-2">' + ['low', 'medium', 'high'].map(function(p) { return '<button onclick="setPunchPriority(\\'' + p + '\\')" class="reason-btn text-xs py-2 capitalize ' + (state.punchPriority === p ? 'reason-btn-selected text-white' : 'text-slate-300') + '">' + p + '</button>'; }).join('') + '</div></div>' +
-                  '<div><label class="text-xs text-slate-500 mb-1 block">Due Date</label><input type="date" id="punchDueInput" value="' + (state.punchDueDate || '') + '" oninput="state.punchDueDate=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                  '<div><label class="text-xs text-slate-500 mb-1 block">Due Date</label>' + calendarField('punchDueDate') + '</div>' +
                 '</div>' +
                 renderPhotoCapture('punchlist') +
                 '<div class="flex gap-2"><button onclick="submitPunchItem()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-sm">Add Item</button><button onclick="closePunchForm()" class="px-4 py-3 bg-slate-700 text-slate-300 rounded-xl font-medium text-sm">Cancel</button></div>' +
@@ -4685,75 +4680,136 @@ export default async function SolTrendApp() {
             } catch (e) { console.error('Load punch items error:', e); }
           }
 
-          // PRODUCTION - WITH PHOTO CAPTURE
-          // Custom date picker for Production Entry - replaces the native
-          // input[type=date] popover, which is a true OS/browser widget that
-          // can't be restyled with CSS and looks/behaves nothing like the
-          // rest of the app. This is just a small inline dropdown, built from
-          // the same card/button styling as everything else, with Prev/Next
-          // month navigation and dates after today disabled (matching the
-          // old input's max="today" cap).
-          function formatProdDateLabel(dateStr) {
-            return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+          // CALENDAR FIELD - a custom date picker used anywhere the app asks
+          // for a date, replacing every native input[type=date]. The native
+          // popover is a true OS/browser widget that can't be restyled with
+          // CSS and looks/behaves nothing like the rest of the app - this
+          // started as a one-off for Production Entry, then got pulled out
+          // into this single shared component so Delays, Schedule, COI,
+          // Subcontractors, Materials, Punch List, and the report date
+          // pickers all open the exact same calendar instead of each having
+          // its own native popover (or its own copy-pasted custom one).
+          //
+          // A field is addressed by its state path as a plain string (e.g.
+          // "delayDate", "productionEntry.date", "reportDates.daily") so one
+          // generic set of functions can read/write any of them without a
+          // bespoke pair of functions per field. CALENDAR_CONFIG says, per
+          // field, whether dates after today are disabled (maxToday - true
+          // for things that already happened, like a log entry or a report
+          // range; false/omitted for things that haven't yet, like a planned
+          // milestone or a COI expiration) and whether it renders at the
+          // compact size used in modals/sidebars vs. the larger touch
+          // target used on the full-page Production/Delays forms.
+          const CALENDAR_CONFIG = {
+            'productionEntry.date': { maxToday: true },
+            'delayDate': { maxToday: true },
+            'reportDates.daily': { maxToday: true, compact: true },
+            'reportDates.weekly': { maxToday: true, compact: true },
+            'reportDates.qcStart': { maxToday: true, compact: true },
+            'reportDates.qcEnd': { maxToday: true, compact: true },
+            'reportDates.refusalStart': { maxToday: true, compact: true },
+            'reportDates.refusalEnd': { maxToday: true, compact: true },
+            'milestonePlannedStart': { compact: true },
+            'milestonePlannedEnd': { compact: true },
+            'milestoneActualStart': { maxToday: true, compact: true },
+            'milestoneActualEnd': { maxToday: true, compact: true },
+            'coiExpiresAt': { compact: true },
+            'subDueDate': { compact: true },
+            'materialExpectedDate': { compact: true },
+            'punchDueDate': { compact: true },
+          };
+          function getStateByPath(path) {
+            const parts = path.split('.');
+            let obj = state;
+            for (let i = 0; i < parts.length; i++) { if (obj == null) return obj; obj = obj[parts[i]]; }
+            return obj;
           }
-          function toggleProdCalendar() {
-            if (!state.prodCalendarOpen) {
-              state.prodCalendarCursor = (state.productionEntry.date || localDateStr(Date.now())).slice(0, 7);
+          function setStateByPath(path, value) {
+            const parts = path.split('.');
+            let obj = state;
+            for (let i = 0; i < parts.length - 1; i++) { obj = obj[parts[i]]; }
+            obj[parts[parts.length - 1]] = value;
+          }
+          function formatCalendarDateLabel(dateStr, compact) {
+            return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', compact ? { month: 'short', day: 'numeric', year: 'numeric' } : { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+          }
+          function toggleCalendar(fieldPath) {
+            if (state.calendarOpenField === fieldPath) {
+              state.calendarOpenField = null;
+            } else {
+              const current = getStateByPath(fieldPath);
+              state.calendarCursor = (current || localDateStr(Date.now())).slice(0, 7);
+              state.calendarOpenField = fieldPath;
             }
-            state.prodCalendarOpen = !state.prodCalendarOpen;
             render();
           }
-          function navProdCalendar(delta) {
-            const parts = state.prodCalendarCursor.split('-').map(Number);
+          function navCalendar(delta) {
+            const parts = state.calendarCursor.split('-').map(Number);
             let y = parts[0], m = parts[1] + delta;
             if (m < 1) { m = 12; y -= 1; } else if (m > 12) { m = 1; y += 1; }
-            state.prodCalendarCursor = y + '-' + pad2(m);
+            state.calendarCursor = y + '-' + pad2(m);
             render();
           }
-          function selectProdDate(dateStr) {
-            state.productionEntry.date = dateStr;
-            state.prodCalendarOpen = false;
+          function selectCalendarDate(dateStr) {
+            setStateByPath(state.calendarOpenField, dateStr);
+            state.calendarOpenField = null;
             render();
           }
-          function renderProdCalendar() {
+          function renderCalendarDropdown(fieldPath) {
+            const opts = CALENDAR_CONFIG[fieldPath] || {};
             const todayStr = localDateStr(Date.now());
-            const cursor = state.prodCalendarCursor || todayStr.slice(0, 7);
+            const cursor = state.calendarCursor || todayStr.slice(0, 7);
             const parts = cursor.split('-').map(Number);
             const cy = parts[0], cm = parts[1];
             const firstDow = new Date(cy, cm - 1, 1).getDay();
             const totalDays = daysInMonth(cy, cm);
-            const selected = state.productionEntry.date || todayStr;
+            const selected = getStateByPath(fieldPath) || (opts.maxToday ? todayStr : '');
             const monthLabel = new Date(cy, cm - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
             let cells = '';
             for (let i = 0; i < firstDow; i++) cells += '<div></div>';
             for (let day = 1; day <= totalDays; day++) {
               const ds = cy + '-' + pad2(cm) + '-' + pad2(day);
-              const isFuture = ds > todayStr;
+              const isDisabled = !!(opts.maxToday && ds > todayStr);
               const isSelected = ds === selected;
               const isToday = ds === todayStr;
-              const cls = isSelected ? 'bg-amber-500 text-black font-bold' : isFuture ? 'text-slate-600 cursor-not-allowed' : isToday ? 'border border-amber-500 text-amber-400' : 'text-slate-200 hover:bg-slate-700';
-              cells += '<button type="button" ' + (isFuture ? 'disabled' : 'onclick="selectProdDate(\\'' + ds + '\\')"') + ' class="h-9 w-9 rounded-lg text-sm flex items-center justify-center ' + cls + '">' + day + '</button>';
+              const cls = isSelected ? 'bg-amber-500 text-black font-bold' : isDisabled ? 'text-slate-600 cursor-not-allowed' : isToday ? 'border border-amber-500 text-amber-400' : 'text-slate-200 hover:bg-slate-700';
+              cells += '<button type="button" ' + (isDisabled ? 'disabled' : 'onclick="selectCalendarDate(\\'' + ds + '\\')"') + ' class="h-9 w-9 rounded-lg text-sm flex items-center justify-center ' + cls + '">' + day + '</button>';
             }
             const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(function(d) { return '<div class="h-6 flex items-center justify-center text-[10px] text-slate-500 uppercase">' + d + '</div>'; }).join('');
-            return '<div onclick="toggleProdCalendar()" class="fixed inset-0 z-20"></div>' +
+            return '<div onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="fixed inset-0 z-20"></div>' +
               '<div class="absolute z-30 mt-2 p-3 bg-slate-900 border border-slate-600 rounded-xl shadow-xl" style="width:272px;" onclick="event.stopPropagation()">' +
                 '<div class="flex items-center justify-between mb-2">' +
-                  '<button type="button" onclick="navProdCalendar(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-left', 'w-4 h-4') + '</button>' +
+                  '<button type="button" onclick="navCalendar(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-left', 'w-4 h-4') + '</button>' +
                   '<span class="text-sm font-semibold text-white">' + monthLabel + '</span>' +
-                  '<button type="button" onclick="navProdCalendar(1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-right', 'w-4 h-4') + '</button>' +
+                  '<button type="button" onclick="navCalendar(1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-right', 'w-4 h-4') + '</button>' +
                 '</div>' +
                 '<div class="grid grid-cols-7 gap-1 mb-1">' + weekdays + '</div>' +
                 '<div class="grid grid-cols-7 gap-1">' + cells + '</div>' +
-                '<button type="button" onclick="selectProdDate(\\'' + todayStr + '\\')" class="w-full mt-2 py-2 text-xs text-amber-400 hover:text-amber-300 font-medium">Jump to Today</button>' +
+                '<button type="button" onclick="selectCalendarDate(\\'' + todayStr + '\\')" class="w-full mt-2 py-2 text-xs text-amber-400 hover:text-amber-300 font-medium">Jump to Today</button>' +
               '</div>';
           }
+          // Drop-in replacement for input[type=date] - call as
+          // calendarField('someStatePath') wherever a date field used to be
+          // a native input. placeholder (optional) shows when the field is
+          // unset; CALENDAR_CONFIG controls size and the max-today rule.
+          function calendarField(fieldPath, placeholder) {
+            const opts = CALENDAR_CONFIG[fieldPath] || {};
+            const val = getStateByPath(fieldPath);
+            const compact = !!opts.compact;
+            const label = val ? formatCalendarDateLabel(val, compact) : (placeholder || 'Select date');
+            const btnClass = compact
+              ? 'w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm flex items-center justify-between'
+              : 'w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white flex items-center justify-between';
+            const iconClass = compact ? 'w-3.5 h-3.5 text-slate-500 flex-shrink-0' : 'w-4 h-4 text-slate-500 flex-shrink-0';
+            return '<div class="relative"><button type="button" onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="' + btnClass + '"><span' + (val ? '' : ' class="text-slate-500"') + '>' + label + '</span>' + icon('calendar', iconClass) + '</button>' + (state.calendarOpenField === fieldPath ? renderCalendarDropdown(fieldPath) : '') + '</div>';
+          }
+
+          // PRODUCTION - WITH PHOTO CAPTURE
           function renderProduction() {
-            const todayStr = localDateStr(Date.now());
             const entry = state.productionEntry;
-            const dateValue = entry.date || todayStr;
             const submitting = state.productionSubmitting;
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div><h1 class="font-display text-xl font-bold text-white">Production Entry</h1></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-5 space-y-4">' +
-              '<div class="relative"><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label><button type="button" onclick="toggleProdCalendar()" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white flex items-center justify-between">' + '<span>' + formatProdDateLabel(dateValue) + '</span>' + icon('calendar', 'w-4 h-4 text-slate-500') + '</button>' + (state.prodCalendarOpen ? renderProdCalendar() : '') + '<p class="text-xs text-slate-500 mt-1">Logging counts/photos for an earlier day? Pick that date here.</p></div>' +
+              '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label>' + calendarField('productionEntry.date') + '<p class="text-xs text-slate-500 mt-1">Logging counts/photos for an earlier day? Pick that date here.</p></div>' +
               '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Crew</label><select onchange="state.productionEntry.crew=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '"' + (entry.crew === c.id ? ' selected' : '') + '>' + c.name + '</option>').join('') + '</select></div>' +
               '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Subcontractor</label><select onchange="state.productionEntry.subcontractor=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '"' + (entry.subcontractor === s.id ? ' selected' : '') + '>' + s.name + '</option>').join('') + '</select></div>' +
               '<div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Piles</label><input type="number" min="0" value="' + entry.piles + '" oninput="state.productionEntry.piles=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Tables</label><input type="number" min="0" value="' + entry.tables + '" oninput="state.productionEntry.tables=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Modules</label><input type="number" min="0" value="' + entry.modules + '" oninput="state.productionEntry.modules=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div>' +
