@@ -1675,7 +1675,7 @@ export default async function SolTrendApp() {
                   <div class="weather-details">
                     <div class="weather-detail"><div class="label">Humidity</div><div class="value">\${humidity !== null ? humidity + '%' : '—'}</div></div>
                     <div class="weather-detail"><div class="label">Wind</div><div class="value">\${windSpeed !== null ? windSpeed + ' mph' : '—'}</div></div>
-                    <div class="weather-detail"><div class="label">Location</div><div class="value">Phoenix</div></div>
+                    <div class="weather-detail"><div class="label">Location</div><div class="value">\${(project?.location || 'Phoenix, AZ').split(',')[0]}</div></div>
                   </div>
                 </div>
                 <div class="section-title">Daily Summary</div>
@@ -5220,8 +5220,22 @@ export default async function SolTrendApp() {
 
               if (!state.currentProject && state.projects && state.projects.length > 0) {
                 state.currentProject = state.projects.find(p => p.status === 'active') || state.projects[0];
+              } else if (state.currentProject && state.projects) {
+                // loadSettings() always replaces state.projects wholesale, but
+                // until now state.currentProject kept pointing at the OLD
+                // object from before this reload - so editing a project's own
+                // settings (location, GPS coordinates, daily target, etc.)
+                // never showed up anywhere that reads state.currentProject
+                // directly, weather chief among them: fetchWeatherData() reads
+                // state.currentProject.latitude/longitude, so a project saved
+                // with new coordinates kept silently falling back to the
+                // default Phoenix, AZ forecast until a full page reload.
+                // Project cards looked fine regardless, since those render
+                // from state.projects, which was already correct.
+                const refreshed = state.projects.find(p => p.id === state.currentProject.id);
+                if (refreshed) state.currentProject = refreshed;
               }
-              
+
               render();
             } catch (e) {
               console.error('Load settings error:', e);
