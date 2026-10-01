@@ -134,6 +134,12 @@ export default async function SolTrendApp() {
            which does respect the box; tapping the field still opens the
            native date picker either way. */
         input[type="date"] { -webkit-appearance: none; appearance: none; width: 100%; min-width: 0; box-sizing: border-box; }
+        /* Submit-pending spinner (Production Entry and anywhere else a
+           button needs an in-flight state) - a small rotating ring in the
+           button's own text color so it reads correctly on either the
+           amber "Submit" button or a plain dark one. */
+        .spinner { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid rgba(0,0,0,0.25); border-top-color: currentColor; animation: spin 0.7s linear infinite; flex-shrink: 0; }
+        @keyframes spin { to { transform: rotate(360deg); } }
       ` }} />
       <div id="app-loading" className="app-loading-screen">
         <img src="/logo-mark.png" alt="SolTrend Pro" />
@@ -197,7 +203,16 @@ export default async function SolTrendApp() {
             refusalRow: 35, refusalPile: 22,
             targetDepth: 72, achievedDepth: null, refusalReason: null, refusalNotes: '', refusalPhotos: [],
             openRefusals: 8,
-            productionEntry: { crew: null, subcontractor: null, notes: '', photos: [] },
+            // date/piles/tables/modules were previously read straight off
+            // the uncontrolled DOM inputs instead of being tracked here -
+            // harmless on its own, but render() replaces the whole #app DOM
+            // on nearly any state change (e.g. adding a photo), which wiped
+            // those uncontrolled inputs back to their defaults. Now every
+            // field lives in state and the inputs just mirror it, so a
+            // re-render can't lose what was typed.
+            productionEntry: { date: null, crew: null, subcontractor: null, piles: '', tables: '', modules: '', notes: '', photos: [] },
+            productionSubmitting: false,
+            prodCalendarOpen: false, prodCalendarCursor: null,
             isListening: false,
             heatmap: { zoom: 1, totalRows: 50, pilesPerRow: 30, search: '' },
             notifications: [], unreadCount: 0, notifPanelOpen: false,
@@ -510,6 +525,24 @@ export default async function SolTrendApp() {
             if (!dateStr) return null;
             return Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000));
           }
+          // "On Track"/"Behind" badge for the Weekly and Monthly reports -
+          // was just whether this period's production beat the previous
+          // period's, which answers a different question than "are we on
+          // schedule" (a slower week on an otherwise-ahead project still
+          // said "Behind", and vice versa). Now reads the real Schedule tab
+          // (state.milestones) - the on_track/at_risk/delayed/complete
+          // status a PM actually sets per phase - and rolls it up: any
+          // milestone marked delayed makes the whole project "Behind", any
+          // at_risk (with nothing delayed) makes it "At Risk", otherwise
+          // "On Track". A project with no milestones logged yet has no real
+          // schedule to read, so it says that instead of guessing.
+          function projectScheduleStatus() {
+            const milestones = state.milestones || [];
+            if (milestones.length === 0) return { label: 'No Schedule Set', bg: '#475569', fg: '#f1f5f9' };
+            if (milestones.some(function(m) { return m.status === 'delayed'; })) return { label: 'Behind', bg: '#ef4444', fg: '#ffffff' };
+            if (milestones.some(function(m) { return m.status === 'at_risk'; })) return { label: 'At Risk', bg: '#f59e0b', fg: '#1e293b' };
+            return { label: 'On Track', bg: '#22c55e', fg: '#ffffff' };
+          }
           // Day of Week Analysis (Analytics > Production) - was two fully
           // hardcoded arrays (85/92/88/95/82/45/30% and similar) regardless
           // of any real data. Both now computed from real records; a
@@ -586,30 +619,46 @@ export default async function SolTrendApp() {
 
           // PHOTO CAPTURE HANDLING
           function triggerPhotoInput(context) { document.getElementById('photoInput-' + context).click(); }
+          function triggerPhotoLibraryInput(context) { document.getElementById('photoLibraryInput-' + context).click(); }
+          // Was event.target.files[0] only - a single-file capture() input
+          // can only ever return one photo anyway (the camera app hands back
+          // one shot per launch), but the "image" button was wired to that
+          // exact same input, so picking several photos from the library in
+          // one go was never actually possible even though the gallery icon
+          // implied it. Now processes the whole FileList, then commits and
+          // re-renders once, so a multi-select from the library lands as a
+          // single batch instead of one photo at a time.
           async function handlePhotoCapture(event, context) {
-            const file = event.target.files[0]; if (!file) return; hapticFeedback();
-            const maxW = 1280, maxH = 720; const img = new Image(); const reader = new FileReader();
-            reader.onload = async (e) => {
-              img.src = e.target.result;
-              img.onload = async () => {
-                const canvas = document.createElement('canvas'); let w = img.width, h = img.height;
-                if (w > maxW || h > maxH) { const ratio = Math.min(maxW / w, maxH / h); w = Math.round(w * ratio); h = Math.round(h * ratio); }
-                canvas.width = w; canvas.height = h; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                let gps = null;
-                if (navigator.geolocation) { try { gps = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2000 })); gps = { lat: gps.coords.latitude, lng: gps.coords.longitude }; } catch(e) {} }
-                const photoObj = { id: 'photo_' + Date.now(), url: dataUrl, timestamp: new Date().toISOString(), gps: gps };
-                if (context === 'production') state.productionEntry.photos.push(photoObj);
-                else if (context === 'inspection') state.inspectionPhotos.push(photoObj);
-                else if (context === 'refusal') state.refusalPhotos.push(photoObj);
-                else if (context === 'punchlist') state.punchPhotos.push(photoObj);
-                else if (context === 'safety-obs') state.obsPhotos.push(photoObj);
-                else if (context === 'safety-incident') state.incidentPhotos.push(photoObj);
-                else if (context === 'rfi') state.rfiPhotos.push(photoObj);
-                render();
+            const files = Array.from(event.target.files || []);
+            if (files.length === 0) return;
+            hapticFeedback();
+            event.target.value = '';
+            const maxW = 1280, maxH = 720;
+            const processOne = (file) => new Promise((resolve) => {
+              const img = new Image(); const reader = new FileReader();
+              reader.onload = (e) => {
+                img.src = e.target.result;
+                img.onload = async () => {
+                  const canvas = document.createElement('canvas'); let w = img.width, h = img.height;
+                  if (w > maxW || h > maxH) { const ratio = Math.min(maxW / w, maxH / h); w = Math.round(w * ratio); h = Math.round(h * ratio); }
+                  canvas.width = w; canvas.height = h; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+                  const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                  let gps = null;
+                  if (navigator.geolocation) { try { gps = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2000 })); gps = { lat: gps.coords.latitude, lng: gps.coords.longitude }; } catch(e) {} }
+                  resolve({ id: 'photo_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8), url: dataUrl, timestamp: new Date().toISOString(), gps: gps });
+                };
               };
-            };
-            reader.readAsDataURL(file); event.target.value = '';
+              reader.readAsDataURL(file);
+            });
+            const photoObjs = await Promise.all(files.map(processOne));
+            if (context === 'production') state.productionEntry.photos.push(...photoObjs);
+            else if (context === 'inspection') state.inspectionPhotos.push(...photoObjs);
+            else if (context === 'refusal') state.refusalPhotos.push(...photoObjs);
+            else if (context === 'punchlist') state.punchPhotos.push(...photoObjs);
+            else if (context === 'safety-obs') state.obsPhotos.push(...photoObjs);
+            else if (context === 'safety-incident') state.incidentPhotos.push(...photoObjs);
+            else if (context === 'rfi') state.rfiPhotos.push(...photoObjs);
+            render();
           }
           function removePhoto(context, id) {
             hapticFeedback();
@@ -631,7 +680,12 @@ export default async function SolTrendApp() {
             else if (context === 'safety-obs') photos = state.obsPhotos;
             else if (context === 'safety-incident') photos = state.incidentPhotos;
             else if (context === 'rfi') photos = state.rfiPhotos;
-            return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><div class="flex items-center gap-3"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photo</span></button><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn w-12 h-12 rounded-xl flex items-center justify-center text-slate-400 hover:text-white">' + icon('image', 'w-5 h-5') + '</button></div>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
+            // Two separate inputs: the camera one keeps capture="environment"
+            // (the OS camera app only ever hands back one shot per launch, so
+            // "multiple" wouldn't do anything there), while the library/image
+            // button now opens a plain, multiple-enabled picker so several
+            // photos can be batch-selected and added in one pass.
+            return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><input type="file" id="photoLibraryInput-' + context + '" accept="image/*" multiple class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><div class="flex items-center gap-3"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photo</span></button><button onclick="triggerPhotoLibraryInput(\\'' + context + '\\')" title="Choose from library (select multiple)" class="capture-btn w-12 h-12 rounded-xl flex items-center justify-center text-slate-400 hover:text-white">' + icon('image', 'w-5 h-5') + '</button></div>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
           }
 
           // DEMO DATA GENERATION
@@ -1571,8 +1625,12 @@ export default async function SolTrendApp() {
             const dayRefusalsList = state.refusals.filter(r => localDateStr(r.timestamp) === date);
             const dayRefusals = dayRefusalsList.length;
             const refusalRate = totalInspected > 0 ? ((dayRefusals / (totalInspected + dayRefusals)) * 100).toFixed(1) : '0.0';
-            const rackingToday = Math.ceil((dayProd?.piles || 0) / 4);
-            const modulesToday = (dayProd?.piles || 0) * 2;
+            // Was a fabricated guess (piles/4, piles*2) instead of the real
+            // tables/modules counts the production entry actually recorded -
+            // a day with only piles logged showed phantom racking/module
+            // progress that never happened.
+            const rackingToday = dayProd?.tables || 0;
+            const modulesToday = dayProd?.modules || 0;
             // Live weather is only meaningful for today's report - fetching it
             // for a past date previously showed *today's* conditions mislabeled
             // as if they were that day's weather. For past dates we now show
@@ -1591,10 +1649,21 @@ export default async function SolTrendApp() {
             // this report previously never showed any of them, just four
             // hardcoded "No photos captured" tiles regardless of what was
             // actually on file for the date.
+            // Reports render in a blob: document (see openReportWindow) so
+            // that mobile Safari doesn't tear down the live app when opening
+            // one - but blob: is a non-special URL scheme, so a root-relative
+            // path like "/api/photos/xyz.jpg" can't resolve against it the
+            // way it would on a normal page. Absolutize against the real app
+            // origin so the <img>/background-image actually finds the photo.
+            const toAbsolutePhotoUrl = function(url) {
+              if (!url) return url;
+              if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+              return window.location.origin + (url.startsWith('/') ? url : '/' + url);
+            };
             const dayPhotos = []
-              .concat(dayInspections.flatMap(function(i) { return (i.photos || []).map(function(p) { return { url: p.url, label: 'Inspection ' + i.pileId }; }); }))
-              .concat(dayRefusalsList.flatMap(function(r) { return (r.photos || []).map(function(p) { return { url: p.url, label: 'Refusal ' + r.pileId }; }); }))
-              .concat((dayProd?.photos || []).map(function(p) { return { url: p.url, label: 'Production log' }; }));
+              .concat(dayInspections.flatMap(function(i) { return (i.photos || []).map(function(p) { return { url: toAbsolutePhotoUrl(p.url), label: 'Inspection ' + i.pileId }; }); }))
+              .concat(dayRefusalsList.flatMap(function(r) { return (r.photos || []).map(function(p) { return { url: toAbsolutePhotoUrl(p.url), label: 'Refusal ' + r.pileId }; }); }))
+              .concat((dayProd?.photos || []).map(function(p) { return { url: toAbsolutePhotoUrl(p.url), label: 'Production log' }; }));
 
             const reportContent = \`
               <!DOCTYPE html>
@@ -1722,13 +1791,26 @@ export default async function SolTrendApp() {
                 <table class="activity-table">
                   <thead><tr><th>Time</th><th>Pile ID</th><th>Activity</th><th>Crew</th><th>Status</th></tr></thead>
                   <tbody>
+                    \${dayProd && ((dayProd.piles || 0) + (dayProd.tables || 0) + (dayProd.modules || 0)) > 0 ? (function() {
+                      // Production is logged once per day as a single
+                      // aggregate entry, not a timestamped per-pile event like
+                      // inspections/refusals - this used to be left out of the
+                      // table entirely, so a day with piles installed but no
+                      // inspections showed "No activity recorded" even though
+                      // the Daily Summary cards above clearly showed production.
+                      const parts = [];
+                      if (dayProd.piles) parts.push(formatNumber(dayProd.piles) + ' piles');
+                      if (dayProd.tables) parts.push(formatNumber(dayProd.tables) + ' tables');
+                      if (dayProd.modules) parts.push(formatNumber(dayProd.modules) + ' modules');
+                      return '<tr><td>—</td><td>—</td><td>Production Logged (' + parts.join(', ') + ')</td><td>' + (dayProd.crew || dayProd.user || 'Unassigned') + '</td><td><span class="status-badge pass">Logged</span></td></tr>';
+                    })() : ''}
                     \${dayInspections.slice().reverse().map(i =>
                       '<tr><td>' + new Date(i.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) + '</td><td>' + i.pileId + '</td><td>QC Inspection</td><td>' + i.user + '</td><td><span class="status-badge ' + i.status + '">' + i.status + '</span></td></tr>'
                     ).join('')}
                     \${dayRefusalsList.slice().reverse().map(r =>
                       '<tr><td>' + new Date(r.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) + '</td><td>' + r.pileId + '</td><td>Refusal Logged</td><td>' + r.user + '</td><td><span class="status-badge refusal">Refusal</span></td></tr>'
                     ).join('')}
-                    \${(dayInspections.length + dayRefusalsList.length) === 0 ? '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">No activity recorded for this date</td></tr>' : ''}
+                    \${(dayInspections.length + dayRefusalsList.length === 0 && !(dayProd && ((dayProd.piles || 0) + (dayProd.tables || 0) + (dayProd.modules || 0)) > 0)) ? '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">No activity recorded for this date</td></tr>' : ''}
                   </tbody>
                 </table>
                 <div class="notes-section">
@@ -1767,6 +1849,15 @@ export default async function SolTrendApp() {
             const avgDaily = Math.round(weekProd / 7);
             const bestDay = weekProdEntries.length > 0 ? Math.max(...weekProdEntries.map(p => p.piles)) : 0;
             const weekChange = prevWeekProd > 0 ? Math.round(((weekProd - prevWeekProd) / prevWeekProd) * 100) : 0;
+            // The Weekly Summary Notes below used to compare avgDaily against
+            // a hardcoded "35 piles/day" regardless of what this project's
+            // daily target actually is (Settings -> Projects -> Daily
+            // Target), even though every other target-aware view in the app
+            // (the dashboard pace card, Analytics, the AI Predictions tab)
+            // already reads project.dailyTarget. A project whose target was
+            // changed from the 35 default would report against the wrong
+            // number.
+            const dailyTarget = project?.dailyTarget || 35;
             const weekInspections = state.inspections.filter(i => { const d = localDateStr(i.timestamp); return d >= startStr && d <= endStr; });
             const weekPassed = weekInspections.filter(i => i.status === 'pass').length;
             const weekFailed = weekInspections.filter(i => i.status === 'fail').length;
@@ -1776,20 +1867,20 @@ export default async function SolTrendApp() {
             const includesToday = localDateStr(Date.now()) >= startStr && localDateStr(Date.now()) <= endStr;
             const weather = includesToday ? await fetchWeatherData() : null;
             const dailyWeather = weather?.daily;
-            // Weather Impact Analysis card - was hardcoded "4 of 5" clear
-            // days, "78°F" avg, "0 days" delays regardless of what the
-            // forecast actually said, even though dailyWeather (fetched
-            // just above for the day-strip) already has real numbers for
-            // these same 5 days.
-            const weatherStats = dailyWeather ? (function() {
-              const codes = dailyWeather.weather_code.slice(0, 5);
-              const highs = dailyWeather.temperature_2m_max.slice(0, 5);
-              const precipProbs = (dailyWeather.precipitation_probability_max || []).slice(0, 5);
-              const clearDays = codes.filter(function(c) { return c <= 3; }).length;
-              const avgTemp = Math.round(highs.reduce(function(s, t) { return s + t; }, 0) / highs.length);
-              const delayDays = precipProbs.filter(function(p) { return p >= 60; }).length;
-              return { clearDays: clearDays + ' of ' + codes.length, avgTemp: avgTemp + '°F', delayDays: delayDays + ' day' + (delayDays === 1 ? '' : 's') };
-            })() : { clearDays: '—', avgTemp: '—', delayDays: '—' };
+            // Was a "Weather Impact Analysis" card: Clear Days/Avg Temp/
+            // Weather Delays derived from the forecast, next to a "Favorable"
+            // badge that was hardcoded on as long as any forecast existed at
+            // all, regardless of what it actually said - a week full of rain
+            // and a bone-dry week looked identical. Replaced with the real
+            // Delays log for this date range (the Delays tab - weather,
+            // permitting, equipment, materials, other), which only shows
+            // something when a delay was actually recorded.
+            const weekDelaysList = (state.delays || []).filter(function(d) { return d.date >= startStr && d.date <= endStr; });
+            const scheduleStatus = projectScheduleStatus();
+            // Refusal percentage - was a hardcoded "<=5 refusals = below avg"
+            // threshold with no real average behind it. Now the real rate:
+            // refusals as a share of piles actually installed this week.
+            const weekRefusalPct = weekProd > 0 ? ((weekRefusals / weekProd) * 100).toFixed(1) : (weekRefusals > 0 ? 'N/A' : '0.0');
 
             const reportContent = \`
               <!DOCTYPE html>
@@ -1879,7 +1970,7 @@ export default async function SolTrendApp() {
                     <h2>\${project?.name || 'Desert Sun Solar Farm'}</h2>
                     <div class="project-details">\${project?.location || 'Phoenix, AZ'} • \${project?.totalPiles || 0} Total Piles</div>
                   </div>
-                  <div class="project-badge">\${weekChange >= 0 ? 'On Track' : 'Behind'}</div>
+                  <div class="project-badge" style="background:\${scheduleStatus.bg};color:\${scheduleStatus.fg};">\${scheduleStatus.label}</div>
                 </div>
                 <div class="section-title">Weather Summary</div>
                 <div class="weather-week">
@@ -1897,8 +1988,8 @@ export default async function SolTrendApp() {
                 <div class="week-summary">
                   <div class="week-card"><div class="value">\${weekProd}</div><div class="label">Piles Installed</div><div class="change \${weekChange >= 0 ? 'up' : 'down'}">\${weekChange >= 0 ? '↑' : '↓'} \${Math.abs(weekChange)}% vs last week</div></div>
                   <div class="week-card"><div class="value">\${weekPassed}</div><div class="label">QC Passed</div><div class="change up">↑ \${passRate}% pass rate</div></div>
-                  <div class="week-card"><div class="value">\${passRate}%</div><div class="label">Pass Rate</div><div class="change up">↑ Target: 92%</div></div>
-                  <div class="week-card"><div class="value">\${weekRefusals}</div><div class="label">Refusals</div><div class="change \${weekRefusals <= 5 ? 'up' : 'down'}">\${weekRefusals <= 5 ? '↓ Below avg' : '↑ Above avg'}</div></div>
+                  <div class="week-card"><div class="value">\${passRate}%</div><div class="label">Pass Rate</div><div class="change" style="background:rgba(148,163,184,0.2);color:#cbd5e1;">\${weekPassed} of \${weekInspections.length} inspected</div></div>
+                  <div class="week-card"><div class="value">\${weekRefusals}</div><div class="label">Refusals</div><div class="change" style="background:rgba(148,163,184,0.2);color:#cbd5e1;">\${weekRefusalPct}% of installed</div></div>
                 </div>
                 <div class="section-title">Daily Production Trend</div>
                 <div class="trend-chart">
@@ -1936,21 +2027,19 @@ export default async function SolTrendApp() {
                     <div class="comparison-row"><span class="comparison-label">Last Week</span><span class="comparison-value">\${prevWeekProd} piles</span></div>
                     <div class="comparison-row"><span class="comparison-label">Difference</span><span class="comparison-value">\${weekProd - prevWeekProd > 0 ? '+' : ''}\${weekProd - prevWeekProd} piles</span></div>
                     <div class="comparison-row"><span class="comparison-label">Daily Average</span><span class="comparison-value">\${avgDaily} piles/day</span></div>
+                    <div class="comparison-row"><span class="comparison-label">Best Production Day</span><span class="comparison-value">\${bestDay} piles</span></div>
                   </div>
                   <div class="comparison-card">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
-                      <span class="comparison-title">Weather Impact Analysis</span>
-                      <span class="comparison-badge \${dailyWeather ? 'positive' : ''}" style="\${dailyWeather ? '' : 'background:#f1f5f9;color:#64748b;'}">\${dailyWeather ? 'Favorable' : 'No data'}</span>
+                      <span class="comparison-title">Delays</span>
+                      <span class="comparison-badge \${weekDelaysList.length > 0 ? 'negative' : 'positive'}">\${weekDelaysList.length} logged</span>
                     </div>
-                    <div class="comparison-row"><span class="comparison-label">Clear Days</span><span class="comparison-value">\${weatherStats.clearDays}</span></div>
-                    <div class="comparison-row"><span class="comparison-label">Avg Temperature</span><span class="comparison-value">\${weatherStats.avgTemp}</span></div>
-                    <div class="comparison-row"><span class="comparison-label">Weather Delays</span><span class="comparison-value">\${weatherStats.delayDays}</span></div>
-                    <div class="comparison-row"><span class="comparison-label">Best Production Day</span><span class="comparison-value">\${bestDay} piles</span></div>
+                    \${weekDelaysList.length > 0 ? weekDelaysList.map(function(d) { return '<div class="comparison-row"><span class="comparison-label">' + formatDate(d.date) + ' &middot; ' + d.reason.replace(/_/g, ' ') + '</span><span class="comparison-value">' + (d.hoursLost ? d.hoursLost + 'h lost' : '&mdash;') + '</span></div>'; }).join('') : '<div class="comparison-row"><span class="comparison-label">No delays recorded this week.</span></div>'}
                   </div>
                 </div>
                 <div class="notes-section">
                   <h3>Weekly Summary Notes</h3>
-                  <div class="notes-content">Strong production week with crews operating at \${avgDaily >= 35 ? 'full' : 'near'} capacity. Daily average of \${avgDaily} piles \${avgDaily >= 35 ? 'exceeds' : 'approaches'} the target of 35 piles/day. QC pass rate of \${passRate}% \${passRate >= 92 ? 'meets' : 'is below'} the 92% target. \${weekRefusals > 0 ? weekRefusals + ' refusal(s) logged this week, engineering notified for review.' : 'No refusals encountered this week.'}</div>
+                  <div class="notes-content">Strong production week with crews operating at \${avgDaily >= dailyTarget ? 'full' : 'near'} capacity. Daily average of \${avgDaily} piles \${avgDaily >= dailyTarget ? 'exceeds' : 'approaches'} the target of \${dailyTarget} piles/day. QC pass rate for the week was \${passRate}%. Refusal rate was \${weekRefusalPct}% of piles installed. \${weekRefusals > 0 ? weekRefusals + ' refusal(s) logged this week, engineering notified for review.' : 'No refusals encountered this week.'}</div>
                 </div>
                 <div class="report-footer">
                   <div>Report prepared by: Project Management Team | Next report: \${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
@@ -1981,15 +2070,45 @@ export default async function SolTrendApp() {
             const prevMonthProdEntries = state.production.filter(p => p.date >= prevMonthStartStr && p.date <= prevMonthEndStr);
             const monthProd = monthProdEntries.reduce((s, p) => s + p.piles, 0);
             const prevMonthProd = prevMonthProdEntries.reduce((s, p) => s + p.piles, 0);
-            const avgDaily = Math.round(monthProd / daysInMonth(my, mm));
+            // Was always monthProd / daysInMonth(my, mm) - the FULL month
+            // length, even when pulling the report mid-month for the month
+            // still in progress. Pull an October report on Oct 1st with only
+            // one day's production logged and that divided by 31, reporting
+            // a daily average of roughly 1/31st of the real rate. Only a
+            // completed (or future, where monthProd is 0 anyway) month
+            // divides by the full month; the current month divides by the
+            // days that have actually elapsed in it.
+            const todayStrForMonth = localDateStr(Date.now());
+            const isCurrentMonth = todayStrForMonth >= monthStartStr && todayStrForMonth <= monthEndStr;
+            const daysElapsedInMonth = isCurrentMonth ? Number(todayStrForMonth.split('-')[2]) : daysInMonth(my, mm);
+            const avgDaily = Math.round(monthProd / daysElapsedInMonth);
+            // Same dailyTarget field the Weekly report now reads (Settings ->
+            // Projects -> Daily Target), used to turn "Performance: October
+            // exceeded/missed production targets by X%" from a mislabeled
+            // restatement of the month-over-month change (there was no
+            // target in that sentence at all) into an actual target
+            // comparison: target piles-to-date for the month vs what was
+            // really logged.
+            const monthDailyTarget = project?.dailyTarget || 35;
+            const monthTarget = monthDailyTarget * daysElapsedInMonth;
+            const monthTargetPct = monthTarget > 0 ? Math.round((monthProd / monthTarget) * 100) : null;
             const monthInspections = state.inspections.filter(i => { const d = localDateStr(i.timestamp); return d >= monthStartStr && d <= monthEndStr; });
             const totalInspections = monthInspections.length;
             const passedInspections = monthInspections.filter(i => i.status === 'pass').length;
             const failedInspections = monthInspections.filter(i => i.status === 'fail').length;
             const passRate = totalInspections > 0 ? Math.round((passedInspections / totalInspections) * 100) : 0;
             const monthRefusalsList = state.refusals.filter(r => { const d = localDateStr(r.timestamp); return d >= monthStartStr && d <= monthEndStr; });
+            // Refusal percentage - real rate (refusals as a share of piles
+            // actually installed this month), same as the Weekly report now
+            // computes, instead of just a raw count with no context.
+            const monthRefusalPct = monthProd > 0 ? ((monthRefusalsList.length / monthProd) * 100).toFixed(1) : (monthRefusalsList.length > 0 ? 'N/A' : '0.0');
             const monthChange = prevMonthProd > 0 ? Math.round(((monthProd - prevMonthProd) / prevMonthProd) * 100) : 0;
             const monthLabel = new Date(my, mm - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            // Real Delays log for this calendar month (Schedule's "On Track"
+            // badge, below, pulls from the same place real data lives - see
+            // projectScheduleStatus()).
+            const monthDelaysList = (state.delays || []).filter(function(d) { return d.date >= monthStartStr && d.date <= monthEndStr; });
+            const scheduleStatus = projectScheduleStatus();
             // Crew Performance Rankings - was hardcoded Alpha/Beta/Gamma
             // names with fixed 96.2/93.8/91.4% regardless of what crews
             // actually exist or how they performed. Ranks real crews by
@@ -2084,7 +2203,7 @@ export default async function SolTrendApp() {
                     <h2>\${project?.name || 'Desert Sun Solar Farm'}</h2>
                     <div class="project-details">\${project?.location || 'Phoenix, AZ'} • Client: \${project?.client || 'NextEra Energy'}</div>
                   </div>
-                  <div class="project-badge">\${monthChange >= 0 ? 'On Schedule' : 'Behind'}</div>
+                  <div class="project-badge" style="background:\${scheduleStatus.bg};color:\${scheduleStatus.fg};">\${scheduleStatus.label}</div>
                 </div>
                 <div class="section-title">Key Performance Indicators</div>
                 <div class="kpi-grid">
@@ -2092,7 +2211,7 @@ export default async function SolTrendApp() {
                   <div class="kpi-card"><div class="value">\${formatNumber(monthProd)}</div><div class="label">Piles Month</div></div>
                   <div class="kpi-card"><div class="value">\${passRate}%</div><div class="label">QC Pass</div></div>
                   <div class="kpi-card"><div class="value">\${avgDaily}</div><div class="label">Daily Avg</div></div>
-                  <div class="kpi-card"><div class="value">\${monthRefusalsList.length}</div><div class="label">Refusals</div></div>
+                  <div class="kpi-card"><div class="value">\${monthRefusalsList.length}</div><div class="label">Refusals (\${monthRefusalPct}%)</div></div>
                   <div class="kpi-card"><div class="value">\${state.crews.filter(c => c.status === 'active').length}</div><div class="label">Active Crews</div></div>
                 </div>
                 <div class="section-title">Project Progress</div>
@@ -2130,9 +2249,29 @@ export default async function SolTrendApp() {
                     </div>
                   </div>
                 </div>
+                <div class="section-title">Delays</div>
+                <div class="qc-section" style="margin-bottom:25px;">
+                  \${monthDelaysList.length > 0 ? monthDelaysList.map(function(d) { return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;"><span style="color:#475569;">' + formatDate(d.date) + ' &middot; ' + d.reason.replace(/_/g, ' ') + (d.description ? ' &mdash; ' + d.description : '') + '</span><span style="font-weight:600;color:#1e293b;">' + (d.hoursLost ? d.hoursLost + 'h lost' : '') + '</span></div>'; }).join('') : '<p style="color:#94a3b8;font-size:13px;">No delays recorded this month.</p>'}
+                </div>
                 <div class="notes-section">
                   <h3>Executive Summary</h3>
-                  <div class="notes-content">Performance: \${monthLabel.split(' ')[0]} \${monthChange >= 0 ? 'exceeded' : 'missed'} production targets by \${Math.abs(monthChange)}%, with all crews demonstrating strong performance. QC pass rate of \${passRate}% \${passRate >= 92 ? 'exceeds' : 'approaches'} the 92% target. Month-over-Month: <span class="comparison-badge \${monthChange >= 0 ? 'positive' : 'negative'}">\${monthChange >= 0 ? '+' : ''}\${monthChange}%</span> compared to previous month.</div>
+                  \${(function() {
+                    // Was "exceeded/missed production targets by X%" where X%
+                    // was actually monthChange (this month vs last month) -
+                    // there was no target anywhere in that sentence, just the
+                    // trend figure relabeled as if it were one. Now compares
+                    // real production to this project's actual daily target
+                    // (monthTarget, computed above). "with all crews
+                    // demonstrating strong performance" was unconditional
+                    // text printed every single time regardless of what the
+                    // real crew rankings said - swapped for the actual
+                    // top-ranked crew when this month's inspections produced
+                    // one.
+                    const topCrew = crewRankings.find(function(c) { return c.rate !== null; });
+                    const paceText = monthTargetPct === null ? 'has no daily target set for this project' : (monthTargetPct >= 100 ? 'met its pace target, reaching ' + monthTargetPct + '% of the ' + formatNumber(monthTarget) + '-pile target to date' : 'is behind its pace target, at ' + monthTargetPct + '% of the ' + formatNumber(monthTarget) + '-pile target to date');
+                    const crewText = topCrew ? (', with ' + topCrew.name + ' leading crews at a ' + topCrew.rate + '% QC pass rate') : '';
+                    return '<div class="notes-content">Performance: ' + monthLabel.split(' ')[0] + ' production ' + paceText + crewText + '. QC pass rate for the month was ' + passRate + '%. Month-over-Month: <span class="comparison-badge ' + (monthChange >= 0 ? 'positive' : 'negative') + '">' + (monthChange >= 0 ? '+' : '') + monthChange + '%</span> compared to previous month.</div>';
+                  })()}
                 </div>
                 <div class="report-footer">
                   <div>Report prepared for: \${project?.client || 'NextEra Energy'} | Submitted by: \${state.company?.name || 'Apex Solar'} Project Management</div>
@@ -4547,9 +4686,81 @@ export default async function SolTrendApp() {
           }
 
           // PRODUCTION - WITH PHOTO CAPTURE
+          // Custom date picker for Production Entry - replaces the native
+          // input[type=date] popover, which is a true OS/browser widget that
+          // can't be restyled with CSS and looks/behaves nothing like the
+          // rest of the app. This is just a small inline dropdown, built from
+          // the same card/button styling as everything else, with Prev/Next
+          // month navigation and dates after today disabled (matching the
+          // old input's max="today" cap).
+          function formatProdDateLabel(dateStr) {
+            return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+          }
+          function toggleProdCalendar() {
+            if (!state.prodCalendarOpen) {
+              state.prodCalendarCursor = (state.productionEntry.date || localDateStr(Date.now())).slice(0, 7);
+            }
+            state.prodCalendarOpen = !state.prodCalendarOpen;
+            render();
+          }
+          function navProdCalendar(delta) {
+            const parts = state.prodCalendarCursor.split('-').map(Number);
+            let y = parts[0], m = parts[1] + delta;
+            if (m < 1) { m = 12; y -= 1; } else if (m > 12) { m = 1; y += 1; }
+            state.prodCalendarCursor = y + '-' + pad2(m);
+            render();
+          }
+          function selectProdDate(dateStr) {
+            state.productionEntry.date = dateStr;
+            state.prodCalendarOpen = false;
+            render();
+          }
+          function renderProdCalendar() {
+            const todayStr = localDateStr(Date.now());
+            const cursor = state.prodCalendarCursor || todayStr.slice(0, 7);
+            const parts = cursor.split('-').map(Number);
+            const cy = parts[0], cm = parts[1];
+            const firstDow = new Date(cy, cm - 1, 1).getDay();
+            const totalDays = daysInMonth(cy, cm);
+            const selected = state.productionEntry.date || todayStr;
+            const monthLabel = new Date(cy, cm - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            let cells = '';
+            for (let i = 0; i < firstDow; i++) cells += '<div></div>';
+            for (let day = 1; day <= totalDays; day++) {
+              const ds = cy + '-' + pad2(cm) + '-' + pad2(day);
+              const isFuture = ds > todayStr;
+              const isSelected = ds === selected;
+              const isToday = ds === todayStr;
+              const cls = isSelected ? 'bg-amber-500 text-black font-bold' : isFuture ? 'text-slate-600 cursor-not-allowed' : isToday ? 'border border-amber-500 text-amber-400' : 'text-slate-200 hover:bg-slate-700';
+              cells += '<button type="button" ' + (isFuture ? 'disabled' : 'onclick="selectProdDate(\\'' + ds + '\\')"') + ' class="h-9 w-9 rounded-lg text-sm flex items-center justify-center ' + cls + '">' + day + '</button>';
+            }
+            const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(function(d) { return '<div class="h-6 flex items-center justify-center text-[10px] text-slate-500 uppercase">' + d + '</div>'; }).join('');
+            return '<div onclick="toggleProdCalendar()" class="fixed inset-0 z-20"></div>' +
+              '<div class="absolute z-30 mt-2 p-3 bg-slate-900 border border-slate-600 rounded-xl shadow-xl" style="width:272px;" onclick="event.stopPropagation()">' +
+                '<div class="flex items-center justify-between mb-2">' +
+                  '<button type="button" onclick="navProdCalendar(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-left', 'w-4 h-4') + '</button>' +
+                  '<span class="text-sm font-semibold text-white">' + monthLabel + '</span>' +
+                  '<button type="button" onclick="navProdCalendar(1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-right', 'w-4 h-4') + '</button>' +
+                '</div>' +
+                '<div class="grid grid-cols-7 gap-1 mb-1">' + weekdays + '</div>' +
+                '<div class="grid grid-cols-7 gap-1">' + cells + '</div>' +
+                '<button type="button" onclick="selectProdDate(\\'' + todayStr + '\\')" class="w-full mt-2 py-2 text-xs text-amber-400 hover:text-amber-300 font-medium">Jump to Today</button>' +
+              '</div>';
+          }
           function renderProduction() {
             const todayStr = localDateStr(Date.now());
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div><h1 class="font-display text-xl font-bold text-white">Production Entry</h1></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-5 space-y-4"><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label><input type="date" id="prodDate" value="' + todayStr + '" max="' + todayStr + '" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><p class="text-xs text-slate-500 mt-1">Logging counts/photos for an earlier day? Pick that date here.</p></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Crew</label><select id="prodCrew" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('') + '</select></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Subcontractor</label><select id="prodSubcontractor" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '">' + s.name + '</option>').join('') + '</select></div><div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Piles</label><input type="number" id="prodPiles" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Tables</label><input type="number" id="prodTables" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Modules</label><input type="number" id="prodModules" min="0" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div><div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea id="prodNotes" rows="2" placeholder="Any issues or notes..." class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm"></textarea></div><div>' + renderPhotoCapture('production') + '</div><button onclick="submitProduction()" class="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-lg">Submit</button></div></div>';
+            const entry = state.productionEntry;
+            const dateValue = entry.date || todayStr;
+            const submitting = state.productionSubmitting;
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div><h1 class="font-display text-xl font-bold text-white">Production Entry</h1></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-5 space-y-4">' +
+              '<div class="relative"><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label><button type="button" onclick="toggleProdCalendar()" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white flex items-center justify-between">' + '<span>' + formatProdDateLabel(dateValue) + '</span>' + icon('calendar', 'w-4 h-4 text-slate-500') + '</button>' + (state.prodCalendarOpen ? renderProdCalendar() : '') + '<p class="text-xs text-slate-500 mt-1">Logging counts/photos for an earlier day? Pick that date here.</p></div>' +
+              '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Crew</label><select onchange="state.productionEntry.crew=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '"' + (entry.crew === c.id ? ' selected' : '') + '>' + c.name + '</option>').join('') + '</select></div>' +
+              '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Subcontractor</label><select onchange="state.productionEntry.subcontractor=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '"' + (entry.subcontractor === s.id ? ' selected' : '') + '>' + s.name + '</option>').join('') + '</select></div>' +
+              '<div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Piles</label><input type="number" min="0" value="' + entry.piles + '" oninput="state.productionEntry.piles=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Tables</label><input type="number" min="0" value="' + entry.tables + '" oninput="state.productionEntry.tables=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Modules</label><input type="number" min="0" value="' + entry.modules + '" oninput="state.productionEntry.modules=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div>' +
+              '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea oninput="state.productionEntry.notes=this.value" rows="2" placeholder="Any issues or notes..." class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (entry.notes || '') + '</textarea></div>' +
+              '<div>' + renderPhotoCapture('production') + '</div>' +
+              '<button onclick="submitProduction()" ' + (submitting ? 'disabled' : '') + ' class="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold text-lg flex items-center justify-center gap-2">' + (submitting ? '<span class="spinner"></span><span>Saving...</span>' : '<span>Submit</span>') + '</button>' +
+            '</div></div>';
           }
           // Previously this just showed an alert and threw away everything
           // typed into the form - nothing was ever read from the inputs or
@@ -4560,31 +4771,42 @@ export default async function SolTrendApp() {
           // it per-project via /api/production, and keeps the current
           // project's cached installedPiles count in sync with the server.
           async function submitProduction() {
+            if (state.productionSubmitting) return;
             hapticFeedback();
-            // Defaults to today (the date input is pre-filled and capped at
-            // today), but a field crew logging yesterday's counts the next
+            const entry = state.productionEntry;
+            // Defaults to today (the date picker opens pre-filled and caps
+            // at today), but a field crew logging yesterday's counts the next
             // morning can back-date this to whichever day the work actually
             // happened. Picking a date that already has an entry updates
             // that day's totals rather than adding a second entry for it -
             // same upsert-by-day behavior /api/production already had.
-            const dateStr = document.getElementById('prodDate')?.value || null;
-            const pilesInstalled = parseInt(document.getElementById('prodPiles')?.value) || 0;
+            const dateStr = entry.date || null;
+            const pilesInstalled = parseInt(entry.piles) || 0;
             // Was appended into the Notes text as "N tables, N modules" -
             // now stored as real numeric fields so the dashboards can chart
             // them the same way they chart piles.
-            const tablesInstalled = parseInt(document.getElementById('prodTables')?.value) || 0;
-            const modulesInstalled = parseInt(document.getElementById('prodModules')?.value) || 0;
-            const crewId = document.getElementById('prodCrew')?.value || null;
-            const subcontractorId = document.getElementById('prodSubcontractor')?.value || null;
-            const notes = (document.getElementById('prodNotes')?.value || '').trim();
+            const tablesInstalled = parseInt(entry.tables) || 0;
+            const modulesInstalled = parseInt(entry.modules) || 0;
+            const crewId = entry.crew || null;
+            const subcontractorId = entry.subcontractor || null;
+            const notes = (entry.notes || '').trim();
 
             if (pilesInstalled <= 0 && tablesInstalled <= 0 && modulesInstalled <= 0 && !notes) {
-              alert('Enter a pile, table or module count, or a note, before submitting.');
+              showToast('Enter a pile, table or module count, or a note, before submitting.', 'error');
               return;
             }
 
-            const photos = state.productionEntry.photos;
+            const photos = entry.photos;
             const projectId = state.currentProject?.id || 'proj_001';
+            // A real submit (photo upload + API round trip) can take a few
+            // seconds with nothing visibly happening in between - previously
+            // just a silent pause, then a blocking alert() once it finally
+            // finished. Disables the button and shows a spinner for the
+            // whole in-flight window so it's obvious something is working,
+            // and swaps the blocking alert() for the existing (and until now
+            // unused) toast so a mistake doesn't need a tap to dismiss.
+            state.productionSubmitting = true;
+            render();
             try {
               const uploadedPhotos = await uploadPendingPhotos(photos, 'production', projectId);
               const res = await fetch('/api/production', {
@@ -4615,12 +4837,16 @@ export default async function SolTrendApp() {
                   proj.modulesInstalled = data.modulesInstalled;
                 }
               }
-              state.productionEntry = { crew: null, subcontractor: null, notes: '', photos: [] };
+              state.productionEntry = { date: null, crew: null, subcontractor: null, piles: '', tables: '', modules: '', notes: '', photos: [] };
               await loadProduction();
-              alert('Production entry saved.');
+              state.productionSubmitting = false;
+              render();
+              showToast('Production entry saved.', 'success');
             } catch (e) {
               console.error('Save production error:', e);
-              alert('Failed to save production entry - check your connection and try again.');
+              state.productionSubmitting = false;
+              render();
+              showToast('Failed to save production entry - check your connection and try again.', 'error');
             }
           }
 
