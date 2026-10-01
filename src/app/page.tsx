@@ -124,6 +124,16 @@ export default async function SolTrendApp() {
         .project-order-row.dragging { position: relative; z-index: 10; box-shadow: 0 12px 24px rgba(0,0,0,0.4); cursor: grabbing; }
         .project-drag-handle { cursor: grab; color: #64748b; padding: 4px; touch-action: none; flex-shrink: 0; }
         .project-drag-handle:hover { color: #94a3b8; }
+        /* iOS Safari renders a native type="date" input's value as a
+           rounded "pill" inside the field, sized by WebKit's own shadow DOM
+           rather than the input's CSS box - width:100% on the input itself
+           doesn't reliably constrain it, so on a narrow phone screen (and
+           worst on the big touch-friendly date fields in Production/Delays)
+           that pill can render wider than the card around it. appearance:
+           none drops into WebKit's plain text-field rendering instead,
+           which does respect the box; tapping the field still opens the
+           native date picker either way. */
+        input[type="date"] { -webkit-appearance: none; appearance: none; width: 100%; min-width: 0; box-sizing: border-box; }
       ` }} />
       <div id="app-loading" className="app-loading-screen">
         <img src="/logo-mark.png" alt="SolTrend Pro" />
