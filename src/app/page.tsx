@@ -120,7 +120,12 @@ export default async function SolTrendApp() {
         .app-loading-screen img { width: 56px; height: 56px; border-radius: 14px; box-shadow: 0 8px 24px rgba(245, 158, 11, 0.25); animation: appLoadingPulse 1.6s ease-in-out infinite; }
         @keyframes appLoadingPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.94); } }
         .app-loading-text { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px; color: var(--fg-muted); letter-spacing: 0.5px; }
-        .project-order-row { touch-action: none; }
+        /* touch-action: none belongs on the small grip handle only - it
+           used to sit on the whole row, which blocked ordinary scrolling
+           anywhere a finger touched a project card (only the gaps between
+           cards would scroll). The handle alone is the drag's actual
+           touch target, so it's the only part that needs to opt out of
+           the browser's default touch-scroll handling. */
         .project-order-row.dragging { position: relative; z-index: 10; box-shadow: 0 12px 24px rgba(0,0,0,0.4); cursor: grabbing; }
         .project-drag-handle { cursor: grab; color: #64748b; padding: 4px; touch-action: none; flex-shrink: 0; }
         .project-drag-handle:hover { color: #94a3b8; }
@@ -3006,23 +3011,38 @@ export default async function SolTrendApp() {
             const index = photos.findIndex(function(p) { return p.key === state.galleryLightboxPhoto; });
             if (index === -1) return '';
             const photo = photos[index];
-            const canDelete = hasRole('manager') && photo.source === 'gallery';
             const slides = photos.map(function(p) {
               return '<div class="lb-slide"><img src="' + p.url + '" alt="' + p.label + '" draggable="false"></div>';
             }).join('');
             return '<div class="lb-backdrop">' +
-              '<div class="lb-top"><span class="lb-counter">' + (index + 1) + ' of ' + photos.length + '</span><div class="lb-close" onclick="closeGalleryLightbox()">' + icon('x', 'w-5 h-5') + '</div></div>' +
+              '<div class="lb-top"><span class="lb-counter" id="lbCounter">' + (index + 1) + ' of ' + photos.length + '</span><div class="lb-close" onclick="closeGalleryLightbox()">' + icon('x', 'w-5 h-5') + '</div></div>' +
               '<div class="lb-viewport" id="lbViewport" onmousedown="lbDragStart(event.clientX)" ontouchstart="lbDragStart(event.touches[0].clientX)" ontouchmove="lbDragMove(event.touches[0].clientX)" ontouchend="lbDragEnd()">' +
                 '<div class="lb-track" id="lbTrack" style="transform: translateX(' + (-index * 100) + 'vw)">' + slides + '</div>' +
-                '<div class="lb-nav prev' + (index === 0 ? ' disabled' : '') + '" onclick="lbGo(-1)">' + icon('chevron-left', 'w-5 h-5') + '</div>' +
-                '<div class="lb-nav next' + (index === photos.length - 1 ? ' disabled' : '') + '" onclick="lbGo(1)">' + icon('chevron-right', 'w-5 h-5') + '</div>' +
+                '<div class="lb-nav prev' + (index === 0 ? ' disabled' : '') + '" id="lbPrevNav" onclick="lbGo(-1)">' + icon('chevron-left', 'w-5 h-5') + '</div>' +
+                '<div class="lb-nav next' + (index === photos.length - 1 ? ' disabled' : '') + '" id="lbNextNav" onclick="lbGo(1)">' + icon('chevron-right', 'w-5 h-5') + '</div>' +
               '</div>' +
-              '<div class="lb-meta"><p class="text-white font-medium">' + photo.label + '</p><p class="text-xs text-slate-500 mt-1">' + formatDate(photo.date) + (photo.uploader ? ' &middot; ' + photo.uploader : '') + '</p>' +
-              '<div class="grid grid-cols-2 gap-2 mt-4"><button onclick="shareGalleryPhoto(\\'' + photo.key + '\\')" class="py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium flex items-center justify-center gap-2">' + icon('share-2', 'w-4 h-4') + ' Share</button>' +
-              '<button onclick="downloadGalleryPhotoSingle(\\'' + photo.key + '\\')" class="py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Download</button></div>' +
-              (canDelete ? '<button onclick="deleteGalleryPhoto(\\'' + photo.galleryId + '\\')" class="w-full mt-2 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm font-medium flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button>' : '') +
+              '<div class="lb-meta"><p class="text-white font-medium" id="lbLabel">' + photo.label + '</p><p class="text-xs text-slate-500 mt-1" id="lbDate">' + formatDate(photo.date) + (photo.uploader ? ' &middot; ' + photo.uploader : '') + '</p>' +
+              '<div id="lbActions">' + renderLbActions(photo) + '</div>' +
               '</div></div>';
           }
+          // Share/Download/Delete read whichever photo is CURRENTLY open
+          // (via state.galleryLightboxPhoto) rather than a key baked into
+          // the button's onclick at render time - that's what lets lbGo()
+          // swap slides via direct DOM updates (see below) without having
+          // to rebuild these buttons on every swipe.
+          function renderLbActions(photo) {
+            const canDelete = hasRole('manager') && photo.source === 'gallery';
+            return '<div class="grid grid-cols-2 gap-2 mt-4">' +
+              '<button onclick="lbShareCurrent()" class="py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium flex items-center justify-center gap-2">' + icon('share-2', 'w-4 h-4') + ' Share</button>' +
+              '<button onclick="lbDownloadCurrent()" class="py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Download</button></div>' +
+              (canDelete ? '<button onclick="lbDeleteCurrent()" class="w-full mt-2 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm font-medium flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button>' : '');
+          }
+          function lbCurrentPhoto() {
+            return buildGalleryPhotos().find(function(p) { return p.key === state.galleryLightboxPhoto; });
+          }
+          function lbShareCurrent() { const p = lbCurrentPhoto(); if (p) shareGalleryPhoto(p.key); }
+          function lbDownloadCurrent() { const p = lbCurrentPhoto(); if (p) downloadGalleryPhotoSingle(p.key); }
+          function lbDeleteCurrent() { const p = lbCurrentPhoto(); if (p) deleteGalleryPhoto(p.galleryId); }
           function lbSetTranslate(vw, animate) {
             const track = document.getElementById('lbTrack');
             if (!track) return;
@@ -3060,12 +3080,35 @@ export default async function SolTrendApp() {
             else lbSetTranslate(-index * 100, true);
             lbDrag = null;
           }
+          // Deliberately does NOT call render(): render() replaces the
+          // app's entire DOM subtree (see its own comment elsewhere in this
+          // file), which for a moment removes the lightbox from the page
+          // entirely before the new one is inserted - on a real device
+          // that showed as a flash back to the bare gallery grid between
+          // every swipe. Updating just the handful of nodes that actually
+          // change (translate the strip, counter, label/date, nav disabled
+          // state, and the actions block when Delete's visibility changes)
+          // keeps the photo itself fixed in place and switches everything
+          // else instantly with no in-between frame.
           function lbGo(dir) {
             const photos = buildGalleryPhotos();
             const next = lbCurrentIndex() + dir;
             if (next < 0 || next > photos.length - 1) return;
-            state.galleryLightboxPhoto = photos[next].key;
-            render();
+            const photo = photos[next];
+            state.galleryLightboxPhoto = photo.key;
+            lbSetTranslate(-next * 100, true);
+            const counter = document.getElementById('lbCounter');
+            if (counter) counter.textContent = (next + 1) + ' of ' + photos.length;
+            const label = document.getElementById('lbLabel');
+            if (label) label.textContent = photo.label;
+            const dateEl = document.getElementById('lbDate');
+            if (dateEl) dateEl.innerHTML = formatDate(photo.date) + (photo.uploader ? ' &middot; ' + photo.uploader : '');
+            const prevNav = document.getElementById('lbPrevNav');
+            if (prevNav) prevNav.classList.toggle('disabled', next === 0);
+            const nextNav = document.getElementById('lbNextNav');
+            if (nextNav) nextNav.classList.toggle('disabled', next === photos.length - 1);
+            const actions = document.getElementById('lbActions');
+            if (actions) { actions.innerHTML = renderLbActions(photo); if (window.lucide) lucide.createIcons(); }
           }
           // Registered once at script load (this script only ever runs
           // once per page load), not per-render, so these never pile up -
@@ -3161,10 +3204,20 @@ export default async function SolTrendApp() {
               }
             } catch (e) { console.error('Delete gallery photo error:', e); alert('Failed to delete photo.'); }
           }
-          // Fetches a photo as a blob and triggers a browser download - the
-          // same mechanism works on desktop and mobile (iOS Safari/Chrome
-          // save it to Files/Downloads same as any other download), so
-          // there's no separate "Save" action needed alongside "Download".
+          // Fetches a blob and triggers a browser download via a throwaway
+          // anchor - works cleanly on desktop and Android Chrome for any
+          // file type. iOS Safari is the exception: it ignores the
+          // download attribute for anything it can preview inline, and
+          // image/* always qualifies, so a single photo's blob: URL
+          // doesn't download at all - Safari just navigates the CURRENT
+          // tab to show the image. That's what was behind "download asks
+          // to share to Instagram" (not our code - that's Safari's own
+          // image-viewer share icon, shown because the download never
+          // happened) and "Done takes you back to the dashboard" (that
+          // navigation left the single-page app, so returning to the tab
+          // reloads it fresh at the default view instead of restoring
+          // wherever you were). A .zip isn't previewable, so this path is
+          // still correct and unchanged for the bulk download below.
           function downloadBlobAs(blob, filename) {
             const blobUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -3172,9 +3225,24 @@ export default async function SolTrendApp() {
             document.body.appendChild(a); a.click(); a.remove();
             setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 1000);
           }
+          function isIOSSafariLike() {
+            return /iP(hone|ad|od)/.test(navigator.userAgent);
+          }
           async function downloadGalleryPhotoSingle(key) {
             const photo = buildGalleryPhotos().find(function(p) { return p.key === key; });
             if (!photo) return;
+            // iOS can't be made to silently download a single image from a
+            // web page - there's no API for it. Opening it in a NEW tab
+            // (rather than navigating this one) keeps the app's state
+            // intact, and a plain Safari image view's own "Save Image" (via
+            // tap-and-hold, or the native share icon if they choose it) is
+            // the standard, unconfusing way iOS users already save images
+            // from the web.
+            if (isIOSSafariLike()) {
+              window.open(photo.url, '_blank');
+              showToast('Opened in a new tab - tap and hold the photo, then Save Image.', 'success');
+              return;
+            }
             try {
               const res = await fetch(photo.url);
               const blob = await res.blob();
@@ -3650,7 +3718,14 @@ export default async function SolTrendApp() {
               twistDeg: twistVal ? parseFloat(twistVal) : null,
               spacingIn: spacingVal ? parseFloat(spacingVal) : null,
               alignmentIn: alignmentVal ? parseFloat(alignmentVal) : null,
-              failReason: status === 'fail' ? state.inspectionFailReason : null
+              failReason: status === 'fail' ? state.inspectionFailReason : null,
+              // Starts empty because the photos the user just took haven't
+              // been uploaded yet at this point (see saveInspection below) -
+              // without this field at all, the Gallery/Daily Report photo
+              // appendix silently showed zero photos for any inspection
+              // recorded this session, since they read inspection.photos
+              // directly and undefined isn't an array to iterate.
+              photos: []
             };
             // Replace, don't append: an earlier local record for this pile
             // (from initial load, or an earlier reinspect this session)
@@ -4779,10 +4854,19 @@ export default async function SolTrendApp() {
               if (!res.ok) {
                 const err = await res.json().catch(function() { return {}; });
                 showToast(err.error || 'Failed to save this inspection.', 'error');
+              } else if (uploadedPhotos.length > 0) {
+                // inspection is the same object sitting in state.inspections
+                // (recordInspection pushed this exact reference before
+                // calling saveInspection), so mutating it here updates the
+                // Gallery/Daily Report in place as soon as the upload
+                // finishes - no reload or project switch needed to see a
+                // photo that was just taken.
+                inspection.photos = uploadedPhotos;
+                render();
               }
             } catch (e) { console.error('Save inspection error:', e); showToast('Failed to save this inspection - check your connection.', 'error'); }
           }
-          
+
           async function saveRefusal(refusal, photos) {
             try {
               const projectId = state.currentProject?.id || 'proj_001';
@@ -4806,6 +4890,12 @@ export default async function SolTrendApp() {
               if (!res.ok) {
                 const err = await res.json().catch(function() { return {}; });
                 showToast(err.error || 'Failed to save this refusal.', 'error');
+              } else if (uploadedPhotos.length > 0) {
+                // Same fix as saveInspection - refusal is the exact object
+                // already sitting in state.refusals, so this updates the
+                // Gallery/Daily Report as soon as the upload finishes.
+                refusal.photos = uploadedPhotos;
+                render();
               }
             } catch (e) { console.error('Save refusal error:', e); showToast('Failed to save this refusal - check your connection.', 'error'); }
           }
@@ -4864,7 +4954,12 @@ export default async function SolTrendApp() {
               user: state.currentUser.name,
               targetDepth: state.targetDepth,
               achievedDepth: state.achievedDepth,
-              notes: state.refusalNotes || null
+              notes: state.refusalNotes || null,
+              // See the matching comment in recordInspection() - same bug,
+              // same fix: without this, a refusal logged this session never
+              // showed its photos in the Gallery or Daily Report until a
+              // full reload pulled the real record back from the server.
+              photos: []
             };
             // Replace, don't append, for the same reason as recordInspection:
             // re-logging a refusal for a pile that already has one shouldn't
