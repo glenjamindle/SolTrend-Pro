@@ -422,6 +422,26 @@ export default async function SolTrendApp() {
           function formatNumber(num) { return num?.toLocaleString() || '0'; }
           function getPileId(row, pile) { return row + '-' + pile; }
           function parsePileId(id) { const parts = String(id).split('-'); return { row: parseInt(parts[0]) || 1, pile: parseInt(parts[1]) || 1 }; }
+          // Real per-row pile count for Inspection/Refusal's prev/next
+          // navigation. A project with a custom (irregular) pile layout -
+          // imported from CSV or built up manually, see syncProjectPileMode -
+          // can have rows that are shorter than the generic
+          // totalRows x pilesPerRow rectangle (e.g. row 1 only has 9 real
+          // piles). The nav buttons used to always cap at
+          // state.heatmap.pilesPerRow regardless, so on a custom layout they
+          // happily stepped past the end of a short row into pile IDs that
+          // don't exist. Falls back to the rectangle's pilesPerRow for
+          // 'grid'-mode projects (or before any piles have loaded), which
+          // keeps that case working exactly as before.
+          function getRowPileCount(row) {
+            if (state.currentProject?.pileLayoutMode === 'custom' && state.piles && state.piles.length > 0) {
+              const rowPiles = state.piles.filter(function(p) { return p.row === row; });
+              if (rowPiles.length > 0) {
+                return rowPiles.reduce(function(m, p) { return Math.max(m, p.position || 0); }, 0);
+              }
+            }
+            return state.heatmap.pilesPerRow;
+          }
 
           // DATE HELPERS FOR REPORTS
           // localDateStr() renders an epoch-ms timestamp as a YYYY-MM-DD string
@@ -1619,6 +1639,10 @@ export default async function SolTrendApp() {
             const totalInspected = passed + failed;
             const dayRefusalsList = state.refusals.filter(r => localDateStr(r.timestamp) === date);
             const dayRefusals = dayRefusalsList.length;
+            // Real Delays log for this exact date (same source as the
+            // Delays tab and the Weekly/Monthly reports' Delays section) -
+            // defaults to "no delays" unless one was actually recorded.
+            const dayDelaysList = (state.delays || []).filter(function(d) { return d.date === date; });
             const refusalRate = totalInspected > 0 ? ((dayRefusals / (totalInspected + dayRefusals)) * 100).toFixed(1) : '0.0';
             // Was a fabricated guess (piles/4, piles*2) instead of the real
             // tables/modules counts the production entry actually recorded -
@@ -1711,19 +1735,12 @@ export default async function SolTrendApp() {
                   .qc-card.refusal .value { color: #ea580c; }
                   .qc-card.total .value { color: #4f46e5; }
                   .qc-card .label { font-size: 11px; font-weight: 600; text-transform: uppercase; margin-top: 4px; }
-                  .activity-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
-                  .activity-table th { background: #1e293b; color: white; padding: 12px 15px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-                  .activity-table td { padding: 12px 15px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #334155; }
-                  .activity-table tr:nth-child(even) { background: #f8fafc; }
-                  .status-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-                  .status-badge.pass { background: #dcfce7; color: #166534; }
-                  .status-badge.fail { background: #fee2e2; color: #991b1b; }
-                  .status-badge.refusal { background: #ffedd5; color: #9a3412; }
                   .notes-section { background: #fefce8; border: 2px dashed #f59e0b; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
                   .notes-section h3 { font-size: 14px; font-weight: 700; color: #92400e; margin-bottom: 10px; }
                   .notes-content { font-size: 13px; color: #78350f; line-height: 1.6; }
                   .photo-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
                   .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .qc-section { background: #f8fafc; border-radius: 10px; padding: 20px; }
                   .report-footer { border-top: 2px solid #e2e8f0; padding-top: 15px; margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
                 </style>
               </head>
@@ -1782,32 +1799,10 @@ export default async function SolTrendApp() {
                   <div class="qc-card hold"><div class="value">0</div><div class="label">On Hold</div></div>
                   <div class="qc-card refusal"><div class="value">\${dayRefusals}</div><div class="label">Refusals</div></div>
                 </div>
-                <div class="section-title">Activity Detail</div>
-                <table class="activity-table">
-                  <thead><tr><th>Time</th><th>Pile ID</th><th>Activity</th><th>Crew</th><th>Status</th></tr></thead>
-                  <tbody>
-                    \${dayProd && ((dayProd.piles || 0) + (dayProd.tables || 0) + (dayProd.modules || 0)) > 0 ? (function() {
-                      // Production is logged once per day as a single
-                      // aggregate entry, not a timestamped per-pile event like
-                      // inspections/refusals - this used to be left out of the
-                      // table entirely, so a day with piles installed but no
-                      // inspections showed "No activity recorded" even though
-                      // the Daily Summary cards above clearly showed production.
-                      const parts = [];
-                      if (dayProd.piles) parts.push(formatNumber(dayProd.piles) + ' piles');
-                      if (dayProd.tables) parts.push(formatNumber(dayProd.tables) + ' tables');
-                      if (dayProd.modules) parts.push(formatNumber(dayProd.modules) + ' modules');
-                      return '<tr><td>—</td><td>—</td><td>Production Logged (' + parts.join(', ') + ')</td><td>' + (dayProd.crew || dayProd.user || 'Unassigned') + '</td><td><span class="status-badge pass">Logged</span></td></tr>';
-                    })() : ''}
-                    \${dayInspections.slice().reverse().map(i =>
-                      '<tr><td>' + new Date(i.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) + '</td><td>' + i.pileId + '</td><td>QC Inspection</td><td>' + i.user + '</td><td><span class="status-badge ' + i.status + '">' + i.status + '</span></td></tr>'
-                    ).join('')}
-                    \${dayRefusalsList.slice().reverse().map(r =>
-                      '<tr><td>' + new Date(r.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) + '</td><td>' + r.pileId + '</td><td>Refusal Logged</td><td>' + r.user + '</td><td><span class="status-badge refusal">Refusal</span></td></tr>'
-                    ).join('')}
-                    \${(dayInspections.length + dayRefusalsList.length === 0 && !(dayProd && ((dayProd.piles || 0) + (dayProd.tables || 0) + (dayProd.modules || 0)) > 0)) ? '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">No activity recorded for this date</td></tr>' : ''}
-                  </tbody>
-                </table>
+                <div class="section-title">Delays</div>
+                <div class="qc-section" style="margin-bottom:25px;">
+                  \${dayDelaysList.length > 0 ? dayDelaysList.map(function(d) { return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #e2e8f0;font-size:13px;"><span style="color:#475569;">' + d.reason.replace(/_/g, ' ') + (d.description ? ' &mdash; ' + d.description : '') + '</span><span style="font-weight:600;color:#1e293b;">' + (d.hoursLost ? d.hoursLost + 'h lost' : '') + '</span></div>'; }).join('') : '<p style="color:#94a3b8;font-size:13px;">No delays recorded today.</p>'}
+                </div>
                 <div class="notes-section">
                   <h3>Daily Notes</h3>
                   <div class="notes-content">Weather conditions were favorable for pile driving operations. All crews operating at normal capacity. \${failed > 0 ? failed + ' piles failed QC and require remediation. ' : ''}\${dayRefusals > 0 ? dayRefusals + ' refusal(s) logged - engineering notified for alternative pile locations.' : 'No refusals encountered today.'}</div>
@@ -3201,10 +3196,16 @@ export default async function SolTrendApp() {
             ) : '';
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">QC Inspection</h1></div><div class="flex items-center gap-2"><span class="badge-pass px-3 py-1.5 rounded-full text-sm">' + state.session.passed + ' Pass</span><span class="badge-fail px-3 py-1.5 rounded-full text-sm">' + state.session.failed + ' Fail</span></div></div><div class="flex gap-2"><button onclick="setInspectionMode(\\'quick\\')" class="mode-btn ' + (state.inspectionMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">quick</button><button onclick="setInspectionMode(\\'detailed\\')" class="mode-btn ' + (state.inspectionMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">detailed</button></div><div class="pile-display p-6"><p class="text-xs text-slate-500 uppercase tracking-wider text-center mb-3">INSPECTING</p><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.currentRow + '</span><button onclick="incRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div>' + detailedPanel + '<div class="grid grid-cols-2 gap-3"><button onclick="recordInspection(\\'pass\\')" class="btn-action bg-green-600 text-white flex flex-col items-center justify-center gap-2">' + icon('check-circle', 'w-12 h-12') + '<span>PASS</span></button><button onclick="recordInspection(\\'fail\\')" class="btn-action bg-red-600 text-white flex flex-col items-center justify-center gap-2">' + icon('x-circle', 'w-12 h-12') + '<span>FAIL</span></button></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('inspection') + '</div></div>';
           }
-          function incPile() { hapticFeedback(); if (state.currentPile < state.heatmap.pilesPerRow) state.currentPile++; syncInspectionPileTypeFromLayout(); render(); }
+          function incPile() { hapticFeedback(); if (state.currentPile < getRowPileCount(state.currentRow)) state.currentPile++; syncInspectionPileTypeFromLayout(); render(); }
           function decPile() { hapticFeedback(); if (state.currentPile > 1) state.currentPile--; syncInspectionPileTypeFromLayout(); render(); }
-          function incRow() { hapticFeedback(); if (state.currentRow < state.heatmap.totalRows) state.currentRow++; syncInspectionPileTypeFromLayout(); render(); }
-          function decRow() { hapticFeedback(); if (state.currentRow > 1) state.currentRow--; syncInspectionPileTypeFromLayout(); render(); }
+          // Clamp currentPile to the row just switched to - on a custom
+          // layout a row can be shorter than the one just left (see
+          // getRowPileCount), so without this, moving from a long row while
+          // sitting on pile 25 onto a 9-pile row left the counter on "2-25",
+          // a pile that doesn't exist.
+          function clampCurrentPileToRow() { const max = getRowPileCount(state.currentRow); if (max > 0 && state.currentPile > max) state.currentPile = max; }
+          function incRow() { hapticFeedback(); if (state.currentRow < state.heatmap.totalRows) state.currentRow++; clampCurrentPileToRow(); syncInspectionPileTypeFromLayout(); render(); }
+          function decRow() { hapticFeedback(); if (state.currentRow > 1) state.currentRow--; clampCurrentPileToRow(); syncInspectionPileTypeFromLayout(); render(); }
           function setInspectionMode(mode) { state.inspectionMode = mode; render(); }
           function selectInspectionFailReason(reason) { hapticFeedback(); state.inspectionFailReason = state.inspectionFailReason === reason ? null : reason; render(); }
           function recordInspection(status) {
@@ -3260,7 +3261,7 @@ export default async function SolTrendApp() {
               else if (status === 'fail') state.currentProject.failedInspections = (state.currentProject.failedInspections || 0) + 1;
             }
             state.session[status === 'pass' ? 'passed' : 'failed']++;
-            if (state.currentPile < state.heatmap.pilesPerRow) state.currentPile++;
+            if (state.currentPile < getRowPileCount(state.currentRow)) state.currentPile++;
             state.inspectionPhotos = [];
             state.inspectionFailReason = null;
             state.inspectionDepth = '';
@@ -4414,10 +4415,11 @@ export default async function SolTrendApp() {
             if (box) box.className = sc + ' rounded-xl p-4 text-center';
             if (val) val.textContent = sh !== null ? (sh + '"') : 'Enter both depths';
           }
-          function incRefusalPile() { hapticFeedback(); if (state.refusalPile < state.heatmap.pilesPerRow) state.refusalPile++; render(); }
+          function incRefusalPile() { hapticFeedback(); if (state.refusalPile < getRowPileCount(state.refusalRow)) state.refusalPile++; render(); }
           function decRefusalPile() { hapticFeedback(); if (state.refusalPile > 1) state.refusalPile--; render(); }
-          function incRefusalRow() { hapticFeedback(); if (state.refusalRow < state.heatmap.totalRows) state.refusalRow++; render(); }
-          function decRefusalRow() { hapticFeedback(); if (state.refusalRow > 1) state.refusalRow--; render(); }
+          function clampRefusalPileToRow() { const max = getRowPileCount(state.refusalRow); if (max > 0 && state.refusalPile > max) state.refusalPile = max; }
+          function incRefusalRow() { hapticFeedback(); if (state.refusalRow < state.heatmap.totalRows) state.refusalRow++; clampRefusalPileToRow(); render(); }
+          function decRefusalRow() { hapticFeedback(); if (state.refusalRow > 1) state.refusalRow--; clampRefusalPileToRow(); render(); }
           function setRefusalReason(reason) { state.refusalReason = reason; render(); }
           function submitRefusal() {
             hapticFeedback();
@@ -4442,7 +4444,7 @@ export default async function SolTrendApp() {
               state.openRefusals++;
               if (state.currentProject) state.currentProject.refusalCount = (state.currentProject.refusalCount || 0) + 1;
             }
-            if (state.refusalPile < state.heatmap.pilesPerRow) state.refusalPile++;
+            if (state.refusalPile < getRowPileCount(state.refusalRow)) state.refusalPile++;
             state.achievedDepth = null;
             state.refusalReason = null;
             state.refusalNotes = '';
