@@ -52,6 +52,7 @@ model User {
   deliveries Delivery[]
   rfis      Rfi[]
   submittals Submittal[]
+  galleryPhotos GalleryPhoto[]
 }
 
 // Project - Solar installation project
@@ -131,6 +132,7 @@ model Project {
   deliveries         Delivery[]
   rfis               Rfi[]
   submittals         Submittal[]
+  galleryPhotos      GalleryPhoto[]
 }
 
 // Crew - Work crews
@@ -432,6 +434,30 @@ model Document {
   projectId String
   userId    String
   createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+// GalleryPhoto - a photo added straight to the project's photo gallery,
+// not attached to an inspection, refusal, or production log entry (the
+// "a supervisor stops by with a phone full of site photos" case). The
+// gallery view in the app also shows photos FROM those other records,
+// but those stay owned by their own model - this one is only for photos
+// that have no other home. date is the calendar day the photo is filed
+// under for the gallery's month grouping (defaults to upload day, but is
+// editable like every other date in this app) - deliberately separate
+// from createdAt, which is just when the row was written.
+model GalleryPhoto {
+  id        String   @id @default(cuid())
+  fileKey   String
+  fileUrl   String
+  caption   String?
+  date      DateTime
+  createdAt DateTime @default(now())
+
+  projectId String
+  userId    String
 
   project   Project  @relation(fields: [projectId], references: [id])
   user      User     @relation(fields: [userId], references: [id])

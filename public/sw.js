@@ -10,8 +10,18 @@
 // It deliberately leaves /api/ requests alone - the page's own fetch
 // wrapper already caches and queues those with per-record precision, and
 // doubling that up here would just be two caches to keep in sync.
-
-const CACHE_NAME = 'soltrend-shell-v1';
+//
+// NETWORK-FIRST, not stale-while-revalidate: this used to serve whatever
+// was cached immediately and only refresh it in the background, which
+// meant that after every deploy, the first load still ran the OLD shell
+// (bug fixes included) and only the load after that picked up the new
+// one. For an app under active development that's confusing at best -
+// "the fix doesn't work" when it actually just hadn't been served yet -
+// and in the field it meant a crew could be running yesterday's bugs with
+// a perfectly good signal. Network-first means the cache is only ever a
+// fallback for when there's truly no connection, which was the actual
+// goal per the comment above, not a performance cache.
+const CACHE_NAME = 'soltrend-shell-v2';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -34,36 +44,25 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
-    const cached = await cache.match(req);
-
-    const networkFetch = fetch(req)
-      .then((res) => {
-        if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());
-        return res;
-      })
-      .catch(() => null);
-
-    if (cached) {
-      // Serve the cached copy immediately; refresh it in the background so
-      // a page that's back online still picks up updates without the user
-      // waiting on that round trip.
-      event.waitUntil(networkFetch);
-      return cached;
+    try {
+      const networkRes = await fetch(req);
+      if (networkRes && (networkRes.ok || networkRes.type === 'opaque')) {
+        cache.put(req, networkRes.clone());
+      }
+      return networkRes;
+    } catch (e) {
+      // Truly offline (or the request failed outright) - fall back to
+      // whatever was cached from the last successful load.
+      const cached = await cache.match(req);
+      if (cached) return cached;
+      if (req.mode === 'navigate') {
+        const shell = await cache.match('/');
+        if (shell) return shell;
+      }
+      return new Response('Offline and nothing cached for this yet.', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain' },
+      });
     }
-
-    const networkRes = await networkFetch;
-    if (networkRes) return networkRes;
-
-    // Nothing cached and no network. For a page navigation, fall back to
-    // whatever shell page is cached so the app still boots instead of the
-    // browser's own offline error page.
-    if (req.mode === 'navigate') {
-      const shell = await cache.match('/');
-      if (shell) return shell;
-    }
-    return new Response('Offline and nothing cached for this yet.', {
-      status: 503,
-      headers: { 'Content-Type': 'text/plain' },
-    });
   })());
 });

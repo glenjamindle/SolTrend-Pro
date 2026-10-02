@@ -130,6 +130,24 @@ export default async function SolTrendApp() {
            amber "Submit" button or a plain dark one. */
         .spinner { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid rgba(0,0,0,0.25); border-top-color: currentColor; animation: spin 0.7s linear infinite; flex-shrink: 0; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        /* Gallery lightbox - a horizontal strip holding every photo in the
+           gallery's current sort order, dragged/swiped between slides. See
+           renderGalleryLightbox()/lbDragStart() etc. in the script below. */
+        .lb-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.92); display: flex; flex-direction: column; touch-action: none; }
+        .lb-top { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; flex-shrink: 0; }
+        .lb-counter { font-size: 12px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+        .lb-close { padding: 8px; background: rgba(255,255,255,0.08); border-radius: 9999px; color: white; cursor: pointer; }
+        .lb-viewport { position: relative; flex: 1; overflow: hidden; }
+        .lb-track { position: absolute; top: 0; left: 0; height: 100%; display: flex; will-change: transform; }
+        .lb-slide { flex-shrink: 0; width: 100vw; height: 100%; display: flex; align-items: center; justify-content: center; padding: 0 24px; box-sizing: border-box; }
+        .lb-slide img { max-width: 100%; max-height: 72vh; border-radius: 10px; object-fit: contain; pointer-events: none; }
+        .lb-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 9999px; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; color: white; cursor: pointer; transition: background 0.15s; }
+        .lb-nav:hover { background: rgba(255,255,255,0.18); }
+        .lb-nav.prev { left: 14px; }
+        .lb-nav.next { right: 14px; }
+        .lb-nav.disabled { opacity: 0.25; pointer-events: none; }
+        .lb-meta { padding: 16px 20px 20px; flex-shrink: 0; }
+        @media (max-width: 640px) { .lb-nav { display: none; } }
       ` }} />
       <div id="app-loading" className="app-loading-screen">
         <img src="/logo-mark.png" alt="SolTrend Pro" />
@@ -159,14 +177,23 @@ export default async function SolTrendApp() {
             analyticsTab: 'production',
             settingsTab: 'company',
             editingItem: null, // For modal editing
+            // Defaults use localDateStr(), not .toISOString() - the report
+            // filters below all compare against localDateStr(timestamp) for
+            // the records themselves, and .toISOString() reads the UTC
+            // calendar day. Those agree most of the day but disagree for
+            // several hours every evening in any timezone west of UTC (the
+            // whole US, for one) - the UTC day rolls over first, so a
+            // report left on its default date picked up nothing logged
+            // that local day, and looked like inspections/photos "not
+            // calculating" when the data was simply filed under tomorrow.
             reportDates: {
-              daily: new Date().toISOString().split('T')[0],
-              weekly: new Date().toISOString().split('T')[0],
+              daily: localDateStr(Date.now()),
+              weekly: localDateStr(Date.now()),
               monthly: new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0'),
-              qcStart: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              qcEnd: new Date().toISOString().split('T')[0],
-              refusalStart: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              refusalEnd: new Date().toISOString().split('T')[0]
+              qcStart: localDateStr(Date.now() - 7 * 24 * 60 * 60 * 1000),
+              qcEnd: localDateStr(Date.now()),
+              refusalStart: localDateStr(Date.now() - 30 * 24 * 60 * 60 * 1000),
+              refusalEnd: localDateStr(Date.now())
             },
             companyId: null,
             company: null,
@@ -181,16 +208,39 @@ export default async function SolTrendApp() {
             piles: [],
             pileCsvPreview: null,
             editingPile: null,
+            // Photo Gallery tab - standalone photos added directly (not via
+            // an inspection/refusal/production entry); see GalleryPhoto in
+            // schema.prisma and renderGallery() near the other view
+            // renderers. gallerySelected holds photo keys, not ids, since
+            // the gallery's unified list mixes photos from four different
+            // sources and the bucket key is the one thing all of them share.
+            gallery: [],
+            galleryUploadPhotos: [],
+            galleryUploadDate: null,
+            galleryUploadCaption: '',
+            galleryUploadModalOpen: false,
+            galleryUploadSubmitting: false,
+            gallerySelectMode: false,
+            gallerySelected: [],
+            galleryLightboxPhoto: null,
             users: [],
             recentActivity: [],
-            currentRow: 35, currentPile: 22,
+            // Was 35/22 - a leftover from an old demo project's layout.
+            // That's already out of range for plenty of real projects
+            // (anything with fewer than 35 rows), so the very first load,
+            // before switchToProject() ever runs, could start the counter
+            // past the end of row 1. 1-1 is always in range.
+            currentRow: 1, currentPile: 1,
             inspectionPhotos: [], lastInspection: null,
             inspectionFailReason: null,
             inspectionDepth: '', inspectionPlumbNS: '', inspectionPlumbEW: '',
             inspectionPileType: '', inspectionHeight: '', inspectionTwist: '', inspectionSpacing: '', inspectionAlignment: '',
             predictiveWeather: null,
             session: { passed: 0, failed: 0 },
-            refusalRow: 35, refusalPile: 22,
+            // Same 35/22 legacy default as currentRow/currentPile above -
+            // out of range for plenty of real projects before anything has
+            // had a chance to click or clamp it. 1-1 is always in range.
+            refusalRow: 1, refusalPile: 1,
             targetDepth: 72, achievedDepth: null, refusalReason: null, refusalNotes: '', refusalPhotos: [],
             openRefusals: 8,
             // date/piles/tables/modules were previously read straight off
@@ -211,7 +261,7 @@ export default async function SolTrendApp() {
             heatmap: { zoom: 1, totalRows: 50, pilesPerRow: 30, search: '' },
             notifications: [], unreadCount: 0, notifPanelOpen: false,
             delays: [],
-            delayDate: new Date().toISOString().split('T')[0], delayReason: null, delayHours: '', delayDescription: '',
+            delayDate: localDateStr(Date.now()), delayReason: null, delayHours: '', delayDescription: '',
             punchItems: [], punchFilter: 'open', punchFormOpen: false,
             punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: [],
             pendingSyncCount: 0,
@@ -673,6 +723,7 @@ export default async function SolTrendApp() {
             else if (context === 'safety-obs') state.obsPhotos.push(...photoObjs);
             else if (context === 'safety-incident') state.incidentPhotos.push(...photoObjs);
             else if (context === 'rfi') state.rfiPhotos.push(...photoObjs);
+            else if (context === 'gallery') state.galleryUploadPhotos.push(...photoObjs);
             render();
           }
           function removePhoto(context, id) {
@@ -684,6 +735,7 @@ export default async function SolTrendApp() {
             else if (context === 'safety-obs') state.obsPhotos = state.obsPhotos.filter(p => p.id !== id);
             else if (context === 'safety-incident') state.incidentPhotos = state.incidentPhotos.filter(p => p.id !== id);
             else if (context === 'rfi') state.rfiPhotos = state.rfiPhotos.filter(p => p.id !== id);
+            else if (context === 'gallery') state.galleryUploadPhotos = state.galleryUploadPhotos.filter(p => p.id !== id);
             render();
           }
           function renderPhotoCapture(context) {
@@ -695,6 +747,7 @@ export default async function SolTrendApp() {
             else if (context === 'safety-obs') photos = state.obsPhotos;
             else if (context === 'safety-incident') photos = state.incidentPhotos;
             else if (context === 'rfi') photos = state.rfiPhotos;
+            else if (context === 'gallery') photos = state.galleryUploadPhotos;
             // Two separate inputs: the camera one keeps capture="environment"
             // (the OS camera app only ever hands back one shot per launch, so
             // "multiple" wouldn't do anything there), while the library/image
@@ -731,8 +784,7 @@ export default async function SolTrendApp() {
             
             // Generate 30 days of production data
             for (let i = 29; i >= 0; i--) {
-              const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
-              state.production.push({ date: date.toISOString().split('T')[0], piles: Math.floor(Math.random() * 20 + 35), crew: state.crews[Math.floor(Math.random() * state.crews.length)].name });
+              state.production.push({ date: localDateStr(Date.now() - i * 24 * 60 * 60 * 1000), piles: Math.floor(Math.random() * 20 + 35), crew: state.crews[Math.floor(Math.random() * state.crews.length)].name });
             }
           }
 
@@ -751,6 +803,7 @@ export default async function SolTrendApp() {
                 { id: 'delays', label: 'Delays', icon: 'cloud-rain' },
                 { id: 'materials', label: 'Materials', icon: 'package' },
                 { id: 'heatmap', label: 'Pile Map', icon: 'map' },
+                { id: 'gallery', label: 'Gallery', icon: 'images' },
               ]},
               { title: 'Safety', items: [
                 { id: 'safety', label: 'Safety', icon: 'hard-hat' },
@@ -795,7 +848,13 @@ export default async function SolTrendApp() {
             const tablesPct = totalTables > 0 ? Math.round((tablesInstalled / totalTables) * 100) : 0;
             const modulesPct = totalModules > 0 ? Math.round((modulesInstalled / totalModules) * 100) : 0;
             const pilesPct = totalPiles > 0 ? Math.round((installedPiles / totalPiles) * 100) : 0;
-            const todayStr = new Date().toISOString().split('T')[0];
+            // localDateStr(), not .toISOString() - production dates are the
+            // calendar day the user picked, so "today" has to mean the same
+            // thing the user's clock means, not whatever day UTC is
+            // currently on (those disagree for several hours every evening
+            // west of UTC, which made today's production vanish from this
+            // card after dark).
+            const todayStr = localDateStr(Date.now());
             const todayProd = state.production.find(p => p.date === todayStr);
             const weekProdEntries = state.production.slice(-7);
             const monthProdEntries = state.production.slice(-30);
@@ -859,7 +918,12 @@ export default async function SolTrendApp() {
             const daysRemainingEst = estimateDaysRemaining(project);
             // Was a hardcoded "28" - now the real total logged for today
             // via Production Entry (0 if nothing's been logged yet today).
-            const todayStr = new Date().toISOString().split('T')[0];
+            // localDateStr(), not .toISOString() - see the matching note on
+            // the Company Dashboard's todayStr for why: UTC's calendar day
+            // rolls over before the user's local one does, so this card
+            // showed 0 piles for today's already-logged production for a
+            // few hours every evening.
+            const todayStr = localDateStr(Date.now());
             const todayActual = state.production.find(p => p.date === todayStr)?.piles || 0;
             const todayTarget = project.dailyTarget || 35;
             // Was project.refusals - the real field the API returns is
@@ -2839,6 +2903,352 @@ export default async function SolTrendApp() {
           function zoomIn() { state.heatmap.zoom = Math.min(2, state.heatmap.zoom + 0.25); render(); }
           function zoomOut() { state.heatmap.zoom = Math.max(0.5, state.heatmap.zoom - 0.25); render(); }
 
+          // PHOTO GALLERY - one place to browse every photo on this project,
+          // grouped by month, whether it came from a Production Entry, a QC
+          // Inspection, a Refusal, or was added here directly with no
+          // inspection/log attached (e.g. a supervisor stopping by with a
+          // phone full of site photos). The first three sources are already
+          // loaded in state with each photo's bucket key intact (see
+          // uploadPendingPhotos) - this just pulls them together into one
+          // list rather than duplicating storage anywhere. See GalleryPhoto
+          // in schema.prisma and /api/gallery for the standalone-upload side.
+          function buildGalleryPhotos() {
+            const list = [];
+            (state.inspections || []).forEach(function(i) {
+              (i.photos || []).forEach(function(p) {
+                if (!p.key) return;
+                list.push({ key: p.key, url: p.url, date: localDateStr(i.timestamp), label: 'Inspection ' + i.pileId, source: 'inspection', uploader: i.user || '' });
+              });
+            });
+            (state.refusals || []).forEach(function(r) {
+              (r.photos || []).forEach(function(p) {
+                if (!p.key) return;
+                list.push({ key: p.key, url: p.url, date: localDateStr(r.timestamp), label: 'Refusal ' + r.pileId, source: 'refusal', uploader: r.user || '' });
+              });
+            });
+            (state.production || []).forEach(function(prod) {
+              (prod.photos || []).forEach(function(p) {
+                if (!p.key) return;
+                list.push({ key: p.key, url: p.url, date: prod.date, label: 'Production Log', source: 'production', uploader: prod.user || prod.crew || '' });
+              });
+            });
+            (state.gallery || []).forEach(function(g) {
+              if (!g.key) return;
+              list.push({ key: g.key, url: g.url, date: g.date, label: g.caption || 'Photo', source: 'gallery', galleryId: g.id, uploader: g.user || '' });
+            });
+            list.sort(function(a, b) { return (b.date || '').localeCompare(a.date || '') || (b.key || '').localeCompare(a.key || ''); });
+            return list;
+          }
+          function groupGalleryPhotosByMonth(photos) {
+            const groups = {};
+            photos.forEach(function(p) {
+              const monthKey = (p.date || '').slice(0, 7) || 'unknown';
+              (groups[monthKey] = groups[monthKey] || []).push(p);
+            });
+            return Object.keys(groups).sort(function(a, b) { return b.localeCompare(a); }).map(function(monthKey) {
+              const label = monthKey === 'unknown' ? 'Undated' : new Date(monthKey + '-01T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+              return { monthKey: monthKey, label: label, photos: groups[monthKey] };
+            });
+          }
+          function renderGallery() {
+            const photos = buildGalleryPhotos();
+            const groups = groupGalleryPhotosByMonth(photos);
+            const selMode = state.gallerySelectMode;
+            const selected = state.gallerySelected || [];
+
+            const header = '<div class="flex items-center justify-between flex-wrap gap-3"><div><h1 class="font-display text-2xl font-bold text-white">Gallery</h1><p class="text-slate-400">' + photos.length + ' photo' + (photos.length === 1 ? '' : 's') + '</p></div><div class="flex items-center gap-2">' +
+              (selMode
+                ? '<button onclick="toggleGallerySelectMode()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium">Cancel</button>'
+                : '<button onclick="toggleGallerySelectMode()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('check-square', 'w-3.5 h-3.5') + ' Select</button>' +
+                  '<button onclick="openGalleryUploadModal()" class="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold flex items-center gap-1.5">' + icon('plus', 'w-3.5 h-3.5') + ' Add Photos</button>')
+              + '</div></div>';
+
+            const actionBar = selMode ? '<div class="flex items-center justify-between bg-slate-800/50 border border-slate-700 rounded-xl p-3"><span class="text-sm text-slate-300">' + selected.length + ' selected</span><div class="flex items-center gap-2">' +
+              '<button onclick="shareSelectedGalleryPhotos()" ' + (selected.length === 0 ? 'disabled' : '') + ' class="px-3 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('share-2', 'w-3.5 h-3.5') + ' Share</button>' +
+              '<button onclick="downloadSelectedGalleryPhotos()" ' + (selected.length === 0 ? 'disabled' : '') + ' class="px-3 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('download', 'w-3.5 h-3.5') + ' Download</button>' +
+              '</div></div>' : '';
+
+            const groupsHtml = groups.length === 0
+              ? '<div class="card rounded-xl p-8 text-center"><p class="text-slate-500 text-sm">No photos yet. Photos from Production, QC Inspection, and Refusals will show up here automatically, or add some directly with "Add Photos".</p></div>'
+              : groups.map(function(g) {
+                  return '<div><h3 class="text-xs font-semibold text-amber-400/90 uppercase tracking-wider mb-2">' + g.label + ' <span class="text-slate-500 normal-case font-normal">&middot; ' + g.photos.length + '</span></h3>' +
+                    '<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">' +
+                    g.photos.map(function(p) {
+                      const isSel = selected.indexOf(p.key) !== -1;
+                      const tapHandler = selMode ? 'toggleGalleryPhotoSelect(\\'' + p.key + '\\')' : 'openGalleryLightbox(\\'' + p.key + '\\')';
+                      return '<button onclick="' + tapHandler + '" class="relative aspect-square rounded-lg overflow-hidden bg-slate-800 border ' + (isSel ? 'border-amber-500 ring-2 ring-amber-500' : 'border-slate-700') + '"><img src="' + p.url + '" alt="' + p.label + '" class="w-full h-full object-cover" loading="lazy">' +
+                        (selMode ? '<div class="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center ' + (isSel ? 'bg-amber-500 text-black' : 'bg-black/50 text-white') + '">' + (isSel ? icon('check', 'w-3 h-3') : '') + '</div>' : '') +
+                        '</button>';
+                    }).join('') +
+                    '</div></div>';
+                }).join('<div class="h-2"></div>');
+
+            const lightbox = state.galleryLightboxPhoto ? renderGalleryLightbox() : '';
+            const uploadModal = state.galleryUploadModalOpen ? renderGalleryUploadModal() : '';
+
+            return '<div class="space-y-4 animate-fade-in">' + header + actionBar + groupsHtml + '</div>' + lightbox + uploadModal;
+          }
+          // Swipeable lightbox - every photo currently in the Gallery (in the
+          // same order the grid renders in) sits side by side in one long
+          // strip (.lb-track). Moving between photos is just translating
+          // that strip by one slide width: a finger-drag/mouse-drag updates
+          // the translate live for 1:1 tracking (lbDragMove), and letting go
+          // (lbDragEnd) snaps to whichever neighbor the gesture was clearly
+          // headed toward, or springs back if it wasn't decisive. The same
+          // strip backs the prev/next chevrons and the arrow keys, so all
+          // three input styles move through the exact same ordered list.
+          // galleryLightboxPhoto stores the open photo's key (not an index)
+          // so it survives a re-render even if the underlying photo list
+          // changes (e.g. a delete) - the index is recomputed fresh each time.
+          let lbDrag = null; // { startX, currentX, width, dragging }
+          function renderGalleryLightbox() {
+            const photos = buildGalleryPhotos();
+            const index = photos.findIndex(function(p) { return p.key === state.galleryLightboxPhoto; });
+            if (index === -1) return '';
+            const photo = photos[index];
+            const canDelete = hasRole('manager') && photo.source === 'gallery';
+            const slides = photos.map(function(p) {
+              return '<div class="lb-slide"><img src="' + p.url + '" alt="' + p.label + '" draggable="false"></div>';
+            }).join('');
+            return '<div class="lb-backdrop">' +
+              '<div class="lb-top"><span class="lb-counter">' + (index + 1) + ' of ' + photos.length + '</span><div class="lb-close" onclick="closeGalleryLightbox()">' + icon('x', 'w-5 h-5') + '</div></div>' +
+              '<div class="lb-viewport" id="lbViewport" onmousedown="lbDragStart(event.clientX)" ontouchstart="lbDragStart(event.touches[0].clientX)" ontouchmove="lbDragMove(event.touches[0].clientX)" ontouchend="lbDragEnd()">' +
+                '<div class="lb-track" id="lbTrack" style="transform: translateX(' + (-index * 100) + 'vw)">' + slides + '</div>' +
+                '<div class="lb-nav prev' + (index === 0 ? ' disabled' : '') + '" onclick="lbGo(-1)">' + icon('chevron-left', 'w-5 h-5') + '</div>' +
+                '<div class="lb-nav next' + (index === photos.length - 1 ? ' disabled' : '') + '" onclick="lbGo(1)">' + icon('chevron-right', 'w-5 h-5') + '</div>' +
+              '</div>' +
+              '<div class="lb-meta"><p class="text-white font-medium">' + photo.label + '</p><p class="text-xs text-slate-500 mt-1">' + formatDate(photo.date) + (photo.uploader ? ' &middot; ' + photo.uploader : '') + '</p>' +
+              '<div class="grid grid-cols-2 gap-2 mt-4"><button onclick="shareGalleryPhoto(\\'' + photo.key + '\\')" class="py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium flex items-center justify-center gap-2">' + icon('share-2', 'w-4 h-4') + ' Share</button>' +
+              '<button onclick="downloadGalleryPhotoSingle(\\'' + photo.key + '\\')" class="py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Download</button></div>' +
+              (canDelete ? '<button onclick="deleteGalleryPhoto(\\'' + photo.galleryId + '\\')" class="w-full mt-2 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm font-medium flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button>' : '') +
+              '</div></div>';
+          }
+          function lbSetTranslate(vw, animate) {
+            const track = document.getElementById('lbTrack');
+            if (!track) return;
+            track.style.transition = animate ? 'transform 0.28s cubic-bezier(0.22,0.61,0.36,1)' : 'none';
+            track.style.transform = 'translateX(' + vw + 'vw)';
+          }
+          function lbCurrentIndex() {
+            return buildGalleryPhotos().findIndex(function(p) { return p.key === state.galleryLightboxPhoto; });
+          }
+          function lbDragStart(x) {
+            const viewport = document.getElementById('lbViewport');
+            if (!viewport) return;
+            lbDrag = { startX: x, currentX: x, width: viewport.clientWidth, dragging: true };
+          }
+          function lbDragMove(x) {
+            if (!lbDrag || !lbDrag.dragging) return;
+            lbDrag.currentX = x;
+            const index = lbCurrentIndex();
+            const total = buildGalleryPhotos().length;
+            let deltaVw = ((x - lbDrag.startX) / lbDrag.width) * 100;
+            // Elastic resistance past the first/last photo so it's obvious
+            // you've hit the end rather than the gesture doing nothing.
+            if ((index === 0 && deltaVw > 0) || (index === total - 1 && deltaVw < 0)) deltaVw *= 0.35;
+            lbSetTranslate(-index * 100 + deltaVw, false);
+          }
+          function lbDragEnd() {
+            if (!lbDrag || !lbDrag.dragging) return;
+            const index = lbCurrentIndex();
+            const total = buildGalleryPhotos().length;
+            const deltaPx = lbDrag.currentX - lbDrag.startX;
+            const threshold = lbDrag.width * 0.18;
+            lbDrag.dragging = false;
+            if (deltaPx <= -threshold && index < total - 1) lbGo(1);
+            else if (deltaPx >= threshold && index > 0) lbGo(-1);
+            else lbSetTranslate(-index * 100, true);
+            lbDrag = null;
+          }
+          function lbGo(dir) {
+            const photos = buildGalleryPhotos();
+            const next = lbCurrentIndex() + dir;
+            if (next < 0 || next > photos.length - 1) return;
+            state.galleryLightboxPhoto = photos[next].key;
+            render();
+          }
+          // Registered once at script load (this script only ever runs
+          // once per page load), not per-render, so these never pile up -
+          // the same approach as the pointermove/pointerup listeners used
+          // for project reordering above.
+          window.addEventListener('mousemove', function(e) { lbDragMove(e.clientX); });
+          window.addEventListener('mouseup', function() { lbDragEnd(); });
+          document.addEventListener('keydown', function(e) {
+            if (!state.galleryLightboxPhoto) return;
+            if (e.key === 'ArrowLeft') lbGo(-1);
+            else if (e.key === 'ArrowRight') lbGo(1);
+            else if (e.key === 'Escape') closeGalleryLightbox();
+          });
+          function renderGalleryUploadModal() {
+            return '<div class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop"><div class="bg-slate-800 border border-slate-700 rounded-xl max-w-md w-full max-h-[85vh] overflow-y-auto">' +
+              '<div class="p-5 border-b border-slate-700/50 flex justify-between items-center"><h3 class="font-display text-lg font-bold text-white">Add Photos</h3><button onclick="closeGalleryUploadModal()" class="p-1 text-slate-400 hover:text-white">' + icon('x', 'w-5 h-5') + '</button></div>' +
+              '<div class="p-5 space-y-4">' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Date</label>' + calendarField('galleryUploadDate') + '</div>' +
+              '<div><label class="text-xs text-slate-500 mb-1 block">Caption (optional)</label><input type="text" value="' + (state.galleryUploadCaption || '') + '" oninput="state.galleryUploadCaption=this.value" placeholder="e.g. Site conditions, Zone B staging area..." class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              renderPhotoCapture('gallery') +
+              '<button onclick="submitGalleryUpload()" ' + (state.galleryUploadSubmitting || state.galleryUploadPhotos.length === 0 ? 'disabled' : '') + ' class="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-black rounded-xl font-bold flex items-center justify-center gap-2">' + (state.galleryUploadSubmitting ? '<span class="spinner"></span> Uploading...' : 'Upload ' + state.galleryUploadPhotos.length + ' Photo' + (state.galleryUploadPhotos.length === 1 ? '' : 's')) + '</button>' +
+              '</div></div></div>';
+          }
+          function toggleGallerySelectMode() { state.gallerySelectMode = !state.gallerySelectMode; state.gallerySelected = []; render(); }
+          function toggleGalleryPhotoSelect(key) {
+            const idx = state.gallerySelected.indexOf(key);
+            if (idx === -1) state.gallerySelected.push(key); else state.gallerySelected.splice(idx, 1);
+            render();
+          }
+          function openGalleryLightbox(key) { state.galleryLightboxPhoto = key; render(); }
+          function closeGalleryLightbox() { state.galleryLightboxPhoto = null; render(); }
+          function openGalleryUploadModal() {
+            state.galleryUploadDate = localDateStr(Date.now());
+            state.galleryUploadCaption = '';
+            state.galleryUploadPhotos = [];
+            state.galleryUploadModalOpen = true;
+            render();
+          }
+          function closeGalleryUploadModal() { state.galleryUploadModalOpen = false; render(); }
+          async function submitGalleryUpload() {
+            if (state.galleryUploadPhotos.length === 0) return;
+            state.galleryUploadSubmitting = true;
+            render();
+            try {
+              const pending = state.galleryUploadPhotos;
+              const uploaded = [];
+              for (const p of pending) {
+                const res = await fetch('/api/upload', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ dataUrl: p.url, context: 'gallery' })
+                });
+                const data = await res.json();
+                if (data.url) uploaded.push({ key: data.key, url: data.url });
+              }
+              if (uploaded.length === 0) throw new Error('No photos uploaded');
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/gallery', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId, photos: uploaded, caption: state.galleryUploadCaption || null, date: state.galleryUploadDate, uploadedBy: state.currentUser.id })
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(function() { return {}; });
+                throw new Error(err.error || 'Failed to save photos');
+              }
+              state.galleryUploadModalOpen = false;
+              state.galleryUploadPhotos = [];
+              state.galleryUploadCaption = '';
+              showToast(uploaded.length + ' photo' + (uploaded.length === 1 ? '' : 's') + ' added.', 'success');
+              await loadGalleryPhotos();
+            } catch (e) {
+              console.error('Gallery upload error:', e);
+              showToast('Failed to upload photos - check your connection.', 'error');
+            } finally {
+              state.galleryUploadSubmitting = false;
+              render();
+            }
+          }
+          async function deleteGalleryPhoto(id) {
+            if (!id) return;
+            if (!confirm('Delete this photo? This cannot be undone.')) return;
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/gallery?projectId=' + projectId + '&id=' + encodeURIComponent(id), { method: 'DELETE' });
+              if (res.ok) {
+                state.gallery = state.gallery.filter(function(g) { return g.id !== id; });
+                state.galleryLightboxPhoto = null;
+                render();
+              } else {
+                const err = await res.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to delete photo.');
+              }
+            } catch (e) { console.error('Delete gallery photo error:', e); alert('Failed to delete photo.'); }
+          }
+          // Fetches a photo as a blob and triggers a browser download - the
+          // same mechanism works on desktop and mobile (iOS Safari/Chrome
+          // save it to Files/Downloads same as any other download), so
+          // there's no separate "Save" action needed alongside "Download".
+          function downloadBlobAs(blob, filename) {
+            const blobUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = blobUrl; a.download = filename;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 1000);
+          }
+          async function downloadGalleryPhotoSingle(key) {
+            const photo = buildGalleryPhotos().find(function(p) { return p.key === key; });
+            if (!photo) return;
+            try {
+              const res = await fetch(photo.url);
+              const blob = await res.blob();
+              downloadBlobAs(blob, key.replace(/\\//g, '-'));
+            } catch (e) { console.error('Download photo error:', e); showToast('Failed to download photo.', 'error'); }
+          }
+          // Tries the native share sheet first (works for a single photo on
+          // iOS Safari and Android Chrome via the Web Share API's file
+          // support) and falls back to a plain download wherever that isn't
+          // available - a desktop browser, mostly, where "share" isn't
+          // really a concept anyway.
+          async function shareGalleryPhoto(key) {
+            const photo = buildGalleryPhotos().find(function(p) { return p.key === key; });
+            if (!photo) return;
+            try {
+              const res = await fetch(photo.url);
+              const blob = await res.blob();
+              const filename = key.replace(/\\//g, '-');
+              const file = new File([blob], filename, { type: blob.type || 'image/jpeg' });
+              if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: photo.label });
+                return;
+              }
+              downloadBlobAs(blob, filename);
+            } catch (e) {
+              if (e && e.name === 'AbortError') return;
+              console.error('Share photo error:', e);
+              downloadGalleryPhotoSingle(key);
+            }
+          }
+          // Bulk download bundles the selection into one .zip server-side
+          // (see /api/gallery/zip) - a single file that downloads the same
+          // way on a phone as on a computer, rather than triggering a
+          // separate download per photo (which most mobile browsers block
+          // or mangle when there are more than one or two).
+          async function downloadSelectedGalleryPhotos() {
+            const keys = state.gallerySelected;
+            if (!keys || keys.length === 0) return;
+            try {
+              const res = await fetch('/api/gallery/zip', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keys })
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(function() { return {}; });
+                throw new Error(err.error || 'Failed to build download');
+              }
+              const blob = await res.blob();
+              downloadBlobAs(blob, 'soltrend-photos-' + localDateStr(Date.now()) + '.zip');
+            } catch (e) { console.error('Bulk download error:', e); showToast('Failed to download photos.', 'error'); }
+          }
+          async function shareSelectedGalleryPhotos() {
+            const keys = state.gallerySelected;
+            if (!keys || keys.length === 0) return;
+            const photos = buildGalleryPhotos().filter(function(p) { return keys.indexOf(p.key) !== -1; });
+            try {
+              const files = await Promise.all(photos.map(async function(p) {
+                const res = await fetch(p.url);
+                const blob = await res.blob();
+                return new File([blob], p.key.replace(/\\//g, '-'), { type: blob.type || 'image/jpeg' });
+              }));
+              if (navigator.canShare && navigator.canShare({ files: files })) {
+                await navigator.share({ files: files, title: files.length + ' photos' });
+                return;
+              }
+              downloadSelectedGalleryPhotos();
+            } catch (e) {
+              if (e && e.name === 'AbortError') return;
+              console.error('Share selected photos error:', e);
+              downloadSelectedGalleryPhotos();
+            }
+          }
+
           // PILE LAYOUT - real per-pile data backing a "custom" (irregular)
           // pile map, as an alternative to the default procedural
           // totalRows x pilesPerRow rectangle. A project stays in 'grid'
@@ -3311,13 +3721,22 @@ export default async function SolTrendApp() {
             state.rfis = [];
             state.submittals = [];
             state.piles = [];
+            state.gallery = [];
             await Promise.all([
               loadInspections(), loadRefusals(), loadProduction(), loadDelays(), loadPunchItems(),
               loadToolboxTalks(), loadSafetyObservations(), loadSafetyIncidents(),
               loadMilestones(), loadDocuments(), loadCois(), loadMaterials(), loadDeliveries(),
-              loadRfis(), loadSubmittals(), loadPiles()
+              loadRfis(), loadSubmittals(), loadPiles(), loadGalleryPhotos()
             ]);
             render();
+          }
+          async function loadGalleryPhotos() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/gallery?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.gallery = data; render(); }
+            } catch (e) { console.error('Load gallery photos error:', e); }
           }
           async function loadPiles() {
             try {
@@ -4331,7 +4750,7 @@ export default async function SolTrendApp() {
               // already supported these - the form just never collected
               // them, so they were silently omitted here and saved as null
               // on every inspection regardless of detailed-mode entries.
-              await fetch('/api/inspections', {
+              const res = await fetch('/api/inspections', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -4352,7 +4771,16 @@ export default async function SolTrendApp() {
                   gps
                 })
               });
-            } catch (e) { console.error('Save inspection error:', e); }
+              // The server now rejects a pileId that isn't actually part of
+              // a custom layout (see /api/inspections) - this used to fail
+              // silently, so the local pass/fail count had already moved on
+              // optimistically while nothing was actually saved. Surface it
+              // so the discrepancy doesn't go unnoticed.
+              if (!res.ok) {
+                const err = await res.json().catch(function() { return {}; });
+                showToast(err.error || 'Failed to save this inspection.', 'error');
+              }
+            } catch (e) { console.error('Save inspection error:', e); showToast('Failed to save this inspection - check your connection.', 'error'); }
           }
           
           async function saveRefusal(refusal, photos) {
@@ -4360,7 +4788,7 @@ export default async function SolTrendApp() {
               const projectId = state.currentProject?.id || 'proj_001';
               const uploadedPhotos = await uploadPendingPhotos(photos, 'refusal', refusal.pileId);
               const gps = uploadedPhotos.find(p => p.gps)?.gps || null;
-              await fetch('/api/refusals', {
+              const res = await fetch('/api/refusals', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -4375,7 +4803,11 @@ export default async function SolTrendApp() {
                   gps
                 })
               });
-            } catch (e) { console.error('Save refusal error:', e); }
+              if (!res.ok) {
+                const err = await res.json().catch(function() { return {}; });
+                showToast(err.error || 'Failed to save this refusal.', 'error');
+              }
+            } catch (e) { console.error('Save refusal error:', e); showToast('Failed to save this refusal - check your connection.', 'error'); }
           }
 
           // REFUSAL - WITH PHOTO CAPTURE
@@ -4719,6 +5151,7 @@ export default async function SolTrendApp() {
             'subDueDate': { compact: true },
             'materialExpectedDate': { compact: true },
             'punchDueDate': { compact: true },
+            'galleryUploadDate': { maxToday: true, compact: true },
           };
           function getStateByPath(path) {
             const parts = path.split('.');
@@ -5722,7 +6155,7 @@ export default async function SolTrendApp() {
 
           // MAIN RENDER
           function render() {
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button>' + mobileHeaderBrand() + '<span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();
@@ -5777,6 +6210,17 @@ export default async function SolTrendApp() {
             state.currentProject = project;
             state.heatmap.totalRows = project.totalRows || 50;
             state.heatmap.pilesPerRow = project.pilesPerRow || 30;
+            // The Inspection/Refusal pile counters never reset on a project
+            // switch either, so leaving one project mid-row (say row 12,
+            // pile 25) and opening a smaller project loaded it already
+            // sitting past that project's real layout - before anything
+            // had a chance to click past anything. Starting fresh at 1-1
+            // matches what a new project should feel like, and is always
+            // in range regardless of the new project's layout.
+            state.currentRow = 1;
+            state.currentPile = 1;
+            state.refusalRow = 1;
+            state.refusalPile = 1;
             // Projects can each have their own weather coordinates now, so
             // a forecast cached for the previous project can't be reused -
             // clear it and let the Insights tab re-fetch for wherever this

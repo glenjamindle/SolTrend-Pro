@@ -62,6 +62,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unknown project' }, { status: 404 })
     }
 
+    // A 'custom' (irregular) layout project's rows aren't all the same
+    // length, so a client-side nav bug that lets the pile counter walk
+    // past the end of a short row can otherwise write an inspection for a
+    // pile that was never actually imported - inflating the project's
+    // inspected total above its real pile count with no way to tell which
+    // records are real. Reject at the source instead of trusting the
+    // client to have capped it correctly.
+    if (project.pileLayoutMode === 'custom') {
+      const pile = await prisma.pile.findUnique({ where: { projectId_pileId: { projectId, pileId } } })
+      if (!pile || pile.skip) {
+        return NextResponse.json({ error: `Pile ${pileId} is not part of this project's layout` }, { status: 400 })
+      }
+    }
+
     // Fall back to a real user in this company if the id we were given
     // doesn't correspond to an actual row (e.g. a stale client id).
     let userId: string = inspectedBy

@@ -57,6 +57,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unknown project' }, { status: 404 })
     }
 
+    // Same guard as /api/inspections - a 'custom' layout's rows vary in
+    // length, so don't let a refusal get logged against a pile ID that
+    // isn't actually part of the imported layout.
+    if (project.pileLayoutMode === 'custom') {
+      const pile = await prisma.pile.findUnique({ where: { projectId_pileId: { projectId, pileId } } })
+      if (!pile || pile.skip) {
+        return NextResponse.json({ error: `Pile ${pileId} is not part of this project's layout` }, { status: 400 })
+      }
+    }
+
     let userId: string = reportedBy
     const userExists = userId ? await prisma.user.findUnique({ where: { id: userId } }) : null
     if (!userExists) {

@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'dataUrl is required' }, { status: 400 })
     }
 
-    const safeContext = ['inspection', 'refusal', 'production', 'punchlist', 'safety', 'rfi'].includes(context) ? context : 'misc'
+    const safeContext = ['inspection', 'refusal', 'production', 'punchlist', 'safety', 'rfi', 'gallery'].includes(context) ? context : 'misc'
     const safePileId = typeof pileId === 'string' ? pileId.replace(/[^a-zA-Z0-9_-]/g, '') : ''
     const keyPrefix = [safeContext, safePileId].filter(Boolean).join('/')
 
