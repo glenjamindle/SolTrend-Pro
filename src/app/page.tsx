@@ -961,7 +961,9 @@ export default async function SolTrendApp() {
               const subOverdue = submittals.some(function(s) { return s.dueDate && new Date(s.dueDate).getTime() < now; });
               const punchOverdue = punchItems.some(function(p) { return p.dueDate && new Date(p.dueDate).getTime() < now; });
               const pilesPct = project.totalPiles > 0 ? Math.round((project.installedPiles / project.totalPiles) * 100) : 0;
-              return { project: project, scheduleStatus: scheduleStatus, phase: phase, timing: timing, rfis: rfis, submittals: submittals, punchItems: punchItems, rfiBlocking: rfiBlocking, subOverdue: subOverdue, punchOverdue: punchOverdue, pilesPct: pilesPct };
+              const tablesPct = project.totalTables > 0 ? Math.round((project.tablesInstalled / project.totalTables) * 100) : 0;
+              const modulesPct = project.totalModules > 0 ? Math.round((project.modulesInstalled / project.totalModules) * 100) : 0;
+              return { project: project, scheduleStatus: scheduleStatus, phase: phase, timing: timing, rfis: rfis, submittals: submittals, punchItems: punchItems, rfiBlocking: rfiBlocking, subOverdue: subOverdue, punchOverdue: punchOverdue, pilesPct: pilesPct, tablesPct: tablesPct, modulesPct: modulesPct };
             });
 
             rows = rows.filter(function(r) {
@@ -994,6 +996,14 @@ export default async function SolTrendApp() {
             function detailColumn(label, itemsHtml, emptyLabel) {
               return '<div><h4 class="text-[10px] uppercase tracking-wider text-slate-500 mb-2">' + label + '</h4>' + (itemsHtml.length ? itemsHtml.join('') : '<div class="text-xs text-slate-500 italic">' + emptyLabel + '</div>') + '</div>';
             }
+            // Mirrors the colors used in the company-wide Installation
+            // Progress card above (amber piles / sky tables / purple
+            // modules) so the same metric reads the same color everywhere
+            // on this dashboard.
+            function progressRow(label, dotClass, fromClass, toClass, installed, total) {
+              const pct = total > 0 ? Math.round((installed / total) * 100) : 0;
+              return '<div><div class="flex justify-between text-xs mb-1"><span class="text-slate-400 flex items-center gap-1"><span class="' + dotClass + '">●</span> ' + label + '</span><span class="text-slate-300">' + formatNumber(installed) + ' / ' + formatNumber(total) + ' <span class="text-slate-500">· ' + pct + '%</span></span></div><div class="h-1.5 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r ' + fromClass + ' ' + toClass + ' rounded-full" style="width:' + pct + '%"></div></div></div>';
+            }
 
             const bodyRows = rows.map(function(r) {
               const p = r.project;
@@ -1022,10 +1032,19 @@ export default async function SolTrendApp() {
                 return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (overdue ? ' text-red-300' : ' text-slate-200') + '">' + x.description + (x.location ? ' <span class="text-slate-500">· ' + x.location + '</span>' : '') + (overdue ? '<span class="block text-red-400">overdue</span>' : '') + '</div>';
               });
               const hasAny = r.rfis.length || r.submittals.length || r.punchItems.length;
+              const progressHtml = '<div class="sm:col-span-3 pt-4 border-t border-slate-700/50">' +
+                '<h4 class="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Progress</h4>' +
+                '<div class="grid sm:grid-cols-3 gap-5">' +
+                  progressRow('Piles', 'text-amber-400', 'from-amber-500', 'to-amber-400', p.installedPiles, p.totalPiles) +
+                  progressRow('Tables', 'text-sky-400', 'from-sky-500', 'to-sky-400', p.tablesInstalled || 0, p.totalTables || 0) +
+                  progressRow('Modules', 'text-purple-400', 'from-purple-500', 'to-purple-400', p.modulesInstalled || 0, p.totalModules || 0) +
+                '</div>' +
+              '</div>';
               const detail = '<tr class="' + (isOpen ? '' : 'hidden') + '"><td colspan="8" class="p-0"><div class="bg-slate-900/40 px-5 py-4 grid sm:grid-cols-3 gap-5">' +
                 detailColumn('RFIs', rfiHtml, 'No open RFIs') +
                 detailColumn('Submittals', subHtml, 'No open submittals') +
                 detailColumn('Punch List', punchHtml, 'No open punch items') +
+                progressHtml +
                 (hasAny ? '<div class="sm:col-span-3"><button onclick="openProject(\\'' + p.id + '\\')" class="text-xs font-medium text-amber-400 hover:text-amber-300">Open ' + p.name + ' →</button></div>' : '') +
               '</div></td></tr>';
               return main + detail;
@@ -1040,7 +1059,7 @@ export default async function SolTrendApp() {
               return '<button onclick="setCompanyTableFilter(\\'' + id + '\\')" class="text-xs font-semibold px-3 py-1.5 rounded-full ' + (state.companyTableFilter === id ? 'bg-amber-400 text-slate-900' : 'bg-slate-900/50 border border-slate-700 text-slate-400 hover:text-slate-200') + '">' + label + '</button>';
             }
 
-            return '<div>' +
+            return '<div id="activeProjectsCard">' +
               '<h2 class="font-display font-semibold text-white mb-4">Active Projects</h2>' +
               '<div class="card rounded-xl overflow-hidden">' +
                 '<div class="flex items-center justify-between gap-3 flex-wrap p-3">' +
@@ -1053,15 +1072,30 @@ export default async function SolTrendApp() {
               '</div>' +
             '</div>';
           }
-          function setCompanyTableFilter(f) { state.companyTableFilter = f; render(); }
+          // Sorting, filtering, and expanding a row only ever change this
+          // one card, but calling render() rebuilds the *entire* app -
+          // sidebar, header, stat tiles, the lot - via one big innerHTML
+          // swap. That's correct for a real navigation, but for a click
+          // inside this table it meant every image and element on the page
+          // got torn down and recreated, which is the "blink" - a visible
+          // full-page flash for a change that only ever touches this card.
+          // updateActiveProjectsTable() re-renders just the card (same
+          // pattern as updateNotifUI() above) so the rest of the page -
+          // and the browser's paint - never moves.
+          function updateActiveProjectsTable() {
+            const host = document.getElementById('activeProjectsCard');
+            if (!host) { render(); return; }
+            host.outerHTML = renderActiveProjectsTable();
+          }
+          function setCompanyTableFilter(f) { state.companyTableFilter = f; updateActiveProjectsTable(); }
           function sortCompanyTable(col) {
             if (state.companyTableSortCol === col) state.companyTableSortDir *= -1;
             else { state.companyTableSortCol = col; state.companyTableSortDir = 1; }
-            render();
+            updateActiveProjectsTable();
           }
           function toggleCompanyTableRow(id) {
             state.companyTableExpanded[id] = !state.companyTableExpanded[id];
-            render();
+            updateActiveProjectsTable();
           }
 
           // PROJECT DASHBOARD
