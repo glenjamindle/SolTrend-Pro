@@ -138,7 +138,30 @@ export async function GET(request: NextRequest) {
       // stable across edits. sortOrder is the field reorderProjects (below)
       // and drag-reordering in Settings write to; createdAt is just a
       // tiebreaker for rows that happen to share a sortOrder.
-      prisma.project.findMany({ where: { companyId }, include: { rackingProfile: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }),
+      // milestones included here (not just via /api/milestones, which is
+      // scoped to whichever single project is currently open) so the
+      // Company Dashboard can show every site's current phase and schedule
+      // status without opening each project individually. Same reasoning
+      // for rfis/submittals/punchItems, added alongside it: the Active
+      // Projects table on the Company Dashboard needs every site's OPEN
+      // items to show counts and let a row expand to the real list, not
+      // just whichever project happens to be open client-side. Filtered to
+      // "still open" at the query level (closed RFIs / approved-or-
+      // rejected submittals / resolved punch items are never needed here)
+      // to keep this payload from growing with a project's full history -
+      // the single-project tabs that need the full history fetch it
+      // separately via /api/rfis, /api/submittals, /api/punchlist.
+      prisma.project.findMany({
+        where: { companyId },
+        include: {
+          rackingProfile: true,
+          milestones: { orderBy: { sortOrder: 'asc' } },
+          rfis: { where: { status: { not: 'closed' } }, orderBy: { createdAt: 'asc' } },
+          submittals: { where: { status: { notIn: ['approved', 'approved_as_noted', 'rejected'] } }, orderBy: { createdAt: 'asc' } },
+          punchItems: { where: { status: { not: 'resolved' } }, orderBy: { createdAt: 'asc' } },
+        },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      }),
       prisma.crew.findMany({ where: { companyId }, include: { members: true } }),
       prisma.subcontractor.findMany({ where: { companyId } }),
       prisma.rackingProfile.findMany({ where: { companyId } }),

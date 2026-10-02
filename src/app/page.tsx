@@ -291,6 +291,11 @@ export default async function SolTrendApp() {
             rfis: [], submittals: [], rfiSubmittalsTab: 'rfis',
             rfiSubject: '', rfiCategory: 'other', rfiSubmittedTo: '', rfiQuestion: '', rfiBlocking: false, rfiPhotos: [],
             rfiAnswerDraft: {}, rfiFilter: 'all', subFilter: 'all',
+            // Company Dashboard's Active Projects table - filter chip,
+            // active sort column/direction, and which project rows are
+            // currently expanded (keyed by project id so it survives a
+            // re-sort/re-filter instead of collapsing every row).
+            companyTableFilter: 'all', companyTableSortCol: 'name', companyTableSortDir: 1, companyTableExpanded: {},
             subSpecSection: '', subType: 'product_data', subMaterialId: '', subDueDate: '', subPendingFile: null
           };
 
@@ -606,12 +611,46 @@ export default async function SolTrendApp() {
           // at_risk (with nothing delayed) makes it "At Risk", otherwise
           // "On Track". A project with no milestones logged yet has no real
           // schedule to read, so it says that instead of guessing.
-          function projectScheduleStatus() {
-            const milestones = state.milestones || [];
+          // Takes an explicit milestones array now (defaulting to the
+          // current project's, as before) so the Company Dashboard can call
+          // this per-project using project.milestones - the settings
+          // payload now includes each project's milestones precisely so
+          // every site's rollup can be computed without switching into it.
+          function projectScheduleStatus(milestones) {
+            milestones = milestones || state.milestones || [];
             if (milestones.length === 0) return { label: 'No Schedule Set', bg: '#475569', fg: '#f1f5f9' };
             if (milestones.some(function(m) { return m.status === 'delayed'; })) return { label: 'Behind', bg: '#ef4444', fg: '#ffffff' };
             if (milestones.some(function(m) { return m.status === 'at_risk'; })) return { label: 'At Risk', bg: '#f59e0b', fg: '#1e293b' };
             return { label: 'On Track', bg: '#22c55e', fg: '#ffffff' };
+          }
+          // The phase a site is actually working through right now: the
+          // first not-yet-complete phase in sortOrder, or the last phase if
+          // everything's marked complete. Null when no schedule is set.
+          function currentMilestonePhase(milestones) {
+            if (!milestones || milestones.length === 0) return null;
+            const sorted = milestones.slice().sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+            const active = sorted.find(function(m) { return m.status !== 'complete'; });
+            return active || sorted[sorted.length - 1];
+          }
+          // Short "X days left" / "X days overdue" string for a project's
+          // planned finish, falling back to an estimate from current
+          // install pace (estimateDaysRemaining) when no plannedEndDate has
+          // been set, so a card still shows *something* schedule-related
+          // rather than going blank.
+          // days (added for the Active Projects table's Finish column
+          // sort) is signed the same way in both branches - negative means
+          // overdue, so sorting ascending always means "most urgent first"
+          // whether a project is on a hard date or just an estimate.
+          function scheduleTiming(project) {
+            if (project.plannedEndDate) {
+              const days = Math.ceil((new Date(project.plannedEndDate).getTime() - Date.now()) / 86400000);
+              if (days < 0) return { text: Math.abs(days) + ' days overdue', hex: '#ef4444', days: days };
+              if (days === 0) return { text: 'Due today', hex: '#eab308', days: days };
+              return { text: days + ' days left', hex: days <= 14 ? '#eab308' : '#94a3b8', days: days };
+            }
+            const est = estimateDaysRemaining(project);
+            if (est !== null) return { text: '~' + est + ' days left (est.)', hex: '#94a3b8', days: est };
+            return null;
           }
           // Day of Week Analysis (Analytics > Production) - was two fully
           // hardcoded arrays (85/92/88/95/82/45/30% and similar) regardless
@@ -892,22 +931,137 @@ export default async function SolTrendApp() {
                 '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">This Week</p><p class="font-display text-2xl font-bold text-white">' + weekProd + ' <span class="text-sm font-normal text-slate-500">piles</span></p><p class="text-xs text-slate-400 mt-1">' + weekProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + weekProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
                 '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">This Month</p><p class="font-display text-2xl font-bold text-white">' + monthProd + ' <span class="text-sm font-normal text-slate-500">piles</span></p><p class="text-xs text-slate-400 mt-1">' + monthProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + monthProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
               '</div>' +
-              '<div><h2 class="font-display font-semibold text-white mb-4">Active Projects</h2><div class="grid md:grid-cols-2 gap-4">' + state.projects.filter(p => p.status !== 'archived').map(project => {
-                const completionPct = Math.round((project.installedPiles / project.totalPiles) * 100);
-                const cardTablesPct = project.totalTables > 0 ? Math.round(((project.tablesInstalled || 0) / project.totalTables) * 100) : 0;
-                const cardModulesPct = project.totalModules > 0 ? Math.round(((project.modulesInstalled || 0) / project.totalModules) * 100) : 0;
-                const healthColors = { green: 'text-green-400', yellow: 'text-yellow-400', red: 'text-red-400' };
-                return '<div class="card rounded-xl p-5 relative group">' +
-                  '<div class="flex items-start gap-3 mb-4"><div class="flex items-center gap-2"><span class="' + healthColors[project.health] + ' text-lg">●</span></div><div class="flex-1 min-w-0"><h3 class="font-display font-semibold text-white truncate">' + project.name + '</h3><p class="text-sm text-slate-400">' + project.location + '</p></div></div>' +
-                  '<div class="space-y-3 mb-4">' +
-                    '<div><div class="flex items-center justify-between text-sm mb-1"><span class="text-slate-400 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="font-medium text-white">' + formatNumber(project.installedPiles) + ' / ' + formatNumber(project.totalPiles) + ' <span class="text-slate-500 font-normal">· ' + completionPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all" style="width: ' + completionPct + '%"></div></div></div>' +
-                    (project.totalTables > 0 ? '<div><div class="flex items-center justify-between text-sm mb-1"><span class="text-slate-400 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="font-medium text-white">' + formatNumber(project.tablesInstalled || 0) + ' / ' + formatNumber(project.totalTables) + ' <span class="text-slate-500 font-normal">· ' + cardTablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full transition-all" style="width: ' + cardTablesPct + '%"></div></div></div>' : '') +
-                    (project.totalModules > 0 ? '<div><div class="flex items-center justify-between text-sm mb-1"><span class="text-slate-400 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="font-medium text-white">' + formatNumber(project.modulesInstalled || 0) + ' / ' + formatNumber(project.totalModules) + ' <span class="text-slate-500 font-normal">· ' + cardModulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full transition-all" style="width: ' + cardModulesPct + '%"></div></div></div>' : '') +
-                  '</div>' +
-                  '<button onclick="openProject(\\'' + project.id + '\\')" class="w-full py-2.5 bg-slate-700/50 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2">Open Project ' + icon('arrow-right', 'w-4 h-4') + '</button>' +
-                '</div>';
-              }).join('') + '</div></div>' +
+              renderActiveProjectsTable() +
             '</div>';
+          }
+          // ACTIVE PROJECTS TABLE (Company Dashboard) - replaced both the
+          // old project-cards grid and a separate Site Schedule panel
+          // (approved away in review - schedule status/phase/finish live
+          // as columns here now, so a standalone panel would just repeat
+          // the same numbers in a second place). Sortable columns, a
+          // Needs-Attention/On-Track filter, and a row expands in place to
+          // show the real open RFIs/Submittals/Punch items for that site -
+          // not just counts - via project.rfis/submittals/punchItems,
+          // which /api/settings now returns pre-filtered to "still open"
+          // for every project company-wide (see the route for why it's
+          // filtered server-side rather than here).
+          function renderActiveProjectsTable() {
+            const projects = state.projects.filter(p => p.status !== 'archived');
+            if (projects.length === 0) return '';
+            const now = Date.now();
+
+            let rows = projects.map(project => {
+              const scheduleStatus = projectScheduleStatus(project.milestones);
+              const phase = currentMilestonePhase(project.milestones);
+              const timing = scheduleTiming(project);
+              const rfis = project.rfis || [];
+              const submittals = project.submittals || [];
+              const punchItems = project.punchItems || [];
+              const rfiBlocking = rfis.some(function(r) { return r.blocking; });
+              const subOverdue = submittals.some(function(s) { return s.dueDate && new Date(s.dueDate).getTime() < now; });
+              const punchOverdue = punchItems.some(function(p) { return p.dueDate && new Date(p.dueDate).getTime() < now; });
+              const pilesPct = project.totalPiles > 0 ? Math.round((project.installedPiles / project.totalPiles) * 100) : 0;
+              return { project: project, scheduleStatus: scheduleStatus, phase: phase, timing: timing, rfis: rfis, submittals: submittals, punchItems: punchItems, rfiBlocking: rfiBlocking, subOverdue: subOverdue, punchOverdue: punchOverdue, pilesPct: pilesPct };
+            });
+
+            rows = rows.filter(function(r) {
+              if (state.companyTableFilter === 'attention') return r.scheduleStatus.label === 'Behind' || r.scheduleStatus.label === 'At Risk';
+              if (state.companyTableFilter === 'ontrack') return r.scheduleStatus.label === 'On Track';
+              return true;
+            });
+
+            const sorters = {
+              name: function(r) { return r.project.name; },
+              piles: function(r) { return r.pilesPct; },
+              finish: function(r) { return r.timing ? r.timing.days : 1e9; },
+              rfi: function(r) { return r.rfis.length; },
+              sub: function(r) { return r.submittals.length; },
+              punch: function(r) { return r.punchItems.length; },
+            };
+            const sortFn = sorters[state.companyTableSortCol] || sorters.name;
+            rows.sort(function(a, b) {
+              const va = sortFn(a), vb = sortFn(b);
+              if (va < vb) return -1 * state.companyTableSortDir;
+              if (va > vb) return 1 * state.companyTableSortDir;
+              return 0;
+            });
+
+            function th(label, col) {
+              const active = state.companyTableSortCol === col;
+              const arrow = active ? (state.companyTableSortDir === 1 ? '▲' : '▼') : '▲';
+              return '<th onclick="sortCompanyTable(\\'' + col + '\\')" class="text-left text-[10px] uppercase tracking-wider p-3 cursor-pointer select-none whitespace-nowrap ' + (active ? 'text-amber-400' : 'text-slate-500 hover:text-slate-300') + '">' + label + '<span class="ml-1 text-[9px] ' + (active ? 'text-amber-400' : 'text-slate-600') + '">' + arrow + '</span></th>';
+            }
+            function detailColumn(label, itemsHtml, emptyLabel) {
+              return '<div><h4 class="text-[10px] uppercase tracking-wider text-slate-500 mb-2">' + label + '</h4>' + (itemsHtml.length ? itemsHtml.join('') : '<div class="text-xs text-slate-500 italic">' + emptyLabel + '</div>') + '</div>';
+            }
+
+            const bodyRows = rows.map(function(r) {
+              const p = r.project;
+              const isOpen = !!state.companyTableExpanded[p.id];
+              const main = '<tr onclick="toggleCompanyTableRow(\\'' + p.id + '\\')" class="cursor-pointer hover:bg-slate-700/10 border-t border-slate-700/50">' +
+                '<td class="p-3"><span class="inline-block text-slate-500 text-[10px] mr-1.5 transition-transform' + (isOpen ? ' rotate-90' : '') + '">▶</span><span class="font-medium text-white">' + p.name + '</span><br><span class="text-xs text-slate-500 ml-4">' + p.location + '</span></td>' +
+                '<td class="p-3 whitespace-nowrap"><span class="inline-block w-20 h-1.5 bg-slate-700 rounded-full overflow-hidden align-middle mr-2"><span class="block h-full bg-amber-400" style="width:' + r.pilesPct + '%"></span></span>' + r.pilesPct + '%</td>' +
+                '<td class="p-3 text-slate-300">' + (r.phase ? r.phase.phase + ' <span class="text-slate-500">· ' + (r.phase.percentComplete || 0) + '%</span>' : '<span class="text-slate-500">No phase logged</span>') + '</td>' +
+                '<td class="p-3">' + statusBadge(r.scheduleStatus.label, r.scheduleStatus.bg) + '</td>' +
+                '<td class="p-3 whitespace-nowrap" style="color:' + (r.timing ? r.timing.hex : '#64748b') + '">' + (r.timing ? r.timing.text : '—') + '</td>' +
+                '<td class="p-3 ' + (r.rfis.length === 0 ? 'text-slate-500' : r.rfiBlocking ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.rfis.length + '</td>' +
+                '<td class="p-3 ' + (r.submittals.length === 0 ? 'text-slate-500' : r.subOverdue ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.submittals.length + '</td>' +
+                '<td class="p-3 ' + (r.punchItems.length === 0 ? 'text-slate-500' : r.punchOverdue ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.punchItems.length + '</td>' +
+              '</tr>';
+
+              const rfiHtml = r.rfis.map(function(x) {
+                return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (x.blocking ? ' text-red-300' : ' text-slate-200') + '">' + x.number + ' · ' + x.subject + (x.blocking ? ' <span class="text-red-400">· blocking</span>' : '') + '<span class="block text-slate-500">' + daysElapsedSince(x.createdAt) + 'd open</span></div>';
+              });
+              const subHtml = r.submittals.map(function(x) {
+                const overdue = x.dueDate && new Date(x.dueDate).getTime() < now;
+                const sub = overdue ? Math.abs(Math.ceil((now - new Date(x.dueDate).getTime()) / 86400000)) + 'd overdue' : (x.dueDate ? 'due ' + formatDate(x.dueDate) : daysElapsedSince(x.createdAt) + 'd open');
+                return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (overdue ? ' text-red-300' : ' text-slate-200') + '">' + x.number + ' · ' + x.specSection + '<span class="block text-slate-500">' + sub + '</span></div>';
+              });
+              const punchHtml = r.punchItems.map(function(x) {
+                const overdue = x.dueDate && new Date(x.dueDate).getTime() < now;
+                return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (overdue ? ' text-red-300' : ' text-slate-200') + '">' + x.description + (x.location ? ' <span class="text-slate-500">· ' + x.location + '</span>' : '') + (overdue ? '<span class="block text-red-400">overdue</span>' : '') + '</div>';
+              });
+              const hasAny = r.rfis.length || r.submittals.length || r.punchItems.length;
+              const detail = '<tr class="' + (isOpen ? '' : 'hidden') + '"><td colspan="8" class="p-0"><div class="bg-slate-900/40 px-5 py-4 grid sm:grid-cols-3 gap-5">' +
+                detailColumn('RFIs', rfiHtml, 'No open RFIs') +
+                detailColumn('Submittals', subHtml, 'No open submittals') +
+                detailColumn('Punch List', punchHtml, 'No open punch items') +
+                (hasAny ? '<div class="sm:col-span-3"><button onclick="openProject(\\'' + p.id + '\\')" class="text-xs font-medium text-amber-400 hover:text-amber-300">Open ' + p.name + ' →</button></div>' : '') +
+              '</div></td></tr>';
+              return main + detail;
+            }).join('');
+
+            const counts = {
+              all: projects.length,
+              attention: projects.filter(function(p) { const s = projectScheduleStatus(p.milestones).label; return s === 'Behind' || s === 'At Risk'; }).length,
+              ontrack: projects.filter(function(p) { return projectScheduleStatus(p.milestones).label === 'On Track'; }).length,
+            };
+            function chip(id, label) {
+              return '<button onclick="setCompanyTableFilter(\\'' + id + '\\')" class="text-xs font-semibold px-3 py-1.5 rounded-full ' + (state.companyTableFilter === id ? 'bg-amber-400 text-slate-900' : 'bg-slate-900/50 border border-slate-700 text-slate-400 hover:text-slate-200') + '">' + label + '</button>';
+            }
+
+            return '<div>' +
+              '<h2 class="font-display font-semibold text-white mb-4">Active Projects</h2>' +
+              '<div class="card rounded-xl overflow-hidden">' +
+                '<div class="flex items-center justify-between gap-3 flex-wrap p-3">' +
+                  '<div class="flex items-center gap-2">' + chip('all', 'All (' + counts.all + ')') + chip('attention', 'Needs Attention (' + counts.attention + ')') + chip('ontrack', 'On Track (' + counts.ontrack + ')') + '</div>' +
+                  '<span class="text-xs text-slate-500">Click a column to sort · click a row to expand</span>' +
+                '</div>' +
+                '<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr>' +
+                  th('Project', 'name') + '<th class="text-left text-[10px] uppercase tracking-wider text-slate-500 p-3">Piles</th><th class="text-left text-[10px] uppercase tracking-wider text-slate-500 p-3">Current Phase</th><th class="text-left text-[10px] uppercase tracking-wider text-slate-500 p-3">Schedule</th>' + th('Finish', 'finish') + th('RFIs', 'rfi') + th('Subs', 'sub') + th('Punch', 'punch') +
+                '</tr></thead><tbody>' + (bodyRows || '<tr><td colspan="8" class="p-5 text-center text-slate-500 text-sm">No projects match this filter.</td></tr>') + '</tbody></table></div>' +
+              '</div>' +
+            '</div>';
+          }
+          function setCompanyTableFilter(f) { state.companyTableFilter = f; render(); }
+          function sortCompanyTable(col) {
+            if (state.companyTableSortCol === col) state.companyTableSortDir *= -1;
+            else { state.companyTableSortCol = col; state.companyTableSortDir = 1; }
+            render();
+          }
+          function toggleCompanyTableRow(id) {
+            state.companyTableExpanded[id] = !state.companyTableExpanded[id];
+            render();
           }
 
           // PROJECT DASHBOARD
