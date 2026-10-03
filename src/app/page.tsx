@@ -1005,19 +1005,23 @@ export default async function SolTrendApp() {
               return '<div><div class="flex justify-between text-xs mb-1"><span class="text-slate-400 flex items-center gap-1"><span class="' + dotClass + '">●</span> ' + label + '</span><span class="text-slate-300">' + formatNumber(installed) + ' / ' + formatNumber(total) + ' <span class="text-slate-500">· ' + pct + '%</span></span></div><div class="h-1.5 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r ' + fromClass + ' ' + toClass + ' rounded-full" style="width:' + pct + '%"></div></div></div>';
             }
 
-            const bodyRows = rows.map(function(r) {
+            // Below sm (~640px) the 8-column table has no room to breathe -
+            // it just overflows sideways with no visible scrollbar on a
+            // phone, so there was nothing telling you Finish/RFIs/Subs/
+            // Punch even existed off-screen (Glen: "you can't tell that you
+            // need to scroll over"). Rather than a scroll hint band-aid,
+            // mobile gets a different collapsed row entirely - name, status,
+            // piles%, and the one thing that matters most (a blocking RFI
+            // count, or days left) - with everything else folded into the
+            // same expand-to-detail panel the desktop table already uses.
+            // Both renderings share detailInner()/isOpen so they stay in
+            // sync off the same state.companyTableExpanded flag; only one
+            // is ever visible at a time (hidden sm:block / sm:hidden below).
+            let bodyRowsDesktop = '';
+            let bodyRowsMobile = '';
+            rows.forEach(function(r) {
               const p = r.project;
               const isOpen = !!state.companyTableExpanded[p.id];
-              const main = '<tr onclick="toggleCompanyTableRow(\\'' + p.id + '\\')" class="cursor-pointer hover:bg-slate-700/10 border-t border-slate-700/50">' +
-                '<td class="p-3"><span class="inline-block text-slate-500 text-[10px] mr-1.5 transition-transform' + (isOpen ? ' rotate-90' : '') + '">▶</span><span class="font-medium text-white">' + p.name + '</span><br><span class="text-xs text-slate-500 ml-4">' + p.location + '</span></td>' +
-                '<td class="p-3 whitespace-nowrap"><span class="inline-block w-20 h-1.5 bg-slate-700 rounded-full overflow-hidden align-middle mr-2"><span class="block h-full bg-amber-400" style="width:' + r.pilesPct + '%"></span></span>' + r.pilesPct + '%</td>' +
-                '<td class="p-3 text-slate-300">' + (r.phase ? r.phase.phase + ' <span class="text-slate-500">· ' + (r.phase.percentComplete || 0) + '%</span>' : '<span class="text-slate-500">No phase logged</span>') + '</td>' +
-                '<td class="p-3">' + statusBadge(r.scheduleStatus.label, r.scheduleStatus.bg) + '</td>' +
-                '<td class="p-3 whitespace-nowrap" style="color:' + (r.timing ? r.timing.hex : '#64748b') + '">' + (r.timing ? r.timing.text : '—') + '</td>' +
-                '<td class="p-3 ' + (r.rfis.length === 0 ? 'text-slate-500' : r.rfiBlocking ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.rfis.length + '</td>' +
-                '<td class="p-3 ' + (r.submittals.length === 0 ? 'text-slate-500' : r.subOverdue ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.submittals.length + '</td>' +
-                '<td class="p-3 ' + (r.punchItems.length === 0 ? 'text-slate-500' : r.punchOverdue ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.punchItems.length + '</td>' +
-              '</tr>';
 
               const rfiHtml = r.rfis.map(function(x) {
                 return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (x.blocking ? ' text-red-300' : ' text-slate-200') + '">' + x.number + ' · ' + x.subject + (x.blocking ? ' <span class="text-red-400">· blocking</span>' : '') + '<span class="block text-slate-500">' + daysElapsedSince(x.createdAt) + 'd open</span></div>';
@@ -1040,15 +1044,47 @@ export default async function SolTrendApp() {
                   progressRow('Modules', 'text-purple-400', 'from-purple-500', 'to-purple-400', p.modulesInstalled || 0, p.totalModules || 0) +
                 '</div>' +
               '</div>';
-              const detail = '<tr class="' + (isOpen ? '' : 'hidden') + '"><td colspan="8" class="p-0"><div class="bg-slate-900/40 px-5 py-4 grid sm:grid-cols-3 gap-5">' +
-                detailColumn('RFIs', rfiHtml, 'No open RFIs') +
+              // Shared by both renderings - "grid sm:grid-cols-3" only sets
+              // the 3-column layout at sm and up, so on a phone this same
+              // markup already stacks to one column with no changes needed.
+              const detailInner = detailColumn('RFIs', rfiHtml, 'No open RFIs') +
                 detailColumn('Submittals', subHtml, 'No open submittals') +
                 detailColumn('Punch List', punchHtml, 'No open punch items') +
                 progressHtml +
-                (hasAny ? '<div class="sm:col-span-3"><button onclick="openProject(\\'' + p.id + '\\')" class="text-xs font-medium text-amber-400 hover:text-amber-300">Open ' + p.name + ' →</button></div>' : '') +
-              '</div></td></tr>';
-              return main + detail;
-            }).join('');
+                (hasAny ? '<div class="sm:col-span-3"><button onclick="openProject(\\'' + p.id + '\\')" class="text-xs font-medium text-amber-400 hover:text-amber-300">Open ' + p.name + ' →</button></div>' : '');
+
+              const main = '<tr onclick="toggleCompanyTableRow(\\'' + p.id + '\\')" class="cursor-pointer hover:bg-slate-700/10 border-t border-slate-700/50">' +
+                '<td class="p-3"><span class="inline-block text-slate-500 text-[10px] mr-1.5 transition-transform' + (isOpen ? ' rotate-90' : '') + '">▶</span><span class="font-medium text-white">' + p.name + '</span><br><span class="text-xs text-slate-500 ml-4">' + p.location + '</span></td>' +
+                '<td class="p-3 whitespace-nowrap"><span class="inline-block w-20 h-1.5 bg-slate-700 rounded-full overflow-hidden align-middle mr-2"><span class="block h-full bg-amber-400" style="width:' + r.pilesPct + '%"></span></span>' + r.pilesPct + '%</td>' +
+                '<td class="p-3 text-slate-300">' + (r.phase ? r.phase.phase + ' <span class="text-slate-500">· ' + (r.phase.percentComplete || 0) + '%</span>' : '<span class="text-slate-500">No phase logged</span>') + '</td>' +
+                '<td class="p-3">' + statusBadge(r.scheduleStatus.label, r.scheduleStatus.bg) + '</td>' +
+                '<td class="p-3 whitespace-nowrap" style="color:' + (r.timing ? r.timing.hex : '#64748b') + '">' + (r.timing ? r.timing.text : '—') + '</td>' +
+                '<td class="p-3 ' + (r.rfis.length === 0 ? 'text-slate-500' : r.rfiBlocking ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.rfis.length + '</td>' +
+                '<td class="p-3 ' + (r.submittals.length === 0 ? 'text-slate-500' : r.subOverdue ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.submittals.length + '</td>' +
+                '<td class="p-3 ' + (r.punchItems.length === 0 ? 'text-slate-500' : r.punchOverdue ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.punchItems.length + '</td>' +
+              '</tr>';
+              const detail = '<tr class="' + (isOpen ? '' : 'hidden') + '"><td colspan="8" class="p-0"><div class="bg-slate-900/40 px-5 py-4 grid sm:grid-cols-3 gap-5">' + detailInner + '</div></td></tr>';
+              bodyRowsDesktop += main + detail;
+
+              const openCount = r.rfis.length + r.submittals.length + r.punchItems.length;
+              const blockingCount = r.rfis.filter(function(x) { return x.blocking; }).length;
+              const mobileSummary = blockingCount > 0
+                ? '<span class="text-red-400 font-semibold">' + blockingCount + ' blocking RFI' + (blockingCount > 1 ? 's' : '') + '</span>'
+                : (openCount > 0 ? openCount + ' open item' + (openCount > 1 ? 's' : '') : '<span class="text-slate-500">No open items</span>');
+              const mobileMain = '<div onclick="toggleCompanyTableRow(\\'' + p.id + '\\')" class="p-3 cursor-pointer active:bg-slate-700/10 border-t border-slate-700/50">' +
+                '<div class="flex items-start justify-between gap-2">' +
+                  '<div class="min-w-0 flex items-start gap-1.5"><span class="text-slate-500 text-[10px] mt-0.5 flex-shrink-0 transition-transform' + (isOpen ? ' rotate-90' : '') + '">▶</span><div class="min-w-0"><span class="font-medium text-white truncate block">' + p.name + '</span><span class="text-xs text-slate-500 truncate block">' + p.location + '</span></div></div>' +
+                  '<span class="flex-shrink-0">' + statusBadge(r.scheduleStatus.label, r.scheduleStatus.bg) + '</span>' +
+                '</div>' +
+                '<div class="flex items-center gap-2 mt-2 ml-4 text-xs">' +
+                  '<span class="inline-block w-14 h-1.5 bg-slate-700 rounded-full overflow-hidden flex-shrink-0"><span class="block h-full bg-amber-400" style="width:' + r.pilesPct + '%"></span></span>' +
+                  '<span class="text-slate-300 flex-shrink-0">' + r.pilesPct + '% piles</span>' +
+                  '<span class="ml-auto text-right truncate">' + mobileSummary + (r.timing ? ' <span class="text-slate-600">·</span> <span style="color:' + r.timing.hex + '">' + r.timing.text + '</span>' : '') + '</span>' +
+                '</div>' +
+              '</div>';
+              const mobileDetail = '<div class="' + (isOpen ? '' : 'hidden') + ' bg-slate-900/40 px-4 py-4 grid sm:grid-cols-3 gap-5">' + detailInner + '</div>';
+              bodyRowsMobile += mobileMain + mobileDetail;
+            });
 
             const counts = {
               all: projects.length,
@@ -1059,16 +1095,19 @@ export default async function SolTrendApp() {
               return '<button onclick="setCompanyTableFilter(\\'' + id + '\\')" class="text-xs font-semibold px-3 py-1.5 rounded-full ' + (state.companyTableFilter === id ? 'bg-amber-400 text-slate-900' : 'bg-slate-900/50 border border-slate-700 text-slate-400 hover:text-slate-200') + '">' + label + '</button>';
             }
 
+            const noMatch = rows.length === 0;
             return '<div id="activeProjectsCard">' +
               '<h2 class="font-display font-semibold text-white mb-4">Active Projects</h2>' +
               '<div class="card rounded-xl overflow-hidden">' +
                 '<div class="flex items-center justify-between gap-3 flex-wrap p-3">' +
                   '<div class="flex items-center gap-2">' + chip('all', 'All (' + counts.all + ')') + chip('attention', 'Needs Attention (' + counts.attention + ')') + chip('ontrack', 'On Track (' + counts.ontrack + ')') + '</div>' +
-                  '<span class="text-xs text-slate-500">Click a column to sort · click a row to expand</span>' +
+                  '<span class="text-xs text-slate-500 hidden sm:inline">Click a column to sort · click a row to expand</span>' +
+                  '<span class="text-xs text-slate-500 sm:hidden">Tap a project for details</span>' +
                 '</div>' +
-                '<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr>' +
+                '<div class="overflow-x-auto hidden sm:block"><table class="w-full text-sm"><thead><tr>' +
                   th('Project', 'name') + '<th class="text-left text-[10px] uppercase tracking-wider text-slate-500 p-3">Piles</th><th class="text-left text-[10px] uppercase tracking-wider text-slate-500 p-3">Current Phase</th><th class="text-left text-[10px] uppercase tracking-wider text-slate-500 p-3">Schedule</th>' + th('Finish', 'finish') + th('RFIs', 'rfi') + th('Subs', 'sub') + th('Punch', 'punch') +
-                '</tr></thead><tbody>' + (bodyRows || '<tr><td colspan="8" class="p-5 text-center text-slate-500 text-sm">No projects match this filter.</td></tr>') + '</tbody></table></div>' +
+                '</tr></thead><tbody>' + (bodyRowsDesktop || '<tr><td colspan="8" class="p-5 text-center text-slate-500 text-sm">No projects match this filter.</td></tr>') + '</tbody></table></div>' +
+                '<div class="sm:hidden">' + (noMatch ? '<div class="p-5 text-center text-slate-500 text-sm">No projects match this filter.</div>' : bodyRowsMobile) + '</div>' +
               '</div>' +
             '</div>';
           }
@@ -6597,6 +6636,116 @@ export default async function SolTrendApp() {
             // "live" story.
             await loadNotifications();
             setInterval(loadNotifications, 60000);
+
+            // This runs as a standalone, installed PWA (manifest.ts sets
+            // display: 'standalone') - no browser chrome at all, so no
+            // back/forward, no address bar, and no native pull-to-refresh.
+            // With more than one person touching the same projects, there
+            // was no way to get a stale screen current short of
+            // force-quitting and reopening. Two fixes, wired up below:
+            // refreshing automatically the moment the app regains focus
+            // (the common case - switching back from texting/the camera),
+            // and a swipe-down-at-the-top gesture for "refresh right now."
+            document.addEventListener('visibilitychange', function() {
+              if (document.visibilityState === 'visible' && state.companyId) refreshAllData();
+            });
+            setupPullToRefresh();
+          }
+
+          // Re-fetches everything the currently visible screen could be
+          // showing. loadSettings() first, since it also re-points
+          // state.currentProject at the fresh object (a teammate could
+          // have archived/edited the very project you're looking at) -
+          // loadProjectData()/loadNotifications() read that pointer.
+          // Guarded against overlapping calls since both triggers below
+          // (focus + the pull gesture) can otherwise fire close together.
+          let isRefreshing = false;
+          async function refreshAllData() {
+            if (isRefreshing) return;
+            isRefreshing = true;
+            try {
+              await loadSettings();
+              await Promise.all([loadProjectData(), loadNotifications()]);
+            } catch (e) {
+              console.error('Refresh error:', e);
+            } finally {
+              isRefreshing = false;
+            }
+          }
+
+          // Pull-to-refresh. Deliberately NOT routed through render() on
+          // every touchmove - that would mean rebuilding the entire app's
+          // DOM dozens of times during one drag. The indicator pill is a
+          // single element created once and appended to document.body
+          // (outside #app, so render()'s innerHTML swap never touches it),
+          // moved directly via style.transform while dragging, with the
+          // listeners themselves attached to document - also outside
+          // #app, so they survive every render() same as updateNotifUI()'s
+          // targets do.
+          function setupPullToRefresh() {
+            const THRESHOLD = 70;
+            let startY = null, dragging = false, indicator = null;
+
+            function ensureIndicator() {
+              if (indicator) return indicator;
+              indicator = document.createElement('div');
+              indicator.id = 'pullRefreshIndicator';
+              indicator.style.cssText = 'position:fixed;top:0;left:50%;transform:translate(-50%,-100%);z-index:70;background:#1e293b;border:1px solid rgba(148,163,184,0.3);border-radius:9999px;padding:7px 14px;display:flex;align-items:center;gap:7px;font-size:12px;color:#94a3b8;box-shadow:0 4px 12px rgba(0,0,0,.35);';
+              indicator.innerHTML = '<span class="spinner" style="width:13px;height:13px;border-width:2px;animation:none;"></span><span id="pullRefreshLabel">Pull to refresh</span>';
+              document.body.appendChild(indicator);
+              return indicator;
+            }
+
+            function blockedBySomethingElse() {
+              // Don't hijack scrolling inside an open modal, the gallery
+              // lightbox (which has its own swipe handling), or the
+              // mobile sidebar drawer.
+              return state.sidebarOpen || !!document.querySelector('.modal-backdrop, .lb-backdrop');
+            }
+
+            document.addEventListener('touchstart', function(e) {
+              if (window.scrollY > 4 || e.touches.length !== 1 || blockedBySomethingElse()) { startY = null; return; }
+              startY = e.touches[0].clientY;
+              dragging = false;
+            }, { passive: true });
+
+            document.addEventListener('touchmove', function(e) {
+              if (startY === null || isRefreshing) return;
+              const dy = e.touches[0].clientY - startY;
+              if (dy <= 0 || window.scrollY > 4) { startY = null; return; }
+              dragging = true;
+              const el = ensureIndicator();
+              const pull = Math.min(dy, THRESHOLD * 1.6);
+              el.style.transform = 'translate(-50%, ' + (pull - 46) + 'px)';
+              const spinner = el.querySelector('.spinner');
+              const label = el.querySelector('#pullRefreshLabel');
+              const ready = dy >= THRESHOLD;
+              spinner.style.borderTopColor = ready ? '#fbbf24' : '#64748b';
+              label.textContent = ready ? 'Release to refresh' : 'Pull to refresh';
+            }, { passive: true });
+
+            document.addEventListener('touchend', function(e) {
+              if (!dragging || startY === null) { startY = null; dragging = false; return; }
+              const t = e.changedTouches && e.changedTouches[0];
+              const dy = t ? t.clientY - startY : 0;
+              startY = null; dragging = false;
+              const el = indicator;
+              if (!el) return;
+              el.style.transition = 'transform 0.2s ease';
+              if (dy >= THRESHOLD) {
+                el.style.transform = 'translate(-50%, 10px)';
+                el.querySelector('#pullRefreshLabel').textContent = 'Refreshing...';
+                el.querySelector('.spinner').style.animation = 'spin 0.7s linear infinite';
+                refreshAllData().finally(function() {
+                  el.style.transform = 'translate(-50%, -100%)';
+                  el.querySelector('.spinner').style.animation = 'none';
+                  setTimeout(function() { el.style.transition = ''; }, 200);
+                });
+              } else {
+                el.style.transform = 'translate(-50%, -100%)';
+                setTimeout(function() { el.style.transition = ''; }, 200);
+              }
+            }, { passive: true });
           }
 
           initializeApp();
