@@ -4322,7 +4322,41 @@ export default async function SolTrendApp() {
             const rangeSpan = Math.max(1, rangeEnd - rangeStart);
             function pct(dateStr) { if (!dateStr) return null; return Math.max(0, Math.min(100, ((new Date(dateStr).getTime() - rangeStart) / rangeSpan) * 100)); }
 
-            const gantt = milestones.length > 0 ? '<div class="card rounded-xl p-5 mb-4 space-y-3">' + milestones.map(function(m) {
+            // Month ticks for the ruler above the bars, and the faint
+            // gridlines repeated inside each bar track - both come from
+            // the same planned-start/planned-end dates already on each
+            // phase (rangeStart/rangeEnd above), so there's no new data to
+            // enter. Capped at 36 iterations as a sanity guard, not
+            // because a real schedule should ever span 3 years.
+            const monthTicks = (function() {
+              const ticks = [];
+              const first = new Date(rangeStart);
+              let cur = new Date(first.getFullYear(), first.getMonth(), 1);
+              let lastYear = null;
+              let guard = 0;
+              while (cur.getTime() <= rangeEnd && guard < 36) {
+                const p = pct(cur.toISOString());
+                if (p !== null) {
+                  const label = cur.toLocaleDateString('en-US', { month: 'short' }) + (cur.getFullYear() !== lastYear ? " '" + String(cur.getFullYear()).slice(-2) : '');
+                  ticks.push({ pct: p, label: label });
+                  lastYear = cur.getFullYear();
+                }
+                cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+                guard++;
+              }
+              return ticks;
+            })();
+            const tickLines = monthTicks.map(function(t) { return '<div class="absolute top-0 bottom-0 border-l border-slate-700/40" style="left:' + t.pct + '%;"></div>'; }).join('');
+            const ruler = milestones.length > 0 ? '<div class="grid grid-cols-[110px_1fr] gap-3 mb-2">' +
+              '<div></div>' +
+              '<div class="relative h-4">' + monthTicks.map(function(t) {
+                return '<div class="absolute top-0 bottom-0 border-l border-slate-700/50" style="left:' + t.pct + '%;"></div>' +
+                  '<span class="absolute top-0 text-[9px] text-slate-500 whitespace-nowrap" style="left:' + t.pct + '%;transform:' + (t.pct > 92 ? 'translateX(-100%)' : 'translateX(2px)') + ';">' + t.label + '</span>';
+              }).join('') +
+              '</div>' +
+            '</div>' : '';
+
+            const gantt = milestones.length > 0 ? '<div class="card rounded-xl p-5 mb-4">' + ruler + '<div class="space-y-3">' + milestones.map(function(m) {
               const plannedLeft = pct(m.plannedStart), plannedRight = pct(m.plannedEnd);
               const hasPlanned = plannedLeft !== null && plannedRight !== null;
               const percent = effectivePercent(m);
@@ -4330,14 +4364,22 @@ export default async function SolTrendApp() {
               return '<div class="grid grid-cols-[110px_1fr] items-center gap-3">' +
                 '<div class="min-w-0"><p class="text-xs font-semibold text-white truncate">' + m.phase + '</p><p class="text-[10px] text-slate-500">' + percent + '%</p></div>' +
                 '<div class="relative h-4 bg-slate-900 rounded-md overflow-hidden">' +
+                  tickLines +
                   (hasPlanned ? '<div class="absolute top-0 bottom-0 rounded-md" style="left:' + plannedLeft + '%;width:' + Math.max(2, plannedRight - plannedLeft) + '%;background:rgba(148,163,184,0.18);border:1px dashed rgba(148,163,184,0.4);"></div>' : '') +
                   (hasPlanned ? '<div class="absolute top-0 bottom-0 rounded-md" style="left:' + plannedLeft + '%;width:' + Math.max(2, (plannedRight - plannedLeft) * (percent / 100)) + '%;background:' + barColor + ';"></div>' : '') +
                 '</div>' +
               '</div>';
-            }).join('') + '</div>' : '';
+            }).join('') + '</div></div>' : '';
 
+            // Editing a phase expands that exact row into the form, in
+            // place - no jump anywhere, not even within the table. There's
+            // no specific row for a brand-new phase to anchor to, so Add
+            // Phase keeps opening just above the table (addForm below).
             const table = '<div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-500 uppercase"><th class="p-3">Phase</th><th class="p-3">Planned</th><th class="p-3">Actual</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
               (milestones.length > 0 ? milestones.map(function(m) {
+                if (state.milestoneFormOpen && state.editingMilestoneId === m.id) {
+                  return '<tr class="border-t-2 border-amber-400/50"><td colspan="5" class="p-0">' + renderMilestoneForm() + '</td></tr>';
+                }
                 const canDelete = hasRole('admin');
                 return '<tr class="border-t border-slate-700/50"><td class="p-3 text-white font-medium">' + m.phase + '</td>' +
                   '<td class="p-3 text-slate-400 text-xs">' + (m.plannedStart ? formatDate(m.plannedStart) : '—') + ' &ndash; ' + (m.plannedEnd ? formatDate(m.plannedEnd) : '—') + '</td>' +
@@ -4347,11 +4389,11 @@ export default async function SolTrendApp() {
               }).join('') : '<tr><td class="p-4 text-slate-500 text-sm" colspan="5">No milestones yet — add your first phase below.</td></tr>') +
             '</tbody></table></div>';
 
-            const form = state.milestoneFormOpen ? renderMilestoneForm() : '';
+            const addForm = (state.milestoneFormOpen && !state.editingMilestoneId) ? renderMilestoneForm() : '';
 
             return '<div class="space-y-4 animate-fade-in">' +
               '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Schedule</h1><button onclick="openMilestoneForm(null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' Add Phase</button></div>' +
-              form + gantt + table +
+              gantt + addForm + table +
             '</div>';
           }
           function openMilestoneForm(id) {
