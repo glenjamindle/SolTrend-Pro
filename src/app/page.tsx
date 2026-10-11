@@ -267,6 +267,15 @@ export default async function SolTrendApp() {
             notifications: [], unreadCount: 0, notifPanelOpen: false,
             delays: [],
             delayDate: localDateStr(Date.now()), delayReason: null, delayHours: '', delayDescription: '',
+            // DAILY LOG - supervisor's narrative record of a day on site:
+            // crew, weather, visitors, free-text notes, photos. See
+            // renderDailyLog() and saveDailyLog(). dailyLogCrew is an array
+            // of {trade, count} rows, not a single headcount.
+            dailyLogs: [],
+            dailyLogDate: localDateStr(Date.now()),
+            dailyLogCrew: [],
+            dailyLogWeather: '', dailyLogVisitors: '', dailyLogNarrative: '',
+            dailyLogPhotos: [], dailyLogSubmitting: false,
             punchItems: [], punchFilter: 'open', punchFormOpen: false,
             punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: [],
             pendingSyncCount: 0,
@@ -767,6 +776,7 @@ export default async function SolTrendApp() {
             else if (context === 'safety-incident') state.incidentPhotos.push(...photoObjs);
             else if (context === 'rfi') state.rfiPhotos.push(...photoObjs);
             else if (context === 'gallery') state.galleryUploadPhotos.push(...photoObjs);
+            else if (context === 'dailylog') state.dailyLogPhotos.push(...photoObjs);
             render();
           }
           function removePhoto(context, id) {
@@ -779,6 +789,7 @@ export default async function SolTrendApp() {
             else if (context === 'safety-incident') state.incidentPhotos = state.incidentPhotos.filter(p => p.id !== id);
             else if (context === 'rfi') state.rfiPhotos = state.rfiPhotos.filter(p => p.id !== id);
             else if (context === 'gallery') state.galleryUploadPhotos = state.galleryUploadPhotos.filter(p => p.id !== id);
+            else if (context === 'dailylog') state.dailyLogPhotos = state.dailyLogPhotos.filter(p => p.id !== id);
             render();
           }
           function renderPhotoCapture(context) {
@@ -791,6 +802,7 @@ export default async function SolTrendApp() {
             else if (context === 'safety-incident') photos = state.incidentPhotos;
             else if (context === 'rfi') photos = state.rfiPhotos;
             else if (context === 'gallery') photos = state.galleryUploadPhotos;
+            else if (context === 'dailylog') photos = state.dailyLogPhotos;
             // Used to be two inputs: a capture="environment" one (direct
             // camera launch, but the OS camera app hands back exactly one
             // shot per launch - no way to batch) plus a separate library
@@ -853,6 +865,7 @@ export default async function SolTrendApp() {
                 { id: 'dashboard', label: 'Project Dashboard', icon: 'layout-dashboard' },
                 { id: 'schedule', label: 'Schedule', icon: 'calendar-range' },
                 { id: 'production', label: 'Production', icon: 'truck' },
+                { id: 'dailylog', label: 'Daily Log', icon: 'notebook-pen' },
                 { id: 'inspection', label: 'QC Inspection', icon: 'clipboard-check' },
                 { id: 'refusal', label: 'Refusals', icon: 'alert-triangle' },
                 { id: 'delays', label: 'Delays', icon: 'cloud-rain' },
@@ -1950,6 +1963,11 @@ export default async function SolTrendApp() {
             // Delays tab and the Weekly/Monthly reports' Delays section) -
             // defaults to "no delays" unless one was actually recorded.
             const dayDelaysList = (state.delays || []).filter(function(d) { return d.date === date; });
+            // Supervisor's Daily Log for this date, when one was logged -
+            // see renderDailyLog()/DailyLog in schema.prisma. Its crew,
+            // weather, visitors and narrative replace the boilerplate notes
+            // text below with what the supervisor actually recorded.
+            const dayLog = (state.dailyLogs || []).find(function(l) { return l.date === date; }) || null;
             const refusalRate = totalInspected > 0 ? ((dayRefusals / (totalInspected + dayRefusals)) * 100).toFixed(1) : '0.0';
             // Was a fabricated guess (piles/4, piles*2) instead of the real
             // tables/modules counts the production entry actually recorded -
@@ -1997,6 +2015,24 @@ export default async function SolTrendApp() {
             const dayPhotos = buildGalleryPhotos()
               .filter(function(p) { return p.date === date; })
               .map(function(p) { return { url: toAbsolutePhotoUrl(p.url), label: p.label }; });
+            // Daily Notes used to be fixed boilerplate text regardless of
+            // what actually happened that day. When a supervisor has logged
+            // a Daily Log for this date, lead with their real crew/weather/
+            // visitors recap and narrative; only fall back to the generic
+            // auto-summary when no log was taken.
+            const dayCrewTotal = dayLog && Array.isArray(dayLog.crew) ? dayLog.crew.reduce(function(s, c) { return s + (parseInt(c.count) || 0); }, 0) : 0;
+            const crewLine = dayLog && Array.isArray(dayLog.crew) && dayLog.crew.length > 0
+              ? dayLog.crew.map(function(c) { return c.count + ' ' + c.trade; }).join(', ') + ' (' + dayCrewTotal + ' total)'
+              : null;
+            const notesContent = dayLog
+              ? '<div style="margin-bottom:' + ((crewLine || dayLog.weather || dayLog.visitors) ? '10px' : '0') + ';">' +
+                  (crewLine ? '<div><strong>Crew:</strong> ' + crewLine + '</div>' : '') +
+                  (dayLog.weather ? '<div><strong>Weather:</strong> ' + dayLog.weather + '</div>' : '') +
+                  (dayLog.visitors ? '<div><strong>Visitors:</strong> ' + dayLog.visitors + '</div>' : '') +
+                '</div>' +
+                (dayLog.narrative ? dayLog.narrative : '<em>No narrative notes entered for this date.</em>')
+              : 'Weather conditions were favorable for pile driving operations. All crews operating at normal capacity. ' + (failed > 0 ? failed + ' piles failed QC and require remediation. ' : '') + (dayRefusals > 0 ? dayRefusals + ' refusal(s) logged - engineering notified for alternative pile locations.' : 'No refusals encountered today.') +
+                '<div style="margin-top:8px;font-size:11px;color:#b45309;">No Daily Log was recorded for this date - showing an auto-generated summary instead.</div>';
 
             const reportContent = \`
               <!DOCTYPE html>
@@ -2119,7 +2155,7 @@ export default async function SolTrendApp() {
                 </div>
                 <div class="notes-section">
                   <h3>Daily Notes</h3>
-                  <div class="notes-content">Weather conditions were favorable for pile driving operations. All crews operating at normal capacity. \${failed > 0 ? failed + ' piles failed QC and require remediation. ' : ''}\${dayRefusals > 0 ? dayRefusals + ' refusal(s) logged - engineering notified for alternative pile locations.' : 'No refusals encountered today.'}</div>
+                  <div class="notes-content">\${notesContent}</div>
                 </div>
                 <div class="section-title">Photo Documentation</div>
                 <div class="photo-gallery">\${dayPhotos.length > 0 ? dayPhotos.map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured</div>'}</div>
@@ -3186,6 +3222,12 @@ export default async function SolTrendApp() {
               if (!g.key) return;
               list.push({ key: g.key, url: g.url, date: g.date, label: g.caption || 'Photo', source: 'gallery', galleryId: g.id, uploader: g.user || '' });
             });
+            (state.dailyLogs || []).forEach(function(l) {
+              (l.photos || []).forEach(function(p) {
+                if (!p.key) return;
+                list.push({ key: p.key, url: p.url, date: l.date, label: 'Daily Log', source: 'dailylog', uploader: l.user || '' });
+              });
+            });
             list.sort(function(a, b) { return (b.date || '').localeCompare(a.date || '') || (b.key || '').localeCompare(a.key || ''); });
             return list;
           }
@@ -4042,13 +4084,22 @@ export default async function SolTrendApp() {
             state.submittals = [];
             state.piles = [];
             state.gallery = [];
+            state.dailyLogs = [];
             await Promise.all([
               loadInspections(), loadRefusals(), loadProduction(), loadDelays(), loadPunchItems(),
               loadToolboxTalks(), loadSafetyObservations(), loadSafetyIncidents(),
               loadMilestones(), loadDocuments(), loadCois(), loadMaterials(), loadDeliveries(),
-              loadRfis(), loadSubmittals(), loadPiles(), loadGalleryPhotos()
+              loadRfis(), loadSubmittals(), loadPiles(), loadGalleryPhotos(), loadDailyLogs()
             ]);
             render();
+          }
+          async function loadDailyLogs() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/daily-logs?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.dailyLogs = data; render(); }
+            } catch (e) { console.error('Load daily logs error:', e); }
           }
           async function loadGalleryPhotos() {
             try {
@@ -5341,6 +5392,133 @@ export default async function SolTrendApp() {
             } catch (e) { console.error('Load delays error:', e); }
           }
 
+          // DAILY LOG - a supervisor's narrative record of a day on site:
+          // crew on site, weather, visitors, and free-text notes. These are
+          // things that never had a home in any of the structured tabs
+          // above (Production, Delays, Safety) and either went unrecorded
+          // or got stuffed into a field that wasn't meant for them. Below
+          // the entry form is a read-only recap of whatever's already been
+          // logged for that date in Production/Delays/Refusals, so this
+          // doesn't become a ninth place to re-type the same numbers - it's
+          // only for what's genuinely new. See DailyLog in schema.prisma and
+          // /api/daily-logs. Feeds generateDailyReport()'s notes section.
+          function addCrewRow() {
+            hapticFeedback();
+            state.dailyLogCrew.push({ trade: '', count: '' });
+            render();
+          }
+          function removeCrewRow(idx) {
+            hapticFeedback();
+            state.dailyLogCrew.splice(idx, 1);
+            render();
+          }
+          function updateCrewRow(idx, field, value) {
+            state.dailyLogCrew[idx][field] = value;
+          }
+          function dailyLogForDate(date) {
+            return state.dailyLogs.find(function(l) { return l.date === date; }) || null;
+          }
+          function loadDailyLogIntoForm(date) {
+            const existing = dailyLogForDate(date);
+            state.dailyLogCrew = existing && Array.isArray(existing.crew) ? existing.crew.slice() : [];
+            state.dailyLogWeather = existing ? (existing.weather || '') : '';
+            state.dailyLogVisitors = existing ? (existing.visitors || '') : '';
+            state.dailyLogNarrative = existing ? (existing.narrative || '') : '';
+            state.dailyLogPhotos = existing && Array.isArray(existing.photos) ? existing.photos.slice() : [];
+          }
+          function setDailyLogDate(date) {
+            state.dailyLogDate = date;
+            loadDailyLogIntoForm(date);
+            render();
+          }
+          function renderDailyLog() {
+            const date = state.dailyLogDate;
+            const dayProduction = state.production.filter(function(p) { return p.date === date; });
+            const dayDelays = state.delays.filter(function(d) { return d.date === date; });
+            const dayRefusals = state.refusals.filter(function(r) { return localDateStr(r.timestamp) === date; });
+            const hasRecap = dayProduction.length > 0 || dayDelays.length > 0 || dayRefusals.length > 0;
+            const recent = state.dailyLogs.slice(0, 10);
+            const submitting = state.dailyLogSubmitting;
+            const recap = '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Already Logged for This Date</h3>' +
+              (hasRecap ? '<div class="space-y-2 text-sm">' +
+                dayProduction.map(function(p) { return '<div class="flex items-center justify-between py-1.5 border-b border-slate-700/50"><span class="text-slate-300">Production</span><span class="text-slate-400">' + p.piles + ' piles, ' + (p.tables || 0) + ' tables, ' + (p.modules || 0) + ' modules</span></div>'; }).join('') +
+                dayDelays.map(function(d) { return '<div class="flex items-center justify-between py-1.5 border-b border-slate-700/50"><span class="text-slate-300">Delay</span><span class="text-slate-400 capitalize">' + d.reason.replace(/_/g, ' ') + (d.hoursLost ? ' · ' + d.hoursLost + 'h' : '') + '</span></div>'; }).join('') +
+                (dayRefusals.length > 0 ? '<div class="flex items-center justify-between py-1.5"><span class="text-slate-300">Refusals</span><span class="text-slate-400">' + dayRefusals.length + ' pile' + (dayRefusals.length === 1 ? '' : 's') + '</span></div>' : '') +
+              '</div>' : '<p class="text-sm text-slate-500">Nothing logged yet for this date in Production, Delays, or Refusals.</p>') +
+            '</div>';
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto">' +
+              '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Daily Log</h1><span class="text-sm text-slate-500">' + state.dailyLogs.length + ' logged</span></div>' +
+              '<div class="card rounded-xl p-5 space-y-4">' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label>' + calendarField('dailyLogDate') + '<p class="text-xs text-slate-500 mt-1">Picking a date that already has a log loads it for editing.</p></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Crew on Site</label><div class="space-y-2">' +
+                  state.dailyLogCrew.map(function(c, idx) { return '<div class="flex gap-2"><input type="text" value="' + (c.trade || '') + '" oninput="updateCrewRow(' + idx + ', \\'trade\\', this.value)" placeholder="Trade (e.g. Pile Driving)" class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><input type="number" min="0" value="' + (c.count || '') + '" oninput="updateCrewRow(' + idx + ', \\'count\\', this.value)" placeholder="#" class="w-16 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm text-center"><button onclick="removeCrewRow(' + idx + ')" class="px-2 text-slate-500 hover:text-red-400">' + icon('x', 'w-4 h-4') + '</button></div>'; }).join('') +
+                '</div><button onclick="addCrewRow()" class="mt-2 text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">' + icon('plus', 'w-3.5 h-3.5') + ' Add Trade</button></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Weather</label><input type="text" value="' + (state.dailyLogWeather || '') + '" oninput="state.dailyLogWeather=this.value" placeholder="e.g. Clear, 78F, light wind" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Visitors</label><input type="text" value="' + (state.dailyLogVisitors || '') + '" oninput="state.dailyLogVisitors=this.value" placeholder="e.g. Client walkthrough, AHJ inspector" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea rows="4" placeholder="Narrative summary of the day..." oninput="state.dailyLogNarrative=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (state.dailyLogNarrative || '') + '</textarea></div>' +
+                '<div>' + renderPhotoCapture('dailylog') + '</div>' +
+                '<button onclick="submitDailyLog()" ' + (submitting ? 'disabled' : '') + ' class="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold text-lg flex items-center justify-center gap-2">' + (submitting ? '<span class="spinner"></span><span>Saving...</span>' : '<span>Save Daily Log</span>') + '</button>' +
+              '</div>' +
+              recap +
+              '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Recent Daily Logs</h3>' + (recent.length > 0 ? '<div class="space-y-2">' + recent.map(function(l) { return '<div onclick="setDailyLogDate(\\'' + l.date + '\\')" class="flex items-center justify-between py-2 border-b border-slate-700/50 last:border-0 cursor-pointer hover:bg-slate-800/40 rounded px-1 -mx-1"><div><p class="text-sm text-white">' + formatDate(l.date) + '</p><p class="text-xs text-slate-500">' + (l.weather || 'No weather noted') + (l.narrative ? ' · ' + l.narrative.slice(0, 40) + (l.narrative.length > 40 ? '...' : '') : '') + '</p></div>' + (Array.isArray(l.crew) && l.crew.length > 0 ? '<span class="text-xs text-slate-400">' + l.crew.reduce(function(sum, c) { return sum + (parseInt(c.count) || 0); }, 0) + ' crew</span>' : '') + '</div>'; }).join('') + '</div>' : '<p class="text-sm text-slate-500">No daily logs yet.</p>') + '</div>' +
+            '</div>';
+          }
+          async function submitDailyLog() {
+            if (state.dailyLogSubmitting) return;
+            hapticFeedback();
+            const date = state.dailyLogDate;
+            const crew = state.dailyLogCrew.filter(function(c) { return c.trade && c.trade.trim(); }).map(function(c) { return { trade: c.trade.trim(), count: parseInt(c.count) || 0 }; });
+            const projectId = state.currentProject?.id || 'proj_001';
+            state.dailyLogSubmitting = true;
+            render();
+            try {
+              // Same pattern as production/inspection/refusal: photos are
+              // still local data: URLs at this point, so they get uploaded
+              // to the private bucket first - the {key, url} pairs that come
+              // back are what persists and what buildGalleryPhotos() needs
+              // to pick these up in the unified Gallery/Daily Report list.
+              const uploadedPhotos = await uploadPendingPhotos(state.dailyLogPhotos, 'dailylog', projectId);
+              const log = {
+                date: date,
+                crew: crew,
+                weather: state.dailyLogWeather || null,
+                visitors: state.dailyLogVisitors || null,
+                narrative: state.dailyLogNarrative || null,
+                photos: uploadedPhotos,
+                user: state.currentUser.name
+              };
+              await saveDailyLog(log);
+              const existingIdx = state.dailyLogs.findIndex(function(l) { return l.date === date; });
+              if (existingIdx >= 0) state.dailyLogs[existingIdx] = log; else state.dailyLogs.unshift(log);
+              state.dailyLogs.sort(function(a, b) { return b.date.localeCompare(a.date); });
+              state.dailyLogPhotos = uploadedPhotos;
+              showToast('Daily log saved.', 'success');
+            } catch (e) {
+              console.error('Submit daily log error:', e);
+              showToast('Could not save the daily log. Try again.', 'error');
+            } finally {
+              state.dailyLogSubmitting = false;
+              render();
+            }
+          }
+          async function saveDailyLog(log) {
+            const projectId = state.currentProject?.id || 'proj_001';
+            await fetch('/api/daily-logs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                projectId,
+                date: log.date,
+                crew: log.crew,
+                weather: log.weather,
+                visitors: log.visitors,
+                narrative: log.narrative,
+                photos: log.photos,
+                loggedBy: state.currentUser.id
+              })
+            });
+          }
+
           // CLOSEOUT PUNCH LIST - not tied to a pile-by-pile flow like the
           // field-entry screens above; this is a filterable list with an
           // add-item form and per-item status controls, closer in shape to
@@ -5534,6 +5712,7 @@ export default async function SolTrendApp() {
             'materialExpectedDate': { compact: true },
             'punchDueDate': { compact: true },
             'galleryUploadDate': { maxToday: true, compact: true },
+            'dailyLogDate': { maxToday: true },
           };
           function getStateByPath(path) {
             const parts = path.split('.');
@@ -6537,7 +6716,7 @@ export default async function SolTrendApp() {
 
           // MAIN RENDER
           function render() {
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, punchlist: renderPunchList, heatmap: renderHeatMap, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, dailylog: renderDailyLog, punchlist: renderPunchList, heatmap: renderHeatMap, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button>' + mobileHeaderBrand() + '<span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();

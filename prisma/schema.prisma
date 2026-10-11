@@ -53,6 +53,7 @@ model User {
   rfis      Rfi[]
   submittals Submittal[]
   galleryPhotos GalleryPhoto[]
+  dailyLogs DailyLog[]
 }
 
 // Project - Solar installation project
@@ -133,6 +134,7 @@ model Project {
   rfis               Rfi[]
   submittals         Submittal[]
   galleryPhotos      GalleryPhoto[]
+  dailyLogs          DailyLog[]
 }
 
 // Crew - Work crews
@@ -596,6 +598,39 @@ model ProductionEntry {
   user          User           @relation(fields: [userId], references: [id])
   subcontractor Subcontractor? @relation(fields: [subcontractorId], references: [id])
   
+  @@unique([projectId, date])
+}
+
+// DailyLog - a supervisor's narrative record of a day on site: crew on
+// site, weather, visitors, and a free-text summary of the day - the
+// things that don't have a home in any of the structured tabs
+// (Production, Delays, Safety, etc.) and would otherwise go unrecorded
+// or get stuffed into a field that isn't meant for them. One per
+// project per calendar day, same upsert pattern as ProductionEntry and
+// DelayLog - re-logging the same day updates it instead of creating a
+// second row. crew is a JSON string of [{ trade, count }] rows rather
+// than a single headcount, since a day's crew is normally a handful of
+// subs/trades, not one number. Its narrative/crew/weather feed the
+// Daily Report PDF's notes section (see generateDailyReport in
+// page.tsx); its photos join the project's unified photo list via
+// buildGalleryPhotos, same as every other photo-bearing model.
+model DailyLog {
+  id        String   @id @default(cuid())
+  date      DateTime
+  crew      String?  // JSON string: [{ trade, count }]
+  weather   String?
+  visitors  String?
+  narrative String?
+  photos    String?  // JSON string
+
+  projectId String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
   @@unique([projectId, date])
 }
 
