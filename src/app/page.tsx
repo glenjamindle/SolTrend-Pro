@@ -1912,11 +1912,29 @@ export default async function SolTrendApp() {
               .replace('<body>', '<body>' + reportToolbarHtml());
             const blob = new Blob([withToolbar], { type: 'text/html;charset=utf-8' });
             const url = URL.createObjectURL(blob);
-            window.open(url, '_blank');
-            // The new tab has its own loaded copy by then; release the
-            // blob after a beat rather than holding it for the rest of the
-            // session. Long enough for a slow mobile connection to finish.
-            setTimeout(function() { URL.revokeObjectURL(url); }, 60000);
+            const reportWin = window.open(url, '_blank');
+            // Used to revoke this blob on a flat 60-second timer ("the new
+            // tab has its own loaded copy by then"). That's true for the
+            // page's own initial load, but Chrome's print dialog re-reads
+            // the live document - not a frozen copy - every time the
+            // destination or settings change, including when switching
+            // from the default printer to "Save as PDF". Reviewing the
+            // report, opening the print dialog, and then using the
+            // dropdown to switch to "Save as PDF" easily takes longer than
+            // 60 seconds - at which point the blob was already revoked,
+            // that destination switch's re-render pulled from a dead URL,
+            // and the "perfect" preview from a moment earlier got replaced
+            // by a blank page that then saved as a blank PDF. Revoke on
+            // the report tab's own pagehide (close or navigate-away)
+            // instead - that's same-origin and reachable since blob: pages
+            // inherit the opener's origin - with a generous fallback timer
+            // only as a backstop in case pagehide never fires.
+            let revoked = false;
+            const revokeOnce = function() { if (!revoked) { revoked = true; URL.revokeObjectURL(url); } };
+            try {
+              if (reportWin) reportWin.addEventListener('pagehide', revokeOnce);
+            } catch (e) {}
+            setTimeout(revokeOnce, 1800000);
           }
           // Fixed category orders, hoisted so the QC/Refusal reports' bar
           // charts and pile maps always color the same reason the same way.
