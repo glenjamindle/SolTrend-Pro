@@ -1681,7 +1681,47 @@ export default async function SolTrendApp() {
               return null;
             }
           }
-          
+
+          // Daily Report for any past date always showed "Historical data
+          // not available" - generateDailyReport() only ever called the
+          // forecast endpoint above, and gated it on isToday, so a report
+          // for yesterday (or any earlier date) never even tried to fetch
+          // anything. Open-Meteo's separate archive endpoint holds actual
+          // recorded (ERA5 reanalysis) weather for any past date at the
+          // same lat/lon, no API key needed - this just wasn't wired up.
+          // Cached per lat/lon/date since a report for the same date can be
+          // regenerated more than once in a session.
+          const historicalWeatherCache = {};
+          async function fetchHistoricalWeatherData(lat, lon, dateStr) {
+            const cacheKey = lat + ',' + lon + ',' + dateStr;
+            if (historicalWeatherCache[cacheKey]) return historicalWeatherCache[cacheKey];
+            try {
+              const response = await fetch(
+                'https://archive-api.open-meteo.com/v1/archive?latitude=' + lat + '&longitude=' + lon +
+                '&start_date=' + dateStr + '&end_date=' + dateStr +
+                '&daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,relative_humidity_2m_mean' +
+                '&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto'
+              );
+              const data = await response.json();
+              if (data.error || !data.daily || !Array.isArray(data.daily.weather_code) || data.daily.weather_code.length === 0) return null;
+              const result = {
+                weatherCode: data.daily.weather_code[0],
+                tempMax: data.daily.temperature_2m_max?.[0] ?? null,
+                tempMin: data.daily.temperature_2m_min?.[0] ?? null,
+                windSpeedMax: data.daily.wind_speed_10m_max?.[0] ?? null,
+                // Not every archive response includes this field (older
+                // dates / some locations) - humidity just shows "-" when
+                // it's missing rather than treating the whole call as failed.
+                humidityMean: data.daily.relative_humidity_2m_mean?.[0] ?? null,
+              };
+              historicalWeatherCache[cacheKey] = result;
+              return result;
+            } catch (error) {
+              console.error('Historical weather API error:', error);
+              return null;
+            }
+          }
+
           function getWeatherIcon(code) {
             const icons = {
               0: '☀️', 1: '🌤️', 2: '⛅', 3: '☁️',
@@ -1975,19 +2015,39 @@ export default async function SolTrendApp() {
             // progress that never happened.
             const rackingToday = dayProd?.tables || 0;
             const modulesToday = dayProd?.modules || 0;
-            // Live weather is only meaningful for today's report - fetching it
-            // for a past date previously showed *today's* conditions mislabeled
-            // as if they were that day's weather. For past dates we now show
-            // an honest "not available" note instead of a wrong number.
+            // For today's report, live/forecast conditions from
+            // fetchWeatherData(). For a past date, this used to just show
+            // "Historical data not available" - it never actually asked
+            // for historical data, only ever called the current-conditions
+            // endpoint and skipped it outright for any non-today date. Now
+            // pulls the real recorded weather for that date from Open-
+            // Meteo's archive endpoint instead.
             const isToday = date === localDateStr(Date.now());
+            const reportLat = state.currentProject?.latitude ?? 33.4484;
+            const reportLon = state.currentProject?.longitude ?? -112.0740;
             const weather = isToday ? await fetchWeatherData() : null;
             const currentWeather = weather?.current;
-            const weatherIcon = currentWeather ? weatherIconSvg(currentWeather.weather_code, { size: 48 }) : '<div style="font-size:13px;color:#94a3b8;">No data</div>';
-            const weatherHeading = isToday ? "Today's Weather" : 'Weather';
-            const temp = currentWeather ? Math.round(currentWeather.temperature_2m) : null;
-            const humidity = currentWeather ? currentWeather.relative_humidity_2m : null;
-            const windSpeed = currentWeather ? Math.round(currentWeather.wind_speed_10m) : null;
-            const weatherDesc = currentWeather ? getWeatherDescription(currentWeather.weather_code) : (isToday ? 'Unavailable' : 'Historical data not available');
+            const historicalWeather = isToday ? null : await fetchHistoricalWeatherData(reportLat, reportLon, date);
+            const weatherCode = isToday ? currentWeather?.weather_code : historicalWeather?.weatherCode;
+            const weatherIcon = (weatherCode !== undefined && weatherCode !== null) ? weatherIconSvg(weatherCode, { size: 48 }) : '<div style="font-size:13px;color:#94a3b8;">No data</div>';
+            const weatherHeading = isToday ? "Today's Weather" : 'Recorded Weather';
+            // Today shows one current temp; a past date shows that day's
+            // recorded high/low instead, since there's no single "current"
+            // reading for a day that's already over.
+            const tempDisplay = isToday
+              ? (currentWeather ? Math.round(currentWeather.temperature_2m) + '°F' : '—')
+              : (historicalWeather && historicalWeather.tempMax != null && historicalWeather.tempMin != null
+                  ? Math.round(historicalWeather.tempMax) + '° / ' + Math.round(historicalWeather.tempMin) + '°F'
+                  : '—');
+            const humidity = isToday
+              ? (currentWeather ? currentWeather.relative_humidity_2m : null)
+              : (historicalWeather && historicalWeather.humidityMean != null ? Math.round(historicalWeather.humidityMean) : null);
+            const windSpeed = isToday
+              ? (currentWeather ? Math.round(currentWeather.wind_speed_10m) : null)
+              : (historicalWeather && historicalWeather.windSpeedMax != null ? Math.round(historicalWeather.windSpeedMax) : null);
+            const weatherDesc = (weatherCode !== undefined && weatherCode !== null)
+              ? getWeatherDescription(weatherCode)
+              : (isToday ? 'Unavailable' : 'Historical data not available for this date');
             // Photos are genuinely captured and uploaded for inspections,
             // refusals, and production entries (see uploadPendingPhotos) -
             // this report previously never showed any of them, just four
@@ -2116,7 +2176,7 @@ export default async function SolTrendApp() {
                   <div class="weather-icon">\${weatherIcon}</div>
                   <div class="weather-info">
                     <h3>\${weatherHeading}</h3>
-                    <div class="temp">\${temp !== null ? temp + '°F' : '—'}</div>
+                    <div class="temp">\${tempDisplay}</div>
                     <div class="conditions">\${weatherDesc}</div>
                   </div>
                   <div class="weather-details">
