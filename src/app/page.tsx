@@ -1910,31 +1910,29 @@ export default async function SolTrendApp() {
               .replace('<head>', '<head><meta charset="utf-8">')
               .replace('</head>', printHideStyle + '</head>')
               .replace('<body>', '<body>' + reportToolbarHtml());
-            const blob = new Blob([withToolbar], { type: 'text/html;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
+            // Was a blob: URL, revoked on a timer. That timer turned out to
+            // be the wrong fix for the wrong bug: Safari has a longstanding
+            // WebKit issue where a blob: URL created in one tab's process
+            // can fail to resolve at all when opened in a *new* tab/window
+            // - Safari's per-tab process model sometimes hands the new tab
+            // to a different process than the one holding the blob, which
+            // fails outright with "WebKitBlobResource error 1" (reported
+            // as "Safari Can't Open the Page" / "Failed to open page")
+            // regardless of how long the blob had been alive. Extending
+            // the blob's lifetime couldn't fix that - it's a cross-process
+            // access problem, not a timing one.
+            // A data: URL has no separate registry to lose access to -
+            // the whole document travels inside the URL string itself, so
+            // it's available to whatever process ends up owning the new
+            // tab, in Safari or anywhere else. That also means there's
+            // nothing to revoke, which removes the earlier timing bug (a
+            // destination switch in Chrome's print dialog re-reading a
+            // since-revoked blob) as a side effect, not a separate fix.
+            const url = 'data:text/html;charset=utf-8,' + encodeURIComponent(withToolbar);
             const reportWin = window.open(url, '_blank');
-            // Used to revoke this blob on a flat 60-second timer ("the new
-            // tab has its own loaded copy by then"). That's true for the
-            // page's own initial load, but Chrome's print dialog re-reads
-            // the live document - not a frozen copy - every time the
-            // destination or settings change, including when switching
-            // from the default printer to "Save as PDF". Reviewing the
-            // report, opening the print dialog, and then using the
-            // dropdown to switch to "Save as PDF" easily takes longer than
-            // 60 seconds - at which point the blob was already revoked,
-            // that destination switch's re-render pulled from a dead URL,
-            // and the "perfect" preview from a moment earlier got replaced
-            // by a blank page that then saved as a blank PDF. Revoke on
-            // the report tab's own pagehide (close or navigate-away)
-            // instead - that's same-origin and reachable since blob: pages
-            // inherit the opener's origin - with a generous fallback timer
-            // only as a backstop in case pagehide never fires.
-            let revoked = false;
-            const revokeOnce = function() { if (!revoked) { revoked = true; URL.revokeObjectURL(url); } };
-            try {
-              if (reportWin) reportWin.addEventListener('pagehide', revokeOnce);
-            } catch (e) {}
-            setTimeout(revokeOnce, 1800000);
+            if (!reportWin) {
+              showToast('Your browser blocked the report from opening - allow pop-ups for this site and try again.', 'error');
+            }
           }
           // Fixed category orders, hoisted so the QC/Refusal reports' bar
           // charts and pile maps always color the same reason the same way.
