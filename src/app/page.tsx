@@ -728,7 +728,6 @@ export default async function SolTrendApp() {
 
           // PHOTO CAPTURE HANDLING
           function triggerPhotoInput(context) { document.getElementById('photoInput-' + context).click(); }
-          function triggerPhotoLibraryInput(context) { document.getElementById('photoLibraryInput-' + context).click(); }
           // Was event.target.files[0] only - a single-file capture() input
           // can only ever return one photo anyway (the camera app hands back
           // one shot per launch), but the "image" button was wired to that
@@ -792,12 +791,24 @@ export default async function SolTrendApp() {
             else if (context === 'safety-incident') photos = state.incidentPhotos;
             else if (context === 'rfi') photos = state.rfiPhotos;
             else if (context === 'gallery') photos = state.galleryUploadPhotos;
-            // Two separate inputs: the camera one keeps capture="environment"
-            // (the OS camera app only ever hands back one shot per launch, so
-            // "multiple" wouldn't do anything there), while the library/image
-            // button now opens a plain, multiple-enabled picker so several
-            // photos can be batch-selected and added in one pass.
-            return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" capture="environment" class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><input type="file" id="photoLibraryInput-' + context + '" accept="image/*" multiple class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><div class="flex items-center gap-3"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn flex-1 py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photo</span></button><button onclick="triggerPhotoLibraryInput(\\'' + context + '\\')" title="Choose from library (select multiple)" class="capture-btn w-12 h-12 rounded-xl flex items-center justify-center text-slate-400 hover:text-white">' + icon('image', 'w-5 h-5') + '</button></div>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
+            // Used to be two inputs: a capture="environment" one (direct
+            // camera launch, but the OS camera app hands back exactly one
+            // shot per launch - no way to batch) plus a separate library
+            // button for multi-select. Glen's field complaint was the direct
+            // camera button forcing "take photo, use photo" one at a time
+            // for every single inspection photo.
+            // capture="environment" is what forces that single-shot flow -
+            // it skips straight past the OS's own picker UI into the camera
+            // app. Dropping it (keeping just accept="image/*" multiple) hands
+            // control back to the OS picker: tapping the button now shows
+            // "Take Photo" / "Photo Library" (iOS) or Camera/Gallery
+            // (Android), and modern OS camera sessions reached that way
+            // support shooting several photos in a row before handing all of
+            // them back at once - actual batch capture, not just batch
+            // *selection* from photos already on the device. One input now
+            // covers both the camera and the library, so the separate
+            // library-only button is gone too.
+            return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" multiple class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photos</span></button>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
           }
 
           // DEMO DATA GENERATION
