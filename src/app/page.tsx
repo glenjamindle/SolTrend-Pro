@@ -1910,29 +1910,51 @@ export default async function SolTrendApp() {
               .replace('<head>', '<head><meta charset="utf-8">')
               .replace('</head>', printHideStyle + '</head>')
               .replace('<body>', '<body>' + reportToolbarHtml());
-            // Was a blob: URL, revoked on a timer. That timer turned out to
-            // be the wrong fix for the wrong bug: Safari has a longstanding
-            // WebKit issue where a blob: URL created in one tab's process
-            // can fail to resolve at all when opened in a *new* tab/window
-            // - Safari's per-tab process model sometimes hands the new tab
-            // to a different process than the one holding the blob, which
-            // fails outright with "WebKitBlobResource error 1" (reported
-            // as "Safari Can't Open the Page" / "Failed to open page")
-            // regardless of how long the blob had been alive. Extending
-            // the blob's lifetime couldn't fix that - it's a cross-process
-            // access problem, not a timing one.
-            // A data: URL has no separate registry to lose access to -
-            // the whole document travels inside the URL string itself, so
-            // it's available to whatever process ends up owning the new
-            // tab, in Safari or anywhere else. That also means there's
-            // nothing to revoke, which removes the earlier timing bug (a
-            // destination switch in Chrome's print dialog re-reading a
-            // since-revoked blob) as a side effect, not a separate fix.
-            const url = 'data:text/html;charset=utf-8,' + encodeURIComponent(withToolbar);
-            const reportWin = window.open(url, '_blank');
-            if (!reportWin) {
-              showToast('Your browser blocked the report from opening - allow pop-ups for this site and try again.', 'error');
+            // Third approach here, after two real bugs in the first two:
+            //   1. blob: URL, revoked on a timer - broke in Safari outright
+            //      ("WebKitBlobResource error 1"), a cross-process access
+            //      bug no revoke timing could fix (Safari's per-tab process
+            //      model can hand the new tab a different process than the
+            //      one holding the blob).
+            //   2. data: URL - fixed Safari, but Chrome and Edge have
+            //      BLOCKED top-level navigation to data: URLs since ~2020
+            //      as an anti-phishing measure (a data: URL can render a
+            //      full fake login page with no real address to check).
+            //      window.open(dataUrl) opens an empty tab and the
+            //      navigation itself gets silently blocked - exactly the
+            //      "about:blank" Glen hit on Edge.
+            // No URL scheme survives being opened as a brand-new top-level
+            // navigation in every browser. Writing straight into an
+            // already-open window's document sidesteps the whole problem:
+            // no blob registry to lose access to, no special URL scheme
+            // for a navigation-blocking policy to catch.
+            // The one real failure mode here is iOS Safari in standalone
+            // PWA mode (added to the home screen, no browser chrome): it
+            // can't actually open a second tab, so window.open('', '_blank')
+            // silently hands back the SAME window instead - document.write
+            // into that would overwrite the live app in place with no way
+            // back short of force-quitting. Detect that one case (the
+            // returned window === the opener) and fall back to a plain
+            // file download instead, which needs no new window at all.
+            const reportWin = window.open('', '_blank');
+            if (!reportWin || reportWin === window) {
+              const blob = new Blob([withToolbar], { type: 'text/html;charset=utf-8' });
+              const downloadUrl = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = downloadUrl;
+              a.download = 'report.html';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(function() { URL.revokeObjectURL(downloadUrl); }, 30000);
+              showToast(reportWin
+                ? 'This app is not able to open a new tab here, so the report downloaded as a file instead - open it from your Downloads to print or save as PDF.'
+                : 'Your browser blocked the report from opening - allow pop-ups for this site and try again.', 'error');
+              return;
             }
+            reportWin.document.open();
+            reportWin.document.write(withToolbar);
+            reportWin.document.close();
           }
           // Fixed category orders, hoisted so the QC/Refusal reports' bar
           // charts and pile maps always color the same reason the same way.
