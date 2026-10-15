@@ -85,7 +85,23 @@ export default async function SolTrendApp() {
         .status-fail { background: #ef4444; }
         .status-refusal { background: #f97316; }
         .status-notstarted { background: #1e293b; border-color: #334155; }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        /* "to { transform: translateY(0); }" looks like a no-op but isn't:
+           any transform value other than the keyword none creates a new
+           CSS stacking context on that element, and with animation-fill-
+           mode forwards that final transform stays applied forever after
+           the animation ends - not just during it. Every direct child of
+           .stagger-children (every report card, every grid tile anywhere
+           it's used) was silently trapped in its own isolated stacking
+           context as a result. A calendar dropdown (z-30, position:
+           absolute) opened inside one card could only ever paint above
+           that one card's own contents - never above a sibling card next
+           to or below it, since sibling cards are separate stacking
+           contexts and later DOM order wins between them. That's why the
+           Reports tab's date pickers showed up behind the next report
+           card instead of over it. translateY(0) and no transform at all
+           render identically, so dropping to the literal keyword "none"
+           removes the trap with no visual change to the animation itself. */
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
         .animate-fade-in { animation: slideUp 0.3s ease forwards; }
         .stagger-children > * { opacity: 0; animation: slideUp 0.4s ease forwards; }
         .stagger-children > *:nth-child(1) { animation-delay: 0.03s; }
@@ -893,7 +909,7 @@ export default async function SolTrendApp() {
             ];
             return '<aside class="fixed inset-y-0 left-0 z-50 w-60 bg-slate-900/95 border-r border-slate-700/50 transform transition-transform duration-300 ' + (state.sidebarOpen ? 'translate-x-0' : '-translate-x-full') + ' lg:translate-x-0 flex flex-col">' +
               '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-9 h-9 rounded-lg shadow-lg shadow-amber-500/20"><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-500 uppercase tracking-wider">Pro v2.1</p></div></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></div>' +
-              (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" onchange="var v=this.value; switchToProject(state.projects.find(function(p) { return p.id === v; }));" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + '</option>').join('') + '</select></div>' : '') +
+              (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" onchange="var v=this.value; switchToProject(state.projects.find(function(p) { return p.id === v; }));" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + '</option>').join('') + '</select></div>' : '') +
               '<nav class="flex-1 py-3 overflow-y-auto">' + navSections.map(section => '<div class="mb-4"><h3 class="px-5 mb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">' + section.title + '</h3>' + section.items.map(item => '<button onclick="navigateTo(\\'' + item.id + '\\')" class="nav-item w-full flex items-center gap-3 px-5 py-2.5 text-left text-sm ' + (state.currentView === item.id ? 'active' : 'text-slate-400 hover:text-slate-200') + '">' + icon(item.icon, 'w-4 h-4') + '<span>' + item.label + '</span></button>').join('') + '</div>').join('') + '</nav>' +
               '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">' + (state.currentUser.name || '?').split(' ').map(function(n){return n[0]||'';}).join('').slice(0,2).toUpperCase() + '</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-500 capitalize">' + state.currentUser.role + '</p></div><a href="/api/auth/signout" title="Sign out" class="text-slate-500 hover:text-red-400 transition-colors p-1">' + icon('log-out', 'w-4 h-4') + '</a></div></div>' +
             '</aside>';
@@ -1569,8 +1585,8 @@ export default async function SolTrendApp() {
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('clipboard-check', 'w-8 h-8 text-purple-400') + '<div><h3 class="font-display font-semibold text-white">QC Report</h3><p class="text-xs text-slate-500">Inspection summary</p></div></div>' +
                   '<div class="grid grid-cols-2 gap-2 mb-3">' +
-                    '<div><label class="text-xs text-slate-500 mb-1 block">Start</label>' + calendarField('reportDates.qcStart') + '</div>' +
-                    '<div><label class="text-xs text-slate-500 mb-1 block">End</label>' + calendarField('reportDates.qcEnd') + '</div>' +
+                    '<div><label class="text-xs text-slate-400 mb-1 block">Start</label>' + calendarField('reportDates.qcStart') + '</div>' +
+                    '<div><label class="text-xs text-slate-400 mb-1 block">End</label>' + calendarField('reportDates.qcEnd') + '</div>' +
                   '</div>' +
                   '<button onclick="generateQCReport()" class="w-full py-2.5 bg-purple-500 hover:bg-purple-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
@@ -1581,8 +1597,8 @@ export default async function SolTrendApp() {
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('alert-triangle', 'w-8 h-8 text-orange-400') + '<div><h3 class="font-display font-semibold text-white">Refusal Report</h3><p class="text-xs text-slate-500">Refusal analysis</p></div></div>' +
                   '<div class="grid grid-cols-2 gap-2 mb-3">' +
-                    '<div><label class="text-xs text-slate-500 mb-1 block">Start</label>' + calendarField('reportDates.refusalStart') + '</div>' +
-                    '<div><label class="text-xs text-slate-500 mb-1 block">End</label>' + calendarField('reportDates.refusalEnd') + '</div>' +
+                    '<div><label class="text-xs text-slate-400 mb-1 block">Start</label>' + calendarField('reportDates.refusalStart') + '</div>' +
+                    '<div><label class="text-xs text-slate-400 mb-1 block">End</label>' + calendarField('reportDates.refusalEnd') + '</div>' +
                   '</div>' +
                   '<button onclick="generateRefusalReport()" class="w-full py-2.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
@@ -3511,8 +3527,8 @@ export default async function SolTrendApp() {
             return '<div class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop"><div class="bg-slate-800 border border-slate-700 rounded-xl max-w-md w-full max-h-[85vh] overflow-y-auto">' +
               '<div class="p-5 border-b border-slate-700/50 flex justify-between items-center"><h3 class="font-display text-lg font-bold text-white">Add Photos</h3><button onclick="closeGalleryUploadModal()" class="p-1 text-slate-400 hover:text-white">' + icon('x', 'w-5 h-5') + '</button></div>' +
               '<div class="p-5 space-y-4">' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Date</label>' + calendarField('galleryUploadDate') + '</div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Caption (optional)</label><input type="text" value="' + (state.galleryUploadCaption || '') + '" oninput="state.galleryUploadCaption=this.value" placeholder="e.g. Site conditions, Zone B staging area..." class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Date</label>' + calendarField('galleryUploadDate') + '</div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Caption (optional)</label><input type="text" value="' + (state.galleryUploadCaption || '') + '" oninput="state.galleryUploadCaption=this.value" placeholder="e.g. Site conditions, Zone B staging area..." class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               renderPhotoCapture('gallery') +
               '<button onclick="submitGalleryUpload()" ' + (state.galleryUploadSubmitting || state.galleryUploadPhotos.length === 0 ? 'disabled' : '') + ' class="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-black rounded-xl font-bold flex items-center justify-center gap-2">' + (state.galleryUploadSubmitting ? '<span class="spinner"></span> Uploading...' : 'Upload ' + state.galleryUploadPhotos.length + ' Photo' + (state.galleryUploadPhotos.length === 1 ? '' : 's')) + '</button>' +
               '</div></div></div>';
@@ -3916,23 +3932,23 @@ export default async function SolTrendApp() {
                   '<div class="flex items-center justify-between mb-6"><h3 class="font-display font-semibold text-white text-lg">' + title + '</h3><button onclick="closePileEditModal()" class="p-2 hover:bg-slate-800 rounded-lg text-slate-400">' + icon('x', 'w-5 h-5') + '</button></div>' +
                   '<div class="space-y-4">' +
                     '<div class="grid grid-cols-2 gap-3">' +
-                      '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Row</label><input type="number" value="' + (p.row ?? '') + '" oninput="state.editingPile.row=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                      '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Position in Row</label><input type="number" value="' + (p.position ?? '') + '" oninput="state.editingPile.position=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                      '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Row</label><input type="number" value="' + (p.row ?? '') + '" oninput="state.editingPile.row=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                      '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Position in Row</label><input type="number" value="' + (p.position ?? '') + '" oninput="state.editingPile.position=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                     '</div>' +
-                    '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Zone (optional)</label><input type="text" value="' + (p.zone || '') + '" oninput="state.editingPile.zone=this.value" placeholder="e.g. Zone A" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                    '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Pile Type</label><select onchange="state.editingPile.pileType=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
+                    '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Zone (optional)</label><input type="text" value="' + (p.zone || '') + '" oninput="state.editingPile.zone=this.value" placeholder="e.g. Zone A" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                    '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Pile Type</label><select onchange="state.editingPile.pileType=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
                       '<option value="">Not set</option>' +
                       typeOptions.map(function(t) { return '<option value="' + t.id + '" ' + (p.pileType === t.id ? 'selected' : '') + '>' + (t.label || t.profile || 'Type') + '</option>'; }).join('') +
                     '</select></div>' +
                     '<div class="grid grid-cols-2 gap-3">' +
-                      '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Color (vendor plan)</label><input type="text" value="' + (p.color || '') + '" oninput="state.editingPile.color=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                      '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Color (vendor plan)</label><input type="text" value="' + (p.color || '') + '" oninput="state.editingPile.color=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                       '<div class="flex items-end pb-3"><label class="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" ' + (p.skip ? 'checked' : '') + ' onchange="state.editingPile.skip=this.checked" class="w-4 h-4"> Gap / obstacle (no pile here)</label></div>' +
                     '</div>' +
                     '<div class="grid grid-cols-2 gap-3">' +
                       '<div><input type="number" step="any" value="' + (p.lat ?? '') + '" oninput="state.editingPile.lat=this.value" placeholder="Latitude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                       '<div><input type="number" step="any" value="' + (p.lng ?? '') + '" oninput="state.editingPile.lng=this.value" placeholder="Longitude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                     '</div>' +
-                    '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Notes</label><textarea oninput="state.editingPile.notes=this.value" rows="2" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' + (p.notes || '') + '</textarea></div>' +
+                    '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Notes</label><textarea oninput="state.editingPile.notes=this.value" rows="2" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' + (p.notes || '') + '</textarea></div>' +
                   '</div>' +
                   '<div class="flex gap-3 mt-6">' +
                     '<button onclick="closePileEditModal()" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium">Cancel</button>' +
@@ -4026,7 +4042,7 @@ export default async function SolTrendApp() {
               '<div class="card rounded-xl p-4 mb-3"><h3 class="font-display font-semibold text-white text-sm mb-3">Detailed Measurements</h3>' +
               (!activeProfile ? '<p class="text-xs text-slate-500 mb-3">No racking profile set for this project (set one in Settings → Projects)</p>' :
                 activeTypes.length === 0 ? '<p class="text-xs text-amber-400/80 mb-3">' + activeProfile.name + ' has no pile types configured yet (Settings → Racking).</p>' :
-                '<label class="text-xs text-slate-500 mb-1 block">Pile Type (' + activeProfile.name + ')</label>' +
+                '<label class="text-xs text-slate-400 mb-1 block">Pile Type (' + activeProfile.name + ')</label>' +
                 '<select id="inspPileTypeInput" onchange="state.inspectionPileType=this.value; render();" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm mb-2">' +
                   '<option value="">Select pile type...</option>' +
                   activeTypes.map(function(t) { return '<option value="' + t.id + '" ' + (state.inspectionPileType === t.id ? 'selected' : '') + '>' + (t.label || t.profile || 'Type') + '</option>'; }).join('') +
@@ -4038,19 +4054,19 @@ export default async function SolTrendApp() {
                 ].filter(Boolean).join(', ') + '</p>' : '<p class="text-xs text-slate-500 mb-3">Pick a pile type to see its tolerances.</p>')
               ) +
               '<div class="grid grid-cols-3 gap-3 mb-3">' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Embedment (in)</label><input type="number" id="inspDepthInput" value="' + (state.inspectionDepth||'') + '" oninput="state.inspectionDepth=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Plumb N-S (°)</label><input type="number" step="0.1" id="inspPlumbNSInput" value="' + (state.inspectionPlumbNS||'') + '" oninput="state.inspectionPlumbNS=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Plumb E-W (°)</label><input type="number" step="0.1" id="inspPlumbEWInput" value="' + (state.inspectionPlumbEW||'') + '" oninput="state.inspectionPlumbEW=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Embedment (in)</label><input type="number" id="inspDepthInput" value="' + (state.inspectionDepth||'') + '" oninput="state.inspectionDepth=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Plumb N-S (°)</label><input type="number" step="0.1" id="inspPlumbNSInput" value="' + (state.inspectionPlumbNS||'') + '" oninput="state.inspectionPlumbNS=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Plumb E-W (°)</label><input type="number" step="0.1" id="inspPlumbEWInput" value="' + (state.inspectionPlumbEW||'') + '" oninput="state.inspectionPlumbEW=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
               '</div>' +
               '<div class="grid grid-cols-2 gap-3 mb-3">' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Reveal Height (in)</label><input type="number" step="0.1" id="inspHeightInput" value="' + (state.inspectionHeight||'') + '" oninput="state.inspectionHeight=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Twist (°)</label><input type="number" step="0.1" id="inspTwistInput" value="' + (state.inspectionTwist||'') + '" oninput="state.inspectionTwist=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Reveal Height (in)</label><input type="number" step="0.1" id="inspHeightInput" value="' + (state.inspectionHeight||'') + '" oninput="state.inspectionHeight=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Twist (°)</label><input type="number" step="0.1" id="inspTwistInput" value="' + (state.inspectionTwist||'') + '" oninput="state.inspectionTwist=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
               '</div>' +
               '<div class="grid grid-cols-2 gap-3 mb-3">' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Spacing (± in)</label><input type="number" step="0.1" id="inspSpacingInput" value="' + (state.inspectionSpacing||'') + '" oninput="state.inspectionSpacing=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Alignment (± in)</label><input type="number" step="0.1" id="inspAlignmentInput" value="' + (state.inspectionAlignment||'') + '" oninput="state.inspectionAlignment=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Spacing (± in)</label><input type="number" step="0.1" id="inspSpacingInput" value="' + (state.inspectionSpacing||'') + '" oninput="state.inspectionSpacing=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Alignment (± in)</label><input type="number" step="0.1" id="inspAlignmentInput" value="' + (state.inspectionAlignment||'') + '" oninput="state.inspectionAlignment=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
               '</div>' +
-              '<label class="text-xs text-slate-500 mb-1.5 block">Fail Reason (if failing)</label>' +
+              '<label class="text-xs text-slate-400 mb-1.5 block">Fail Reason (if failing)</label>' +
               '<div class="grid grid-cols-3 gap-2">' +
               ['plumb', 'twist', 'height', 'alignment', 'spacing', 'other'].map(function(r) {
                 return '<button onclick="selectInspectionFailReason(\\'' + r + '\\')" class="reason-btn text-xs py-2 ' + (state.inspectionFailReason === r ? 'reason-btn-selected text-white' : 'text-slate-300') + '">' + r.charAt(0).toUpperCase() + r.slice(1) + '</button>';
@@ -4334,13 +4350,13 @@ export default async function SolTrendApp() {
             const talks = state.toolboxTalks;
             return '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
               '<h3 class="font-display font-semibold text-white text-sm">Log a Toolbox Talk</h3>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Topic</label><input type="text" value="' + (state.talkTopic || '') + '" oninput="state.talkTopic=this.value" placeholder="e.g. Ladder Safety" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Topic</label><input type="text" value="' + (state.talkTopic || '') + '" oninput="state.talkTopic=this.value" placeholder="e.g. Ladder Safety" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '<div class="grid grid-cols-2 gap-3">' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Conducted By</label><input type="text" value="' + (state.talkConductedBy || '') + '" oninput="state.talkConductedBy=this.value" placeholder="' + (state.currentUser.name || '') + '" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Crew</label><select oninput="state.talkCrewName=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">—</option>' + state.crews.map(function(c) { return '<option value="' + c.name + '"' + (state.talkCrewName === c.name ? ' selected' : '') + '>' + c.name + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Conducted By</label><input type="text" value="' + (state.talkConductedBy || '') + '" oninput="state.talkConductedBy=this.value" placeholder="' + (state.currentUser.name || '') + '" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Crew</label><select oninput="state.talkCrewName=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">—</option>' + state.crews.map(function(c) { return '<option value="' + c.name + '"' + (state.talkCrewName === c.name ? ' selected' : '') + '>' + c.name + '</option>'; }).join('') + '</select></div>' +
               '</div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Attendees</label><input type="number" min="0" value="' + (state.talkAttendeeCount || '') + '" oninput="state.talkAttendeeCount=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Notes</label><textarea rows="2" oninput="state.talkNotes=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.talkNotes || '') + '</textarea></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Attendees</label><input type="number" min="0" value="' + (state.talkAttendeeCount || '') + '" oninput="state.talkAttendeeCount=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Notes</label><textarea rows="2" oninput="state.talkNotes=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.talkNotes || '') + '</textarea></div>' +
               '<button onclick="submitToolboxTalk()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Log Talk</button>' +
             '</div>' +
             '<div class="space-y-2">' + (talks.length > 0 ? talks.map(function(t) {
@@ -4380,8 +4396,8 @@ export default async function SolTrendApp() {
                 '<button onclick="setObsType(\\'at_risk\\')" class="mode-btn ' + (state.obsType === 'at_risk' ? 'mode-btn-active' : 'mode-btn-inactive') + '">At-Risk</button>' +
               '</div>' +
               '<div class="grid grid-cols-3 gap-2">' + categories.map(function(c) { return '<button onclick="setObsCategory(\\'' + c.id + '\\')" class="reason-btn ' + (state.obsCategory === c.id ? 'reason-btn-selected' : '') + '"><span class="text-xs text-white">' + c.label + '</span></button>'; }).join('') + '</div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Location</label><input type="text" value="' + (state.obsLocation || '') + '" oninput="state.obsLocation=this.value" placeholder="e.g. Row 12" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Description</label><textarea rows="2" oninput="state.obsDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.obsDescription || '') + '</textarea></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Location</label><input type="text" value="' + (state.obsLocation || '') + '" oninput="state.obsLocation=this.value" placeholder="e.g. Row 12" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Description</label><textarea rows="2" oninput="state.obsDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.obsDescription || '') + '</textarea></div>' +
               renderPhotoCapture('safety-obs') +
               '<button onclick="submitObservation()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Log Observation</button>' +
             '</div>' +
@@ -4423,8 +4439,8 @@ export default async function SolTrendApp() {
             return '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
               '<h3 class="font-display font-semibold text-white text-sm">Report an Incident</h3>' +
               '<div class="grid grid-cols-3 gap-2">' + severities.map(function(s) { return '<button onclick="setIncidentSeverity(\\'' + s.id + '\\')" class="reason-btn ' + (state.incidentSeverity === s.id ? 'reason-btn-selected' : '') + '"><span class="text-xs text-white">' + s.label + '</span></button>'; }).join('') + '</div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">What happened</label><textarea rows="2" oninput="state.incidentDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.incidentDescription || '') + '</textarea></div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Corrective Action (optional)</label><textarea rows="2" oninput="state.incidentCorrectiveAction=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.incidentCorrectiveAction || '') + '</textarea></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">What happened</label><textarea rows="2" oninput="state.incidentDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.incidentDescription || '') + '</textarea></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Corrective Action (optional)</label><textarea rows="2" oninput="state.incidentCorrectiveAction=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.incidentCorrectiveAction || '') + '</textarea></div>' +
               renderPhotoCapture('safety-incident') +
               '<button onclick="submitIncident()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Report Incident</button>' +
             '</div>' +
@@ -4588,16 +4604,16 @@ export default async function SolTrendApp() {
             const statuses = ['not_started', 'on_track', 'at_risk', 'delayed', 'complete'];
             return '<div class="card rounded-xl p-5 space-y-3">' +
               '<h3 class="font-display font-semibold text-white text-sm">' + (state.editingMilestoneId ? 'Edit Phase' : 'New Phase') + '</h3>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Phase Name</label><input type="text" value="' + state.milestonePhase + '" oninput="state.milestonePhase=this.value" placeholder="e.g. Racking Install" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Phase Name</label><input type="text" value="' + state.milestonePhase + '" oninput="state.milestonePhase=this.value" placeholder="e.g. Racking Install" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '<div class="grid grid-cols-2 gap-3">' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Planned Start</label>' + calendarField('milestonePlannedStart') + '</div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Planned End</label>' + calendarField('milestonePlannedEnd') + '</div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Actual Start</label>' + calendarField('milestoneActualStart') + '</div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Actual End</label>' + calendarField('milestoneActualEnd') + '</div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Planned Start</label>' + calendarField('milestonePlannedStart') + '</div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Planned End</label>' + calendarField('milestonePlannedEnd') + '</div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Actual Start</label>' + calendarField('milestoneActualStart') + '</div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Actual End</label>' + calendarField('milestoneActualEnd') + '</div>' +
               '</div>' +
               '<div class="grid grid-cols-2 gap-3">' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Status</label><select oninput="state.milestoneStatus=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + statuses.map(function(s) { return '<option value="' + s + '"' + (state.milestoneStatus === s ? ' selected' : '') + '>' + s.replace(/_/g, ' ') + '</option>'; }).join('') + '</select></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">% Complete</label><input type="number" min="0" max="100" value="' + state.milestonePercent + '" oninput="state.milestonePercent=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Status</label><select oninput="state.milestoneStatus=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + statuses.map(function(s) { return '<option value="' + s + '"' + (state.milestoneStatus === s ? ' selected' : '') + '>' + s.replace(/_/g, ' ') + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">% Complete</label><input type="number" min="0" max="100" value="' + state.milestonePercent + '" oninput="state.milestonePercent=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '</div>' +
               '<div class="flex gap-3"><button onclick="closeMilestoneForm()" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-medium">Cancel</button><button onclick="saveMilestoneForm()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Save</button></div>' +
             '</div>';
@@ -4684,8 +4700,8 @@ export default async function SolTrendApp() {
             const canDelete = hasRole('admin');
             const form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
               '<h3 class="font-display font-semibold text-white text-sm">Upload a Document</h3>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Title</label><input type="text" value="' + (state.docTitle || '') + '" oninput="state.docTitle=this.value" placeholder="e.g. IFC Drawing Set Rev 4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Category</label><select oninput="state.docCategory=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + categories.map(function(c) { return '<option value="' + c.id + '"' + (state.docCategory === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Title</label><input type="text" value="' + (state.docTitle || '') + '" oninput="state.docTitle=this.value" placeholder="e.g. IFC Drawing Set Rev 4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Category</label><select oninput="state.docCategory=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + categories.map(function(c) { return '<option value="' + c.id + '"' + (state.docCategory === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
               '<input type="file" id="docFileInput-document" class="hidden" onchange="handleDocFileSelect(event, \\'document\\')">' +
               '<button onclick="triggerDocFileInput(\\'document\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.docPendingFile ? state.docPendingFile.name : 'Choose File') + '</span></button>' +
               '<button onclick="submitDocument()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Upload</button>' +
@@ -4741,10 +4757,10 @@ export default async function SolTrendApp() {
             const form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
               '<h3 class="font-display font-semibold text-white text-sm">Add a Certificate</h3>' +
               '<div class="grid grid-cols-2 gap-3">' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Subcontractor</label><select oninput="state.coiSubcontractorId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">Select…</option>' + state.subcontractors.map(function(s) { return '<option value="' + s.id + '"' + (state.coiSubcontractorId === s.id ? ' selected' : '') + '>' + s.name + '</option>'; }).join('') + '</select></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Coverage</label><select oninput="state.coiCoverageType=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + coverageTypes.map(function(c) { return '<option value="' + c.id + '"' + (state.coiCoverageType === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Subcontractor</label><select oninput="state.coiSubcontractorId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">Select…</option>' + state.subcontractors.map(function(s) { return '<option value="' + s.id + '"' + (state.coiSubcontractorId === s.id ? ' selected' : '') + '>' + s.name + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Coverage</label><select oninput="state.coiCoverageType=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + coverageTypes.map(function(c) { return '<option value="' + c.id + '"' + (state.coiCoverageType === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
               '</div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Expires</label>' + calendarField('coiExpiresAt') + '</div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Expires</label>' + calendarField('coiExpiresAt') + '</div>' +
               '<input type="file" id="docFileInput-coi" class="hidden" onchange="handleDocFileSelect(event, \\'coi\\')">' +
               '<button onclick="triggerDocFileInput(\\'coi\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.coiPendingFile ? state.coiPendingFile.name : 'Attach Certificate (optional)') + '</span></button>' +
               '<button onclick="submitCoi()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add Certificate</button>' +
@@ -4836,12 +4852,12 @@ export default async function SolTrendApp() {
 
             const form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
               '<h3 class="font-display font-semibold text-white text-sm">Submit an RFI</h3>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Subject</label><input type="text" value="' + (state.rfiSubject || '') + '" oninput="state.rfiSubject=this.value" placeholder="e.g. Pile embedment conflict at row 12" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Subject</label><input type="text" value="' + (state.rfiSubject || '') + '" oninput="state.rfiSubject=this.value" placeholder="e.g. Pile embedment conflict at row 12" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '<div class="grid grid-cols-2 gap-3">' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Category</label><select oninput="state.rfiCategory=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + RFI_CATEGORIES.map(function(c) { return '<option value="' + c.id + '"' + (state.rfiCategory === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Submitted To</label><input type="text" value="' + (state.rfiSubmittedTo || '') + '" oninput="state.rfiSubmittedTo=this.value" placeholder="e.g. EPC Engineer" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Category</label><select oninput="state.rfiCategory=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + RFI_CATEGORIES.map(function(c) { return '<option value="' + c.id + '"' + (state.rfiCategory === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Submitted To</label><input type="text" value="' + (state.rfiSubmittedTo || '') + '" oninput="state.rfiSubmittedTo=this.value" placeholder="e.g. EPC Engineer" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '</div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Question</label><textarea oninput="state.rfiQuestion=this.value" rows="3" placeholder="What needs to be answered?" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + (state.rfiQuestion || '') + '</textarea></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Question</label><textarea oninput="state.rfiQuestion=this.value" rows="3" placeholder="What needs to be answered?" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + (state.rfiQuestion || '') + '</textarea></div>' +
               '<label class="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" ' + (state.rfiBlocking ? 'checked' : '') + ' onchange="state.rfiBlocking=this.checked" class="w-4 h-4"> This is blocking work</label>' +
               renderPhotoCapture('rfi') +
               '<button onclick="submitRfi()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Submit RFI</button>' +
@@ -4973,12 +4989,12 @@ export default async function SolTrendApp() {
 
             const form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
               '<h3 class="font-display font-semibold text-white text-sm">New Submittal</h3>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Spec Section</label><input type="text" value="' + (state.subSpecSection || '') + '" oninput="state.subSpecSection=this.value" placeholder="e.g. 33 11 00" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Spec Section</label><input type="text" value="' + (state.subSpecSection || '') + '" oninput="state.subSpecSection=this.value" placeholder="e.g. 33 11 00" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '<div class="grid grid-cols-2 gap-3">' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Type</label><select oninput="state.subType=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + SUBMITTAL_TYPES.map(function(t) { return '<option value="' + t.id + '"' + (state.subType === t.id ? ' selected' : '') + '>' + t.label + '</option>'; }).join('') + '</select></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Related Material</label><select oninput="state.subMaterialId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">None</option>' + state.materials.map(function(m) { return '<option value="' + m.id + '"' + (state.subMaterialId === m.id ? ' selected' : '') + '>' + m.name + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Type</label><select oninput="state.subType=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + SUBMITTAL_TYPES.map(function(t) { return '<option value="' + t.id + '"' + (state.subType === t.id ? ' selected' : '') + '>' + t.label + '</option>'; }).join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Related Material</label><select oninput="state.subMaterialId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">None</option>' + state.materials.map(function(m) { return '<option value="' + m.id + '"' + (state.subMaterialId === m.id ? ' selected' : '') + '>' + m.name + '</option>'; }).join('') + '</select></div>' +
               '</div>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Due Date</label>' + calendarField('subDueDate') + '</div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Due Date</label>' + calendarField('subDueDate') + '</div>' +
               '<input type="file" id="docFileInput-submittal" class="hidden" onchange="handleDocFileSelect(event, \\'submittal\\')">' +
               '<button onclick="triggerDocFileInput(\\'submittal\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.subPendingFile ? state.subPendingFile.name : 'Attach File (optional)') + '</span></button>' +
               '<button onclick="submitSubmittal()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add Submittal</button>' +
@@ -5074,12 +5090,12 @@ export default async function SolTrendApp() {
 
             const materialForm = state.materialFormOpen ? '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
               '<h3 class="font-display font-semibold text-white text-sm">New Material</h3>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Name</label><input type="text" value="' + (state.materialName || '') + '" oninput="state.materialName=this.value" placeholder="e.g. Racking Clips" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Name</label><input type="text" value="' + (state.materialName || '') + '" oninput="state.materialName=this.value" placeholder="e.g. Racking Clips" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '<div class="grid grid-cols-2 gap-3">' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Ordered Qty</label><input type="number" min="0" value="' + (state.materialOrderedQty || '') + '" oninput="state.materialOrderedQty=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Unit</label><input type="text" value="' + (state.materialUnit || 'units') + '" oninput="state.materialUnit=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Expected Date</label>' + calendarField('materialExpectedDate') + '</div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Supplier</label><input type="text" value="' + (state.materialSupplier || '') + '" oninput="state.materialSupplier=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Ordered Qty</label><input type="number" min="0" value="' + (state.materialOrderedQty || '') + '" oninput="state.materialOrderedQty=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Unit</label><input type="text" value="' + (state.materialUnit || 'units') + '" oninput="state.materialUnit=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Expected Date</label>' + calendarField('materialExpectedDate') + '</div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Supplier</label><input type="text" value="' + (state.materialSupplier || '') + '" oninput="state.materialSupplier=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '</div>' +
               '<div class="flex gap-3"><button onclick="state.materialFormOpen=false; render();" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-medium">Cancel</button><button onclick="submitMaterial()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add</button></div>' +
             '</div>' : '';
@@ -5092,12 +5108,12 @@ export default async function SolTrendApp() {
 
             const deliveryForm = state.deliveryFormOpen ? '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
               '<h3 class="font-display font-semibold text-white text-sm">Log a Delivery</h3>' +
-              '<div><label class="text-xs text-slate-500 mb-1 block">Material</label><select oninput="state.deliveryMaterialId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">Select…</option>' + state.materials.map(function(m) { return '<option value="' + m.id + '"' + (state.deliveryMaterialId === m.id ? ' selected' : '') + '>' + m.name + '</option>'; }).join('') + '</select></div>' +
+              '<div><label class="text-xs text-slate-400 mb-1 block">Material</label><select oninput="state.deliveryMaterialId=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><option value="">Select…</option>' + state.materials.map(function(m) { return '<option value="' + m.id + '"' + (state.deliveryMaterialId === m.id ? ' selected' : '') + '>' + m.name + '</option>'; }).join('') + '</select></div>' +
               '<div class="grid grid-cols-2 gap-3">' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Quantity</label><input type="number" min="1" value="' + (state.deliveryQty || '') + '" oninput="state.deliveryQty=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Supplier</label><input type="text" value="' + (state.deliverySupplier || '') + '" oninput="state.deliverySupplier=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Received By</label><input type="text" value="' + (state.deliveryReceivedBy || '') + '" oninput="state.deliveryReceivedBy=this.value" placeholder="' + (state.currentUser.name || '') + '" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Notes</label><input type="text" value="' + (state.deliveryNotes || '') + '" oninput="state.deliveryNotes=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Quantity</label><input type="number" min="1" value="' + (state.deliveryQty || '') + '" oninput="state.deliveryQty=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Supplier</label><input type="text" value="' + (state.deliverySupplier || '') + '" oninput="state.deliverySupplier=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Received By</label><input type="text" value="' + (state.deliveryReceivedBy || '') + '" oninput="state.deliveryReceivedBy=this.value" placeholder="' + (state.currentUser.name || '') + '" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Notes</label><input type="text" value="' + (state.deliveryNotes || '') + '" oninput="state.deliveryNotes=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
               '</div>' +
               '<div class="flex gap-3"><button onclick="state.deliveryFormOpen=false; render();" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-medium">Cancel</button><button onclick="submitDelivery()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Log Delivery</button></div>' +
             '</div>' : '';
@@ -5349,7 +5365,7 @@ export default async function SolTrendApp() {
             // between the two modes.
             const notesPanel = '<div class="card rounded-xl p-4 mb-3"><h3 class="font-display font-semibold text-white text-sm mb-3">Notes</h3>' +
               '<textarea id="refusalNotesInput" rows="3" placeholder="What was encountered, crew observations, anything relevant to follow-up..." oninput="state.refusalNotes=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.refusalNotes || '') + '</textarea></div>';
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Pile Refusals</h1><span class="badge-open px-3 py-1.5 rounded-full text-sm">' + state.openRefusals + ' Open</span></div><div class="pile-display p-6"><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.refusalRow + '</span><button onclick="incRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Target (in)</label><input type="number" id="refusalTarget" value="' + state.targetDepth + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div><div><label class="text-xs text-slate-500 mb-1 block">Achieved (in)</label><input type="number" id="refusalDepth" value="' + (state.achievedDepth||'') + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div></div><div id="refusalShortfallBox" class="' + sc + ' rounded-xl p-4 text-center"><span class="text-sm text-slate-400">Shortfall: <span id="refusalShortfallValue">' + shortfallText + '</span></span></div><div><label class="text-xs text-slate-500 mb-2 block">Reason</label><div class="grid grid-cols-4 gap-2">' + ['bedrock', 'cobble', 'obstruction', 'other'].map(r => '<button onclick="setRefusalReason(\\'' + r + '\\')" class="reason-btn ' + (state.refusalReason===r?'reason-btn-selected':'') + '"><span class="text-xs text-white capitalize">' + r + '</span></button>').join('') + '</div></div>' + notesPanel + '<div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('refusal') + '</div><button onclick="submitRefusal()" class="w-full py-4 bg-red-600 text-white rounded-xl font-bold mt-4">LOG REFUSAL</button></div>';
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Pile Refusals</h1><span class="badge-open px-3 py-1.5 rounded-full text-sm">' + state.openRefusals + ' Open</span></div><div class="pile-display p-6"><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.refusalRow + '</span><button onclick="incRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-400 mb-1 block">Target (in)</label><input type="number" id="refusalTarget" value="' + state.targetDepth + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div><div><label class="text-xs text-slate-400 mb-1 block">Achieved (in)</label><input type="number" id="refusalDepth" value="' + (state.achievedDepth||'') + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div></div><div id="refusalShortfallBox" class="' + sc + ' rounded-xl p-4 text-center"><span class="text-sm text-slate-400">Shortfall: <span id="refusalShortfallValue">' + shortfallText + '</span></span></div><div><label class="text-xs text-slate-400 mb-2 block">Reason</label><div class="grid grid-cols-4 gap-2">' + ['bedrock', 'cobble', 'obstruction', 'other'].map(r => '<button onclick="setRefusalReason(\\'' + r + '\\')" class="reason-btn ' + (state.refusalReason===r?'reason-btn-selected':'') + '"><span class="text-xs text-white capitalize">' + r + '</span></button>').join('') + '</div></div>' + notesPanel + '<div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('refusal') + '</div><button onclick="submitRefusal()" class="w-full py-4 bg-red-600 text-white rounded-xl font-bold mt-4">LOG REFUSAL</button></div>';
           }
           // Updates the Shortfall box live as the Target/Achieved inputs
           // are typed into, without going through render() - a full
@@ -5432,10 +5448,10 @@ export default async function SolTrendApp() {
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto">' +
               '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Delays</h1><span class="text-sm text-slate-500">' + state.delays.length + ' logged</span></div>' +
               '<div class="card rounded-xl p-5 space-y-4">' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label>' + calendarField('delayDate') + '</div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Reason</label><div class="grid grid-cols-3 gap-2">' + reasons.map(r => '<button onclick="setDelayReason(\\'' + r.id + '\\')" class="reason-btn ' + (state.delayReason === r.id ? 'reason-btn-selected' : '') + '"><span class="text-xs text-white">' + r.label + '</span></button>').join('') + '</div></div>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Hours Lost (optional)</label><input type="number" step="0.5" min="0" max="24" id="delayHoursInput" value="' + (state.delayHours || '') + '" oninput="state.delayHours=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white font-bold"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea id="delayDescInput" rows="2" placeholder="Any detail worth keeping for the record..." oninput="state.delayDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (state.delayDescription || '') + '</textarea></div>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Date</label>' + calendarField('delayDate') + '</div>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Reason</label><div class="grid grid-cols-3 gap-2">' + reasons.map(r => '<button onclick="setDelayReason(\\'' + r.id + '\\')" class="reason-btn ' + (state.delayReason === r.id ? 'reason-btn-selected' : '') + '"><span class="text-xs text-white">' + r.label + '</span></button>').join('') + '</div></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Hours Lost (optional)</label><input type="number" step="0.5" min="0" max="24" id="delayHoursInput" value="' + (state.delayHours || '') + '" oninput="state.delayHours=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white font-bold"></div>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Notes</label><textarea id="delayDescInput" rows="2" placeholder="Any detail worth keeping for the record..." oninput="state.delayDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (state.delayDescription || '') + '</textarea></div>' +
                 '<button onclick="submitDelay()" class="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-lg">Log Delay</button>' +
               '</div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Recent Delays</h3>' + (recent.length > 0 ? '<div class="space-y-2">' + recent.map(d => '<div class="flex items-center justify-between py-2 border-b border-slate-700/50 last:border-0"><div><p class="text-sm text-white capitalize">' + d.reason.replace(/_/g, ' ') + '</p><p class="text-xs text-slate-500">' + formatDate(d.date) + (d.description ? ' · ' + d.description : '') + '</p></div>' + (d.hoursLost ? '<span class="text-xs text-slate-400">' + d.hoursLost + 'h</span>' : '') + '</div>').join('') + '</div>' : '<p class="text-sm text-slate-500">No delays logged yet.</p>') + '</div>' +
@@ -5547,13 +5563,13 @@ export default async function SolTrendApp() {
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto">' +
               '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Daily Log</h1><span class="text-sm text-slate-500">' + state.dailyLogs.length + ' logged</span></div>' +
               '<div class="card rounded-xl p-5 space-y-4">' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label>' + calendarField('dailyLogDate') + '<p class="text-xs text-slate-500 mt-1">Picking a date that already has a log loads it for editing.</p></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Crew on Site</label><div class="space-y-2">' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Date</label>' + calendarField('dailyLogDate') + '<p class="text-xs text-slate-500 mt-1">Picking a date that already has a log loads it for editing.</p></div>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Crew on Site</label><div class="space-y-2">' +
                   state.dailyLogCrew.map(function(c, idx) { return '<div class="flex gap-2"><input type="text" value="' + (c.trade || '') + '" oninput="updateCrewRow(' + idx + ', \\'trade\\', this.value)" placeholder="Trade (e.g. Pile Driving)" class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><input type="number" min="0" value="' + (c.count || '') + '" oninput="updateCrewRow(' + idx + ', \\'count\\', this.value)" placeholder="#" class="w-16 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm text-center"><button onclick="removeCrewRow(' + idx + ')" class="px-2 text-slate-500 hover:text-red-400">' + icon('x', 'w-4 h-4') + '</button></div>'; }).join('') +
                 '</div><button onclick="addCrewRow()" class="mt-2 text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">' + icon('plus', 'w-3.5 h-3.5') + ' Add Trade</button></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Weather</label><input type="text" value="' + (state.dailyLogWeather || '') + '" oninput="state.dailyLogWeather=this.value" placeholder="e.g. Clear, 78F, light wind" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Visitors</label><input type="text" value="' + (state.dailyLogVisitors || '') + '" oninput="state.dailyLogVisitors=this.value" placeholder="e.g. Client walkthrough, AHJ inspector" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea rows="4" placeholder="Narrative summary of the day..." oninput="state.dailyLogNarrative=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (state.dailyLogNarrative || '') + '</textarea></div>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Weather</label><input type="text" value="' + (state.dailyLogWeather || '') + '" oninput="state.dailyLogWeather=this.value" placeholder="e.g. Clear, 78F, light wind" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Visitors</label><input type="text" value="' + (state.dailyLogVisitors || '') + '" oninput="state.dailyLogVisitors=this.value" placeholder="e.g. Client walkthrough, AHJ inspector" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Notes</label><textarea rows="4" placeholder="Narrative summary of the day..." oninput="state.dailyLogNarrative=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (state.dailyLogNarrative || '') + '</textarea></div>' +
                 '<div>' + renderPhotoCapture('dailylog') + '</div>' +
                 '<button onclick="submitDailyLog()" ' + (submitting ? 'disabled' : '') + ' class="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold text-lg flex items-center justify-center gap-2">' + (submitting ? '<span class="spinner"></span><span>Saving...</span>' : '<span>Save Daily Log</span>') + '</button>' +
               '</div>' +
@@ -5635,14 +5651,14 @@ export default async function SolTrendApp() {
             const addForm = state.punchFormOpen ? (
               '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
                 '<h3 class="font-display font-semibold text-white text-sm">New Punch Item</h3>' +
-                '<div><label class="text-xs text-slate-500 mb-1 block">Description</label><textarea id="punchDescInput" rows="2" placeholder="What needs to be fixed or finished..." oninput="state.punchDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.punchDescription || '') + '</textarea></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Description</label><textarea id="punchDescInput" rows="2" placeholder="What needs to be fixed or finished..." oninput="state.punchDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.punchDescription || '') + '</textarea></div>' +
                 '<div class="grid grid-cols-2 gap-3">' +
-                  '<div><label class="text-xs text-slate-500 mb-1 block">Location</label><input type="text" id="punchLocationInput" value="' + (state.punchLocation || '') + '" oninput="state.punchLocation=this.value" placeholder="e.g. Row 12 / pile 12-4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                  '<div><label class="text-xs text-slate-500 mb-1 block">Assigned To</label><input type="text" id="punchAssignedInput" value="' + (state.punchAssignedTo || '') + '" oninput="state.punchAssignedTo=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                  '<div><label class="text-xs text-slate-400 mb-1 block">Location</label><input type="text" id="punchLocationInput" value="' + (state.punchLocation || '') + '" oninput="state.punchLocation=this.value" placeholder="e.g. Row 12 / pile 12-4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                  '<div><label class="text-xs text-slate-400 mb-1 block">Assigned To</label><input type="text" id="punchAssignedInput" value="' + (state.punchAssignedTo || '') + '" oninput="state.punchAssignedTo=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
                 '</div>' +
                 '<div class="grid grid-cols-2 gap-3">' +
-                  '<div><label class="text-xs text-slate-500 mb-1 block">Priority</label><div class="grid grid-cols-3 gap-2">' + ['low', 'medium', 'high'].map(function(p) { return '<button onclick="setPunchPriority(\\'' + p + '\\')" class="reason-btn text-xs py-2 capitalize ' + (state.punchPriority === p ? 'reason-btn-selected text-white' : 'text-slate-300') + '">' + p + '</button>'; }).join('') + '</div></div>' +
-                  '<div><label class="text-xs text-slate-500 mb-1 block">Due Date</label>' + calendarField('punchDueDate') + '</div>' +
+                  '<div><label class="text-xs text-slate-400 mb-1 block">Priority</label><div class="grid grid-cols-3 gap-2">' + ['low', 'medium', 'high'].map(function(p) { return '<button onclick="setPunchPriority(\\'' + p + '\\')" class="reason-btn text-xs py-2 capitalize ' + (state.punchPriority === p ? 'reason-btn-selected text-white' : 'text-slate-300') + '">' + p + '</button>'; }).join('') + '</div></div>' +
+                  '<div><label class="text-xs text-slate-400 mb-1 block">Due Date</label>' + calendarField('punchDueDate') + '</div>' +
                 '</div>' +
                 renderPhotoCapture('punchlist') +
                 '<div class="flex gap-2"><button onclick="submitPunchItem()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-sm">Add Item</button><button onclick="closePunchForm()" class="px-4 py-3 bg-slate-700 text-slate-300 rounded-xl font-medium text-sm">Cancel</button></div>' +
@@ -5903,11 +5919,11 @@ export default async function SolTrendApp() {
             const entry = state.productionEntry;
             const submitting = state.productionSubmitting;
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div><h1 class="font-display text-xl font-bold text-white">Production Entry</h1></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-5 space-y-4">' +
-              '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Date</label>' + calendarField('productionEntry.date') + '<p class="text-xs text-slate-500 mt-1">Logging counts/photos for an earlier day? Pick that date here.</p></div>' +
-              '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Crew</label><select onchange="state.productionEntry.crew=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '"' + (entry.crew === c.id ? ' selected' : '') + '>' + c.name + '</option>').join('') + '</select></div>' +
-              '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Subcontractor</label><select onchange="state.productionEntry.subcontractor=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '"' + (entry.subcontractor === s.id ? ' selected' : '') + '>' + s.name + '</option>').join('') + '</select></div>' +
-              '<div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-500 mb-1 block">Piles</label><input type="number" min="0" value="' + entry.piles + '" oninput="state.productionEntry.piles=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Tables</label><input type="number" min="0" value="' + entry.tables + '" oninput="state.productionEntry.tables=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-500 mb-1 block">Modules</label><input type="number" min="0" value="' + entry.modules + '" oninput="state.productionEntry.modules=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div>' +
-              '<div><label class="text-xs text-slate-500 uppercase mb-1.5 block">Notes</label><textarea oninput="state.productionEntry.notes=this.value" rows="2" placeholder="Any issues or notes..." class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (entry.notes || '') + '</textarea></div>' +
+              '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Date</label>' + calendarField('productionEntry.date') + '<p class="text-xs text-slate-500 mt-1">Logging counts/photos for an earlier day? Pick that date here.</p></div>' +
+              '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Crew</label><select onchange="state.productionEntry.crew=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '"' + (entry.crew === c.id ? ' selected' : '') + '>' + c.name + '</option>').join('') + '</select></div>' +
+              '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Subcontractor</label><select onchange="state.productionEntry.subcontractor=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '"' + (entry.subcontractor === s.id ? ' selected' : '') + '>' + s.name + '</option>').join('') + '</select></div>' +
+              '<div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-400 mb-1 block">Piles</label><input type="number" min="0" value="' + entry.piles + '" oninput="state.productionEntry.piles=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-400 mb-1 block">Tables</label><input type="number" min="0" value="' + entry.tables + '" oninput="state.productionEntry.tables=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-400 mb-1 block">Modules</label><input type="number" min="0" value="' + entry.modules + '" oninput="state.productionEntry.modules=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div>' +
+              '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Notes</label><textarea oninput="state.productionEntry.notes=this.value" rows="2" placeholder="Any issues or notes..." class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (entry.notes || '') + '</textarea></div>' +
               '<div>' + renderPhotoCapture('production') + '</div>' +
               '<button onclick="submitProduction()" ' + (submitting ? 'disabled' : '') + ' class="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold text-lg flex items-center justify-center gap-2">' + (submitting ? '<span class="spinner"></span><span>Saving...</span>' : '<span>Submit</span>') + '</button>' +
             '</div></div>';
@@ -6042,9 +6058,9 @@ export default async function SolTrendApp() {
               '<h3 class="font-display font-semibold text-white mb-6">Company Information</h3>' +
               (canEdit ? '' : '<p class="text-xs text-slate-500 mb-4">View only - ask an admin to change company settings.</p>') +
               '<div class="space-y-4">' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Company Name</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Company Name</label>' +
                 '<input type="text" id="companyName" value="' + (company.name || '') + '"' + dis + ' class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white disabled:opacity-50" placeholder="Enter company name"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Subscription Tier</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Subscription Tier</label>' +
                 '<select id="companyTier"' + dis + ' class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white disabled:opacity-50">' +
                   '<option value="starter" ' + (company.tier === 'starter' ? 'selected' : '') + '>Starter</option>' +
                   '<option value="professional" ' + (company.tier === 'professional' ? 'selected' : '') + '>Professional</option>' +
@@ -6300,39 +6316,39 @@ export default async function SolTrendApp() {
               title = item.id ? 'Edit Project' : 'New Project';
               const p = item.id ? state.projects.find(x => x.id === item.id) || {} : {};
               formContent = 
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Project Name</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Project Name</label>' +
                 '<input type="text" id="modalName" value="' + (p.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Location</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Location</label>' +
                 '<input type="text" id="modalLocation" value="' + (p.location || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Client</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Client</label>' +
                 '<input type="text" id="modalClient" value="' + (p.client || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Project Manager</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Project Manager</label>' +
                 '<input type="text" id="modalPM" value="' + (p.projectManager || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '<div class="grid grid-cols-3 gap-3">' +
-                  '<div><label class="text-xs text-slate-500 mb-2 block">Rows</label>' +
+                  '<div><label class="text-xs text-slate-400 mb-2 block">Rows</label>' +
                   '<input type="number" id="modalRows" value="' + (p.totalRows || 50) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                  '<div><label class="text-xs text-slate-500 mb-2 block">Piles/Row</label>' +
+                  '<div><label class="text-xs text-slate-400 mb-2 block">Piles/Row</label>' +
                   '<input type="number" id="modalPilesPerRow" value="' + (p.pilesPerRow || 30) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                  '<div><label class="text-xs text-slate-500 mb-2 block">Daily Target</label>' +
+                  '<div><label class="text-xs text-slate-400 mb-2 block">Daily Target</label>' +
                   '<input type="number" id="modalTarget" value="' + (p.dailyTarget || 35) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '</div>' +
                 '<div class="grid grid-cols-2 gap-3">' +
-                  '<div><label class="text-xs text-slate-500 mb-2 block">Planned Tables</label>' +
+                  '<div><label class="text-xs text-slate-400 mb-2 block">Planned Tables</label>' +
                   '<input type="number" id="modalTotalTables" value="' + (p.totalTables || 0) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                  '<div><label class="text-xs text-slate-500 mb-2 block">Planned Modules</label>' +
+                  '<div><label class="text-xs text-slate-400 mb-2 block">Planned Modules</label>' +
                   '<input type="number" id="modalTotalModules" value="' + (p.totalModules || 0) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '</div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Racking Profile</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Racking Profile</label>' +
                 '<select id="modalRackingProfileId" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
                   '<option value="">None</option>' +
                   state.rackingProfiles.map(function(r) { return '<option value="' + r.id + '" ' + (p.rackingProfileId === r.id ? 'selected' : '') + '>' + r.name + '</option>'; }).join('') +
                 '</select></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Coordinates (for this project\\'s weather forecast)</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Coordinates (for this project\\'s weather forecast)</label>' +
                 '<div class="grid grid-cols-2 gap-3">' +
                   '<div><input type="number" step="any" id="modalLatitude" value="' + (p.latitude ?? '') + '" placeholder="Latitude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                   '<div><input type="number" step="any" id="modalLongitude" value="' + (p.longitude ?? '') + '" placeholder="Longitude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '</div><p class="text-xs text-slate-500 mt-1">Leave blank to use the default Phoenix, AZ forecast.</p></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Status</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Status</label>' +
                 '<select id="modalStatus" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
                   '<option value="active" ' + (p.status === 'active' ? 'selected' : '') + '>Active</option>' +
                   '<option value="completed" ' + (p.status === 'completed' ? 'selected' : '') + '>Completed</option>' +
@@ -6342,14 +6358,14 @@ export default async function SolTrendApp() {
               title = item.id ? 'Edit Crew' : 'New Crew';
               const c = item.id ? state.crews.find(x => x.id === item.id) || {} : {};
               formContent = 
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Crew Name</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Crew Name</label>' +
                 '<input type="text" id="modalName" value="' + (c.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Crew Lead</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Crew Lead</label>' +
                 '<input type="text" id="modalLead" value="' + (c.lead || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '<div class="grid grid-cols-2 gap-3">' +
-                  '<div><label class="text-xs text-slate-500 mb-2 block">Worker Count</label>' +
+                  '<div><label class="text-xs text-slate-400 mb-2 block">Worker Count</label>' +
                   '<input type="number" id="modalWorkers" value="' + (c.workerCount || 8) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                  '<div><label class="text-xs text-slate-500 mb-2 block">Status</label>' +
+                  '<div><label class="text-xs text-slate-400 mb-2 block">Status</label>' +
                   '<select id="modalStatus" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
                     '<option value="active" ' + (c.status === 'active' ? 'selected' : '') + '>Active</option>' +
                     '<option value="standby" ' + (c.status === 'standby' ? 'selected' : '') + '>Standby</option>' +
@@ -6360,12 +6376,12 @@ export default async function SolTrendApp() {
               const r = item.id ? state.rackingProfiles.find(x => x.id === item.id) || {} : {};
               const types = state.editingRackingTypes || [];
               formContent =
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Profile Name</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Profile Name</label>' +
                 '<input type="text" id="modalName" value="' + (r.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Manufacturer</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Manufacturer</label>' +
                 '<input type="text" id="modalManufacturer" value="' + (r.manufacturer || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '<div class="flex items-center justify-between pt-2 border-t border-slate-700/50">' +
-                  '<label class="text-xs text-slate-500 uppercase block">Pile Types &amp; Tolerances</label>' +
+                  '<label class="text-xs text-slate-400 uppercase block">Pile Types &amp; Tolerances</label>' +
                   '<button type="button" onclick="addRackingType()" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-xs flex items-center gap-1">' + icon('plus', 'w-3.5 h-3.5') + ' Add Pile Type</button>' +
                 '</div>' +
                 (types.length === 0 ? '<p class="text-sm text-slate-500 text-center py-6">No pile types yet. Add one for each distinct pile spec this vendor gives you (e.g. by steel profile and embedment depth).</p>' :
@@ -6375,13 +6391,13 @@ export default async function SolTrendApp() {
                     '<div class="flex items-center justify-between"><span class="text-xs text-slate-500 uppercase">Pile Type ' + (i + 1) + '</span>' +
                     '<button type="button" onclick="removeRackingType(' + i + ')" class="text-red-400 hover:text-red-300 text-xs flex items-center gap-1">' + icon('trash-2', 'w-3.5 h-3.5') + ' Remove</button></div>' +
                     '<div class="grid grid-cols-2 gap-3">' +
-                      '<div><label class="text-xs text-slate-500 mb-1 block">Label</label><input type="text" value="' + (t.label || '') + '" oninput="state.editingRackingTypes[' + i + '].label=this.value" placeholder="W6x9 - 17.92ft" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                      '<div><label class="text-xs text-slate-500 mb-1 block">Color (vendor plan)</label><input type="text" value="' + (t.color || '') + '" oninput="state.editingRackingTypes[' + i + '].color=this.value" placeholder="Teal" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                      '<div><label class="text-xs text-slate-400 mb-1 block">Label</label><input type="text" value="' + (t.label || '') + '" oninput="state.editingRackingTypes[' + i + '].label=this.value" placeholder="W6x9 - 17.92ft" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                      '<div><label class="text-xs text-slate-400 mb-1 block">Color (vendor plan)</label><input type="text" value="' + (t.color || '') + '" oninput="state.editingRackingTypes[' + i + '].color=this.value" placeholder="Teal" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
                     '</div>' +
                     '<div class="grid grid-cols-3 gap-3">' +
-                      '<div><label class="text-xs text-slate-500 mb-1 block">Profile</label><input type="text" value="' + (t.profile || '') + '" oninput="state.editingRackingTypes[' + i + '].profile=this.value" placeholder="W6x9" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                      '<div><label class="text-xs text-slate-500 mb-1 block">Length (ft)</label><input type="number" step="0.01" value="' + (t.lengthFt ?? '') + '" oninput="state.editingRackingTypes[' + i + '].lengthFt=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-                      '<div><label class="text-xs text-slate-500 mb-1 block">Target Embed (ft)</label><input type="number" step="0.01" value="' + (t.embedmentTargetFt ?? '') + '" oninput="state.editingRackingTypes[' + i + '].embedmentTargetFt=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                      '<div><label class="text-xs text-slate-400 mb-1 block">Profile</label><input type="text" value="' + (t.profile || '') + '" oninput="state.editingRackingTypes[' + i + '].profile=this.value" placeholder="W6x9" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                      '<div><label class="text-xs text-slate-400 mb-1 block">Length (ft)</label><input type="number" step="0.01" value="' + (t.lengthFt ?? '') + '" oninput="state.editingRackingTypes[' + i + '].lengthFt=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                      '<div><label class="text-xs text-slate-400 mb-1 block">Target Embed (ft)</label><input type="number" step="0.01" value="' + (t.embedmentTargetFt ?? '') + '" oninput="state.editingRackingTypes[' + i + '].embedmentTargetFt=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
                     '</div>' +
                     '<div class="border-t border-slate-700/50 pt-3"><p class="text-xs text-slate-500 uppercase mb-2">QC Tolerances</p><div class="grid grid-cols-2 gap-3">' +
                       rackingTolInput(i, 'embedmentMinIn', 'Embedment Min (in)', tol.embedmentMinIn) +
@@ -6399,29 +6415,29 @@ export default async function SolTrendApp() {
               title = item.id ? 'Edit User' : 'Invite User';
               const u = item.id ? state.users.find(x => x.id === item.id) || {} : {};
               formContent = 
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Full Name</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Full Name</label>' +
                 '<input type="text" id="modalName" value="' + (u.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Email</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Email</label>' +
                 '<input type="email" id="modalEmail" value="' + (u.email || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Role</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Role</label>' +
                 '<select id="modalRole" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
                   '<option value="inspector" ' + (u.role === 'inspector' ? 'selected' : '') + '>Inspector</option>' +
                   '<option value="manager" ' + (u.role === 'manager' ? 'selected' : '') + '>Manager</option>' +
                   '<option value="admin" ' + (u.role === 'admin' ? 'selected' : '') + '>Admin</option>' +
                 '</select></div>' +
-                (!item.id ? '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Password</label>' +
+                (!item.id ? '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Password</label>' +
                 '<input type="password" id="modalPassword" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white" placeholder="Enter password"></div>' : '');
             } else if (item.type === 'subcontractor') {
               title = item.id ? 'Edit Subcontractor' : 'New Subcontractor';
               const s = item.id ? state.subcontractors.find(x => x.id === item.id) || {} : {};
               formContent = 
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Company Name</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Company Name</label>' +
                 '<input type="text" id="modalName" value="' + (s.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Contact Person</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Contact Person</label>' +
                 '<input type="text" id="modalContactPerson" value="' + (s.contactPerson || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Phone</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Phone</label>' +
                 '<input type="tel" id="modalPhone" value="' + (s.phone || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div><label class="text-xs text-slate-500 uppercase mb-2 block">Email</label>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Email</label>' +
                 '<input type="email" id="modalSubEmail" value="' + (s.email || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>';
             }
             
@@ -6479,7 +6495,7 @@ export default async function SolTrendApp() {
             render();
           }
           function rackingTolInput(i, key, label, val) {
-            return '<div><label class="text-xs text-slate-500 mb-1 block">' + label + '</label><input type="number" step="0.1" value="' + (val ?? '') + '" oninput="state.editingRackingTypes[' + i + '].tolerances.' + key + '=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>';
+            return '<div><label class="text-xs text-slate-400 mb-1 block">' + label + '</label><input type="number" step="0.1" value="' + (val ?? '') + '" oninput="state.editingRackingTypes[' + i + '].tolerances.' + key + '=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>';
           }
           
           async function saveEditModal() {
