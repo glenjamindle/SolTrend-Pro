@@ -908,10 +908,10 @@ export default async function SolTrendApp() {
               ]}
             ];
             return '<aside class="fixed inset-y-0 left-0 z-50 w-60 bg-slate-900/95 border-r border-slate-700/50 transform transition-transform duration-300 ' + (state.sidebarOpen ? 'translate-x-0' : '-translate-x-full') + ' lg:translate-x-0 flex flex-col">' +
-              '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-9 h-9 rounded-lg shadow-lg shadow-amber-500/20"><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-500 uppercase tracking-wider">Pro v2.1</p></div></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></div>' +
+              '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-9 h-9 rounded-lg shadow-lg shadow-amber-500/20"><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-400 uppercase tracking-wider">Pro v2.1</p></div></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></div>' +
               (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" onchange="var v=this.value; switchToProject(state.projects.find(function(p) { return p.id === v; }));" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + '</option>').join('') + '</select></div>' : '') +
-              '<nav class="flex-1 py-3 overflow-y-auto">' + navSections.map(section => '<div class="mb-4"><h3 class="px-5 mb-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">' + section.title + '</h3>' + section.items.map(item => '<button onclick="navigateTo(\\'' + item.id + '\\')" class="nav-item w-full flex items-center gap-3 px-5 py-2.5 text-left text-sm ' + (state.currentView === item.id ? 'active' : 'text-slate-400 hover:text-slate-200') + '">' + icon(item.icon, 'w-4 h-4') + '<span>' + item.label + '</span></button>').join('') + '</div>').join('') + '</nav>' +
-              '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">' + (state.currentUser.name || '?').split(' ').map(function(n){return n[0]||'';}).join('').slice(0,2).toUpperCase() + '</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-500 capitalize">' + state.currentUser.role + '</p></div><a href="/api/auth/signout" title="Sign out" class="text-slate-500 hover:text-red-400 transition-colors p-1">' + icon('log-out', 'w-4 h-4') + '</a></div></div>' +
+              '<nav class="flex-1 py-3 overflow-y-auto">' + navSections.map(section => '<div class="mb-4"><h3 class="px-5 mb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">' + section.title + '</h3>' + section.items.map(item => '<button onclick="navigateTo(\\'' + item.id + '\\')" class="nav-item w-full flex items-center gap-3 px-5 py-2.5 text-left text-sm ' + (state.currentView === item.id ? 'active' : 'text-slate-400 hover:text-slate-200') + '">' + icon(item.icon, 'w-4 h-4') + '<span>' + item.label + '</span></button>').join('') + '</div>').join('') + '</nav>' +
+              '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">' + (state.currentUser.name || '?').split(' ').map(function(n){return n[0]||'';}).join('').slice(0,2).toUpperCase() + '</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-400 capitalize">' + state.currentUser.role + '</p></div><a href="/api/auth/signout" title="Sign out" class="text-slate-400 hover:text-red-400 transition-colors p-1">' + icon('log-out', 'w-4 h-4') + '</a></div></div>' +
             '</aside>';
           }
 
@@ -952,24 +952,24 @@ export default async function SolTrendApp() {
             return '<div class="space-y-6 stagger-children">' +
               '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">' + state.company.name + '</h1><p class="text-slate-400 text-sm">' + activeProjects.length + ' active projects · ' + state.users.length + ' team members</p></div></div>' +
               '<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Total Piles</span>' + icon('database', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-white">' + formatNumber(installedPiles) + '</p><p class="text-xs text-slate-500 mt-1">of ' + formatNumber(totalPiles) + ' planned</p></div>' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Pass Rate</span>' + icon('check-circle', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-blue-400">' + companyPassRate + '%</p><p class="text-xs text-slate-500 mt-1"><span class="text-green-400 font-medium">' + formatNumber(totalPassed) + ' passed</span> · <span class="text-red-400 font-medium">' + formatNumber(totalFailed) + ' failed</span></p></div>' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Refusals</span>' + icon('alert-triangle', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-orange-400">' + state.refusals.length + '</p><p class="text-xs text-slate-500 mt-1">total logged</p></div>' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Active Crews</span>' + icon('users', 'w-4 h-4 text-slate-500') + '</div><p class="font-display text-3xl font-bold text-green-400">' + state.crews.length + '</p><p class="text-xs text-slate-500 mt-1">' + (state.crews.length * 8) + ' workers</p></div>' +
+                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Total Piles</span>' + icon('database', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-white">' + formatNumber(installedPiles) + '</p><p class="text-xs text-slate-400 mt-1">of ' + formatNumber(totalPiles) + ' planned</p></div>' +
+                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Pass Rate</span>' + icon('check-circle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-blue-400">' + companyPassRate + '%</p><p class="text-xs text-slate-400 mt-1"><span class="text-green-400 font-medium">' + formatNumber(totalPassed) + ' passed</span> · <span class="text-red-400 font-medium">' + formatNumber(totalFailed) + ' failed</span></p></div>' +
+                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Refusals</span>' + icon('alert-triangle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-orange-400">' + state.refusals.length + '</p><p class="text-xs text-slate-400 mt-1">total logged</p></div>' +
+                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Active Crews</span>' + icon('users', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-green-400">' + state.crews.length + '</p><p class="text-xs text-slate-400 mt-1">' + (state.crews.length * 8) + ' workers</p></div>' +
               '</div>' +
               '<div class="card rounded-xl p-5">' +
                 '<h3 class="font-display font-semibold text-white mb-4">Installation Progress</h3>' +
                 '<div class="space-y-4">' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(installedPiles) + ' / ' + formatNumber(totalPiles) + ' <span class="text-slate-500 font-normal">· ' + pilesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + pilesPct + '%"></div></div></div>' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(tablesInstalled) + ' / ' + formatNumber(totalTables) + ' <span class="text-slate-500 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(modulesInstalled) + ' / ' + formatNumber(totalModules) + ' <span class="text-slate-500 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
-                (totalTables === 0 && totalModules === 0 ? '<p class="text-xs text-slate-500 pt-1">Set planned Tables/Modules totals per project in Settings to see progress here.</p>' : '') +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(installedPiles) + ' / ' + formatNumber(totalPiles) + ' <span class="text-slate-400 font-normal">· ' + pilesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + pilesPct + '%"></div></div></div>' +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(tablesInstalled) + ' / ' + formatNumber(totalTables) + ' <span class="text-slate-400 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(modulesInstalled) + ' / ' + formatNumber(totalModules) + ' <span class="text-slate-400 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
+                (totalTables === 0 && totalModules === 0 ? '<p class="text-xs text-slate-400 pt-1">Set planned Tables/Modules totals per project in Settings to see progress here.</p>' : '') +
                 '</div>' +
               '</div>' +
               '<div class="grid grid-cols-3 gap-4">' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">Today</p><p class="font-display text-2xl font-bold text-white">' + (todayProd?.piles || 0) + ' <span class="text-sm font-normal text-slate-500">piles</span></p><p class="text-xs text-slate-400 mt-1">' + (todayProd?.tables || 0) + ' tables · ' + (todayProd?.modules || 0) + ' modules</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">This Week</p><p class="font-display text-2xl font-bold text-white">' + weekProd + ' <span class="text-sm font-normal text-slate-500">piles</span></p><p class="text-xs text-slate-400 mt-1">' + weekProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + weekProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase tracking-wider mb-1">This Month</p><p class="font-display text-2xl font-bold text-white">' + monthProd + ' <span class="text-sm font-normal text-slate-500">piles</span></p><p class="text-xs text-slate-400 mt-1">' + monthProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + monthProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Today</p><p class="font-display text-2xl font-bold text-white">' + (todayProd?.piles || 0) + ' <span class="text-sm font-normal text-slate-400">piles</span></p><p class="text-xs text-slate-400 mt-1">' + (todayProd?.tables || 0) + ' tables · ' + (todayProd?.modules || 0) + ' modules</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase tracking-wider mb-1">This Week</p><p class="font-display text-2xl font-bold text-white">' + weekProd + ' <span class="text-sm font-normal text-slate-400">piles</span></p><p class="text-xs text-slate-400 mt-1">' + weekProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + weekProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase tracking-wider mb-1">This Month</p><p class="font-display text-2xl font-bold text-white">' + monthProd + ' <span class="text-sm font-normal text-slate-400">piles</span></p><p class="text-xs text-slate-400 mt-1">' + monthProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + monthProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
               '</div>' +
               renderActiveProjectsTable() +
             '</div>';
@@ -1031,10 +1031,10 @@ export default async function SolTrendApp() {
             function th(label, col) {
               const active = state.companyTableSortCol === col;
               const arrow = active ? (state.companyTableSortDir === 1 ? '▲' : '▼') : '▲';
-              return '<th onclick="sortCompanyTable(\\'' + col + '\\')" class="text-left text-[10px] uppercase tracking-wider p-3 cursor-pointer select-none whitespace-nowrap ' + (active ? 'text-amber-400' : 'text-slate-500 hover:text-slate-300') + '">' + label + '<span class="ml-1 text-[9px] ' + (active ? 'text-amber-400' : 'text-slate-600') + '">' + arrow + '</span></th>';
+              return '<th onclick="sortCompanyTable(\\'' + col + '\\')" class="text-left text-[10px] uppercase tracking-wider p-3 cursor-pointer select-none whitespace-nowrap ' + (active ? 'text-amber-400' : 'text-slate-400 hover:text-slate-300') + '">' + label + '<span class="ml-1 text-[9px] ' + (active ? 'text-amber-400' : 'text-slate-600') + '">' + arrow + '</span></th>';
             }
             function detailColumn(label, itemsHtml, emptyLabel) {
-              return '<div><h4 class="text-[10px] uppercase tracking-wider text-slate-500 mb-2">' + label + '</h4>' + (itemsHtml.length ? itemsHtml.join('') : '<div class="text-xs text-slate-500 italic">' + emptyLabel + '</div>') + '</div>';
+              return '<div><h4 class="text-[10px] uppercase tracking-wider text-slate-400 mb-2">' + label + '</h4>' + (itemsHtml.length ? itemsHtml.join('') : '<div class="text-xs text-slate-400 italic">' + emptyLabel + '</div>') + '</div>';
             }
             // Mirrors the colors used in the company-wide Installation
             // Progress card above (amber piles / sky tables / purple
@@ -1042,7 +1042,7 @@ export default async function SolTrendApp() {
             // on this dashboard.
             function progressRow(label, dotClass, fromClass, toClass, installed, total) {
               const pct = total > 0 ? Math.round((installed / total) * 100) : 0;
-              return '<div><div class="flex justify-between text-xs mb-1"><span class="text-slate-400 flex items-center gap-1"><span class="' + dotClass + '">●</span> ' + label + '</span><span class="text-slate-300">' + formatNumber(installed) + ' / ' + formatNumber(total) + ' <span class="text-slate-500">· ' + pct + '%</span></span></div><div class="h-1.5 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r ' + fromClass + ' ' + toClass + ' rounded-full" style="width:' + pct + '%"></div></div></div>';
+              return '<div><div class="flex justify-between text-xs mb-1"><span class="text-slate-400 flex items-center gap-1"><span class="' + dotClass + '">●</span> ' + label + '</span><span class="text-slate-300">' + formatNumber(installed) + ' / ' + formatNumber(total) + ' <span class="text-slate-400">· ' + pct + '%</span></span></div><div class="h-1.5 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r ' + fromClass + ' ' + toClass + ' rounded-full" style="width:' + pct + '%"></div></div></div>';
             }
 
             // Below sm (~640px) the 8-column table has no room to breathe -
@@ -1064,20 +1064,20 @@ export default async function SolTrendApp() {
               const isOpen = !!state.companyTableExpanded[p.id];
 
               const rfiHtml = r.rfis.map(function(x) {
-                return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (x.blocking ? ' text-red-300' : ' text-slate-200') + '">' + x.number + ' · ' + x.subject + (x.blocking ? ' <span class="text-red-400">· blocking</span>' : '') + '<span class="block text-slate-500">' + daysElapsedSince(x.createdAt) + 'd open</span></div>';
+                return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (x.blocking ? ' text-red-300' : ' text-slate-200') + '">' + x.number + ' · ' + x.subject + (x.blocking ? ' <span class="text-red-400">· blocking</span>' : '') + '<span class="block text-slate-400">' + daysElapsedSince(x.createdAt) + 'd open</span></div>';
               });
               const subHtml = r.submittals.map(function(x) {
                 const overdue = x.dueDate && new Date(x.dueDate).getTime() < now;
                 const sub = overdue ? Math.abs(Math.ceil((now - new Date(x.dueDate).getTime()) / 86400000)) + 'd overdue' : (x.dueDate ? 'due ' + formatDate(x.dueDate) : daysElapsedSince(x.createdAt) + 'd open');
-                return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (overdue ? ' text-red-300' : ' text-slate-200') + '">' + x.number + ' · ' + x.specSection + '<span class="block text-slate-500">' + sub + '</span></div>';
+                return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (overdue ? ' text-red-300' : ' text-slate-200') + '">' + x.number + ' · ' + x.specSection + '<span class="block text-slate-400">' + sub + '</span></div>';
               });
               const punchHtml = r.punchItems.map(function(x) {
                 const overdue = x.dueDate && new Date(x.dueDate).getTime() < now;
-                return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (overdue ? ' text-red-300' : ' text-slate-200') + '">' + x.description + (x.location ? ' <span class="text-slate-500">· ' + x.location + '</span>' : '') + (overdue ? '<span class="block text-red-400">overdue</span>' : '') + '</div>';
+                return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (overdue ? ' text-red-300' : ' text-slate-200') + '">' + x.description + (x.location ? ' <span class="text-slate-400">· ' + x.location + '</span>' : '') + (overdue ? '<span class="block text-red-400">overdue</span>' : '') + '</div>';
               });
               const hasAny = r.rfis.length || r.submittals.length || r.punchItems.length;
               const progressHtml = '<div class="sm:col-span-3 pt-4 border-t border-slate-700/50">' +
-                '<h4 class="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Progress</h4>' +
+                '<h4 class="text-[10px] uppercase tracking-wider text-slate-400 mb-2">Progress</h4>' +
                 '<div class="grid sm:grid-cols-3 gap-5">' +
                   progressRow('Piles', 'text-amber-400', 'from-amber-500', 'to-amber-400', p.installedPiles, p.totalPiles) +
                   progressRow('Tables', 'text-sky-400', 'from-sky-500', 'to-sky-400', p.tablesInstalled || 0, p.totalTables || 0) +
@@ -1094,14 +1094,14 @@ export default async function SolTrendApp() {
                 (hasAny ? '<div class="sm:col-span-3"><button onclick="openProject(\\'' + p.id + '\\')" class="text-xs font-medium text-amber-400 hover:text-amber-300">Open ' + p.name + ' →</button></div>' : '');
 
               const main = '<tr onclick="toggleCompanyTableRow(\\'' + p.id + '\\')" class="cursor-pointer hover:bg-slate-700/10 border-t border-slate-700/50">' +
-                '<td class="p-3"><span class="inline-block text-slate-500 text-[10px] mr-1.5 transition-transform' + (isOpen ? ' rotate-90' : '') + '">▶</span><span class="font-medium text-white">' + p.name + '</span><br><span class="text-xs text-slate-500 ml-4">' + p.location + '</span></td>' +
+                '<td class="p-3"><span class="inline-block text-slate-400 text-[10px] mr-1.5 transition-transform' + (isOpen ? ' rotate-90' : '') + '">▶</span><span class="font-medium text-white">' + p.name + '</span><br><span class="text-xs text-slate-400 ml-4">' + p.location + '</span></td>' +
                 '<td class="p-3 whitespace-nowrap"><span class="inline-block w-20 h-1.5 bg-slate-700 rounded-full overflow-hidden align-middle mr-2"><span class="block h-full bg-amber-400" style="width:' + r.pilesPct + '%"></span></span>' + r.pilesPct + '%</td>' +
-                '<td class="p-3 text-slate-300">' + (r.phase ? r.phase.phase + ' <span class="text-slate-500">· ' + (r.phase.percentComplete || 0) + '%</span>' : '<span class="text-slate-500">No phase logged</span>') + '</td>' +
+                '<td class="p-3 text-slate-300">' + (r.phase ? r.phase.phase + ' <span class="text-slate-400">· ' + (r.phase.percentComplete || 0) + '%</span>' : '<span class="text-slate-400">No phase logged</span>') + '</td>' +
                 '<td class="p-3">' + statusBadge(r.scheduleStatus.label, r.scheduleStatus.bg) + '</td>' +
                 '<td class="p-3 whitespace-nowrap" style="color:' + (r.timing ? r.timing.hex : '#64748b') + '">' + (r.timing ? r.timing.text : '—') + '</td>' +
-                '<td class="p-3 ' + (r.rfis.length === 0 ? 'text-slate-500' : r.rfiBlocking ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.rfis.length + '</td>' +
-                '<td class="p-3 ' + (r.submittals.length === 0 ? 'text-slate-500' : r.subOverdue ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.submittals.length + '</td>' +
-                '<td class="p-3 ' + (r.punchItems.length === 0 ? 'text-slate-500' : r.punchOverdue ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.punchItems.length + '</td>' +
+                '<td class="p-3 ' + (r.rfis.length === 0 ? 'text-slate-400' : r.rfiBlocking ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.rfis.length + '</td>' +
+                '<td class="p-3 ' + (r.submittals.length === 0 ? 'text-slate-400' : r.subOverdue ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.submittals.length + '</td>' +
+                '<td class="p-3 ' + (r.punchItems.length === 0 ? 'text-slate-400' : r.punchOverdue ? 'text-red-400 font-bold' : 'text-slate-200') + '">' + r.punchItems.length + '</td>' +
               '</tr>';
               const detail = '<tr class="' + (isOpen ? '' : 'hidden') + '"><td colspan="8" class="p-0"><div class="bg-slate-900/40 px-5 py-4 grid sm:grid-cols-3 gap-5">' + detailInner + '</div></td></tr>';
               bodyRowsDesktop += main + detail;
@@ -1110,10 +1110,10 @@ export default async function SolTrendApp() {
               const blockingCount = r.rfis.filter(function(x) { return x.blocking; }).length;
               const mobileSummary = blockingCount > 0
                 ? '<span class="text-red-400 font-semibold">' + blockingCount + ' blocking RFI' + (blockingCount > 1 ? 's' : '') + '</span>'
-                : (openCount > 0 ? openCount + ' open item' + (openCount > 1 ? 's' : '') : '<span class="text-slate-500">No open items</span>');
+                : (openCount > 0 ? openCount + ' open item' + (openCount > 1 ? 's' : '') : '<span class="text-slate-400">No open items</span>');
               const mobileMain = '<div onclick="toggleCompanyTableRow(\\'' + p.id + '\\')" class="p-3 cursor-pointer active:bg-slate-700/10 border-t border-slate-700/50">' +
                 '<div class="flex items-start justify-between gap-2">' +
-                  '<div class="min-w-0 flex items-start gap-1.5"><span class="text-slate-500 text-[10px] mt-0.5 flex-shrink-0 transition-transform' + (isOpen ? ' rotate-90' : '') + '">▶</span><div class="min-w-0"><span class="font-medium text-white truncate block">' + p.name + '</span><span class="text-xs text-slate-500 truncate block">' + p.location + '</span></div></div>' +
+                  '<div class="min-w-0 flex items-start gap-1.5"><span class="text-slate-400 text-[10px] mt-0.5 flex-shrink-0 transition-transform' + (isOpen ? ' rotate-90' : '') + '">▶</span><div class="min-w-0"><span class="font-medium text-white truncate block">' + p.name + '</span><span class="text-xs text-slate-400 truncate block">' + p.location + '</span></div></div>' +
                   '<span class="flex-shrink-0">' + statusBadge(r.scheduleStatus.label, r.scheduleStatus.bg) + '</span>' +
                 '</div>' +
                 '<div class="flex items-center gap-2 mt-2 ml-4 text-xs">' +
@@ -1141,13 +1141,13 @@ export default async function SolTrendApp() {
               '<div class="card rounded-xl overflow-hidden">' +
                 '<div class="flex items-center justify-between gap-3 flex-wrap p-3">' +
                   '<div class="flex items-center gap-2">' + chip('all', 'All (' + counts.all + ')') + chip('attention', 'Needs Attention (' + counts.attention + ')') + chip('ontrack', 'On Track (' + counts.ontrack + ')') + '</div>' +
-                  '<span class="text-xs text-slate-500 hidden sm:inline">Click a column to sort · click a row to expand</span>' +
-                  '<span class="text-xs text-slate-500 sm:hidden">Tap a project for details</span>' +
+                  '<span class="text-xs text-slate-400 hidden sm:inline">Click a column to sort · click a row to expand</span>' +
+                  '<span class="text-xs text-slate-400 sm:hidden">Tap a project for details</span>' +
                 '</div>' +
                 '<div class="overflow-x-auto hidden sm:block"><table class="w-full text-sm"><thead><tr>' +
-                  th('Project', 'name') + '<th class="text-left text-[10px] uppercase tracking-wider text-slate-500 p-3">Piles</th><th class="text-left text-[10px] uppercase tracking-wider text-slate-500 p-3">Current Phase</th><th class="text-left text-[10px] uppercase tracking-wider text-slate-500 p-3">Schedule</th>' + th('Finish', 'finish') + th('RFIs', 'rfi') + th('Subs', 'sub') + th('Punch', 'punch') +
-                '</tr></thead><tbody>' + (bodyRowsDesktop || '<tr><td colspan="8" class="p-5 text-center text-slate-500 text-sm">No projects match this filter.</td></tr>') + '</tbody></table></div>' +
-                '<div class="sm:hidden">' + (noMatch ? '<div class="p-5 text-center text-slate-500 text-sm">No projects match this filter.</div>' : bodyRowsMobile) + '</div>' +
+                  th('Project', 'name') + '<th class="text-left text-[10px] uppercase tracking-wider text-slate-400 p-3">Piles</th><th class="text-left text-[10px] uppercase tracking-wider text-slate-400 p-3">Current Phase</th><th class="text-left text-[10px] uppercase tracking-wider text-slate-400 p-3">Schedule</th>' + th('Finish', 'finish') + th('RFIs', 'rfi') + th('Subs', 'sub') + th('Punch', 'punch') +
+                '</tr></thead><tbody>' + (bodyRowsDesktop || '<tr><td colspan="8" class="p-5 text-center text-slate-400 text-sm">No projects match this filter.</td></tr>') + '</tbody></table></div>' +
+                '<div class="sm:hidden">' + (noMatch ? '<div class="p-5 text-center text-slate-400 text-sm">No projects match this filter.</div>' : bodyRowsMobile) + '</div>' +
               '</div>' +
             '</div>';
           }
@@ -1210,18 +1210,18 @@ export default async function SolTrendApp() {
             const modulesPct = project.totalModules > 0 ? Math.round(((project.modulesInstalled || 0) / project.totalModules) * 100) : 0;
             return '<div class="space-y-6 stagger-children">' +
               '<div class="card rounded-xl p-5">' +
-                '<div class="flex items-start justify-between mb-4"><div><div class="flex items-center gap-2"><h1 class="font-display text-2xl font-bold text-white">' + project.name + '</h1><span class="px-2 py-0.5 text-xs font-medium rounded bg-green-500/10 text-green-400">' + project.status + '</span></div><p class="text-slate-400 text-sm">' + project.client + ' · ' + project.location + '</p></div><div class="text-right"><p class="text-xs text-slate-500">Project Manager</p><p class="text-sm text-white font-medium">' + project.projectManager + '</p></div></div>' +
+                '<div class="flex items-start justify-between mb-4"><div><div class="flex items-center gap-2"><h1 class="font-display text-2xl font-bold text-white">' + project.name + '</h1><span class="px-2 py-0.5 text-xs font-medium rounded bg-green-500/10 text-green-400">' + project.status + '</span></div><p class="text-slate-400 text-sm">' + project.client + ' · ' + project.location + '</p></div><div class="text-right"><p class="text-xs text-slate-400">Project Manager</p><p class="text-sm text-white font-medium">' + project.projectManager + '</p></div></div>' +
                 '<div class="h-2 bg-slate-700 rounded-full overflow-hidden mt-4"><div class="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full transition-all" style="width: ' + completionPct + '%"></div></div>' +
-                '<div class="flex justify-between mt-1 text-xs"><span class="text-green-400">' + completionPct + '% Complete</span><span class="text-slate-500">' + (daysRemainingEst === null ? 'Not enough data yet' : daysRemainingEst === 0 ? 'Complete' : daysRemainingEst + ' days remaining (est.)') + '</span></div>' +
+                '<div class="flex justify-between mt-1 text-xs"><span class="text-green-400">' + completionPct + '% Complete</span><span class="text-slate-400">' + (daysRemainingEst === null ? 'Not enough data yet' : daysRemainingEst === 0 ? 'Complete' : daysRemainingEst + ' days remaining (est.)') + '</span></div>' +
               '</div>' +
               '<div class="grid lg:grid-cols-3 gap-4">' +
                 '<div class="lg:col-span-2 card rounded-xl p-5">' +
                   '<div class="flex items-center justify-between mb-4"><h3 class="font-display font-semibold text-white">Today\\'s Progress</h3></div>' +
                   '<div class="grid grid-cols-2 gap-4">' +
-                    '<div class="bg-slate-800/50 rounded-lg p-4 text-center"><p class="text-xs text-slate-500 uppercase mb-1">Target</p><p class="font-display text-3xl font-bold text-white">' + todayTarget + '</p></div>' +
-                    '<div class="bg-slate-800/50 rounded-lg p-4 text-center"><p class="text-xs text-slate-500 uppercase mb-1">Actual</p><p class="font-display text-3xl font-bold text-amber-400">' + todayActual + '</p></div>' +
+                    '<div class="bg-slate-800/50 rounded-lg p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Target</p><p class="font-display text-3xl font-bold text-white">' + todayTarget + '</p></div>' +
+                    '<div class="bg-slate-800/50 rounded-lg p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Actual</p><p class="font-display text-3xl font-bold text-amber-400">' + todayActual + '</p></div>' +
                   '</div>' +
-                  '<div class="mt-4"><p class="text-xs text-slate-500 mb-2">Last 7 Days</p><div class="sparkline">' + state.production.slice(-7).map(p => { const h = Math.max(20, (p.piles / 50) * 100); return '<div class="sparkline-bar" style="height: ' + h + '%"></div>'; }).join('') + '</div></div>' +
+                  '<div class="mt-4"><p class="text-xs text-slate-400 mb-2">Last 7 Days</p><div class="sparkline">' + state.production.slice(-7).map(p => { const h = Math.max(20, (p.piles / 50) * 100); return '<div class="sparkline-bar" style="height: ' + h + '%"></div>'; }).join('') + '</div></div>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5 flex flex-col justify-center gap-3">' +
                   '<button onclick="navigateTo(\\'inspection\\')" class="w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('clipboard-check', 'w-5 h-5') + ' Start QC</button>' +
@@ -1233,20 +1233,20 @@ export default async function SolTrendApp() {
               '<div class="card rounded-xl p-5">' +
                 '<h3 class="font-display font-semibold text-white mb-3">Installation Progress</h3>' +
                 '<div class="space-y-4">' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(project.installedPiles) + ' / ' + formatNumber(project.totalPiles) + ' <span class="text-slate-500 font-normal">· ' + completionPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + completionPct + '%"></div></div></div>' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(project.tablesInstalled || 0) + ' / ' + formatNumber(project.totalTables || 0) + ' <span class="text-slate-500 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(project.modulesInstalled || 0) + ' / ' + formatNumber(project.totalModules || 0) + ' <span class="text-slate-500 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
-                (!project.totalTables && !project.totalModules ? '<p class="text-xs text-slate-500 pt-1">Set planned Tables/Modules totals for this project in Settings to see progress here.</p>' : '') +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(project.installedPiles) + ' / ' + formatNumber(project.totalPiles) + ' <span class="text-slate-400 font-normal">· ' + completionPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + completionPct + '%"></div></div></div>' +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(project.tablesInstalled || 0) + ' / ' + formatNumber(project.totalTables || 0) + ' <span class="text-slate-400 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(project.modulesInstalled || 0) + ' / ' + formatNumber(project.totalModules || 0) + ' <span class="text-slate-400 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
+                (!project.totalTables && !project.totalModules ? '<p class="text-xs text-slate-400 pt-1">Set planned Tables/Modules totals for this project in Settings to see progress here.</p>' : '') +
                 '</div>' +
               '</div>' +
               '<div class="grid lg:grid-cols-3 gap-4">' +
                 '<div class="space-y-3">' +
-                  '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-500">Pass Rate</p><p class="font-display text-xl font-bold text-white">' + passRate + '%</p><p class="text-[11px] text-slate-500 mt-0.5"><span class="text-green-400">' + (project.passedInspections || 0) + ' pass</span> · <span class="text-red-400">' + (project.failedInspections || 0) + ' fail</span></p></div><div class="w-12 h-12 rounded-full border-4 border-green-500 flex items-center justify-center text-green-400 font-bold">' + passRate + '</div></div>' +
-                  '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-500">Open Issues</p><p class="font-display text-xl font-bold text-white">' + openIssues + '</p></div><div class="w-12 h-12 rounded-full border-4 border-red-500 flex items-center justify-center text-red-400 font-bold">' + openIssues + '</div></div>' +
-                  '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 mb-2">Active Profile</p><p class="text-sm font-medium text-white">' + (state.rackingProfiles.find(r => r.id === project.rackingProfileId)?.name || 'N/A') + '</p></div>' +
+                  '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-400">Pass Rate</p><p class="font-display text-xl font-bold text-white">' + passRate + '%</p><p class="text-[11px] text-slate-400 mt-0.5"><span class="text-green-400">' + (project.passedInspections || 0) + ' pass</span> · <span class="text-red-400">' + (project.failedInspections || 0) + ' fail</span></p></div><div class="w-12 h-12 rounded-full border-4 border-green-500 flex items-center justify-center text-green-400 font-bold">' + passRate + '</div></div>' +
+                  '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-400">Open Issues</p><p class="font-display text-xl font-bold text-white">' + openIssues + '</p></div><div class="w-12 h-12 rounded-full border-4 border-red-500 flex items-center justify-center text-red-400 font-bold">' + openIssues + '</div></div>' +
+                  '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 mb-2">Active Profile</p><p class="text-sm font-medium text-white">' + (state.rackingProfiles.find(r => r.id === project.rackingProfileId)?.name || 'N/A') + '</p></div>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3 flex items-center justify-between">Needs Attention <span class="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400">' + openIssues + '</span></h3><div class="space-y-2 max-h-48 overflow-y-auto">' + state.inspections.filter(i => i.status === 'fail').slice(0, 3).map(i => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + i.pileId + '</span><span class="text-red-400">Failed</span></div>').join('') + state.refusals.slice(0, 2).map(r => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + r.pileId + '</span><span class="text-orange-400">Refusal</span></div>').join('') + '</div></div>' +
-                '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3">Recent Activity</h3><div class="space-y-3 max-h-48 overflow-y-auto">' + (function() { const feed = computeRecentActivity(); return feed.length > 0 ? feed.map(a => '<div class="activity-item ' + a.type + ' pl-4 py-1"><p class="text-sm text-slate-300">' + a.message + '</p><p class="text-xs text-slate-500">' + a.user + ' · ' + a.time + '</p></div>').join('') : '<p class="text-sm text-slate-500">No activity logged yet.</p>'; })() + '</div></div>' +
+                '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3">Recent Activity</h3><div class="space-y-3 max-h-48 overflow-y-auto">' + (function() { const feed = computeRecentActivity(); return feed.length > 0 ? feed.map(a => '<div class="activity-item ' + a.type + ' pl-4 py-1"><p class="text-sm text-slate-300">' + a.message + '</p><p class="text-xs text-slate-400">' + a.user + ' · ' + a.time + '</p></div>').join('') : '<p class="text-sm text-slate-400">No activity logged yet.</p>'; })() + '</div></div>' +
               '</div>' +
             '</div>';
           }
@@ -1286,12 +1286,12 @@ export default async function SolTrendApp() {
             
             return '<div class="space-y-6 stagger-children">' +
               '<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Avg Daily</p><p class="font-display text-2xl font-bold text-white">' + avgDaily + '</p><p class="text-xs ' + (trendPercent >= 0 ? 'text-green-400' : 'text-red-400') + '">' + (trendPercent >= 0 ? '+' : '') + trendPercent + '% vs last week</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Weekly Total</p><p class="font-display text-2xl font-bold text-white">' + actualWeek + '</p><p class="text-xs text-slate-400">this week</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Best Day</p><p class="font-display text-2xl font-bold text-green-400">' + (bestDay === null ? '—' : bestDay) + '</p><p class="text-xs text-slate-400">piles</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Low Day</p><p class="font-display text-2xl font-bold text-red-400">' + (worstDay === null ? '—' : worstDay) + '</p><p class="text-xs text-slate-400">piles</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Avg Daily</p><p class="font-display text-2xl font-bold text-white">' + avgDaily + '</p><p class="text-xs ' + (trendPercent >= 0 ? 'text-green-400' : 'text-red-400') + '">' + (trendPercent >= 0 ? '+' : '') + trendPercent + '% vs last week</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Weekly Total</p><p class="font-display text-2xl font-bold text-white">' + actualWeek + '</p><p class="text-xs text-slate-400">this week</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Best Day</p><p class="font-display text-2xl font-bold text-green-400">' + (bestDay === null ? '—' : bestDay) + '</p><p class="text-xs text-slate-400">piles</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Low Day</p><p class="font-display text-2xl font-bold text-red-400">' + (worstDay === null ? '—' : worstDay) + '</p><p class="text-xs text-slate-400">piles</p></div>' +
               '</div>' +
-              '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-4">14-Day Production Trend</h3><div class="h-48 flex items-end gap-1">' + state.production.slice(-14).map(p => { const h = Math.max(10, (p.piles / 60) * 100); return '<div class="flex-1 relative group"><div class="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-700 px-1.5 py-0.5 rounded text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">' + p.piles + '</div><div class="chart-bar w-full bg-amber-500 rounded-t" style="height: ' + h + '%"></div></div>'; }).join('') + '</div><div class="flex justify-between mt-2 text-xs text-slate-500"><span>14 days ago</span><span>Today</span></div></div>' +
+              '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-4">14-Day Production Trend</h3><div class="h-48 flex items-end gap-1">' + state.production.slice(-14).map(p => { const h = Math.max(10, (p.piles / 60) * 100); return '<div class="flex-1 relative group"><div class="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-700 px-1.5 py-0.5 rounded text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-nowrap">' + p.piles + '</div><div class="chart-bar w-full bg-amber-500 rounded-t" style="height: ' + h + '%"></div></div>'; }).join('') + '</div><div class="flex justify-between mt-2 text-xs text-slate-400"><span>14 days ago</span><span>Today</span></div></div>' +
               '<div class="grid lg:grid-cols-2 gap-4">' +
                 (function() {
                   // Was Math.random()-based fake piles/day per crew with a
@@ -1316,18 +1316,18 @@ export default async function SolTrendApp() {
                   const avgProd = dayOfWeekAvgProduction();
                   const maxAvg = Math.max(1, ...avgProd.filter(function(v) { return v !== null; }));
                   return '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Day of Week Analysis</h3>' +
-                    '<p class="text-xs text-slate-500 mb-2">Pass Rate</p><div class="space-y-2 mb-4">' +
+                    '<p class="text-xs text-slate-400 mb-2">Pass Rate</p><div class="space-y-2 mb-4">' +
                     DOW_DISPLAY_ORDER.map(function(dow) {
                       const pct = passRates[dow];
                       const barColor = pct === null ? 'bg-slate-700' : pct > 80 ? 'bg-green-500' : pct > 50 ? 'bg-amber-500' : 'bg-slate-500';
-                      return '<div class="flex items-center gap-2"><span class="w-8 text-xs text-slate-500">' + DOW_LABELS[dow] + '</span><div class="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full ' + barColor + ' rounded-full" style="width: ' + (pct || 0) + '%"></div></div><span class="text-xs text-slate-400 w-8">' + (pct === null ? '—' : pct + '%') + '</span></div>';
+                      return '<div class="flex items-center gap-2"><span class="w-8 text-xs text-slate-400">' + DOW_LABELS[dow] + '</span><div class="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full ' + barColor + ' rounded-full" style="width: ' + (pct || 0) + '%"></div></div><span class="text-xs text-slate-400 w-8">' + (pct === null ? '—' : pct + '%') + '</span></div>';
                     }).join('') +
                     '</div>' +
-                    '<p class="text-xs text-slate-500 mb-2">Avg Piles Installed</p><div class="space-y-2">' +
+                    '<p class="text-xs text-slate-400 mb-2">Avg Piles Installed</p><div class="space-y-2">' +
                     DOW_DISPLAY_ORDER.map(function(dow) {
                       const avg = avgProd[dow];
                       const pctWidth = avg === null ? 0 : Math.round((avg / maxAvg) * 100);
-                      return '<div class="flex items-center gap-2"><span class="w-8 text-xs text-slate-500">' + DOW_LABELS[dow] + '</span><div class="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-indigo-500 rounded-full" style="width: ' + pctWidth + '%"></div></div><span class="text-xs text-slate-400 w-10">' + (avg === null ? '—' : avg) + '</span></div>';
+                      return '<div class="flex items-center gap-2"><span class="w-8 text-xs text-slate-400">' + DOW_LABELS[dow] + '</span><div class="flex-1 h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-indigo-500 rounded-full" style="width: ' + pctWidth + '%"></div></div><span class="text-xs text-slate-400 w-10">' + (avg === null ? '—' : avg) + '</span></div>';
                     }).join('') +
                     '</div></div>';
                 })() +
@@ -1354,9 +1354,9 @@ export default async function SolTrendApp() {
             
             return '<div class="space-y-6 stagger-children">' +
               '<div class="grid grid-cols-3 gap-4">' +
-                '<div class="card rounded-xl p-4 text-center"><p class="text-xs text-slate-500 uppercase mb-1">Total</p><p class="font-display text-2xl font-bold text-white">' + totalInspections + '</p><p class="text-xs text-slate-400">inspections</p></div>' +
-                '<div class="card rounded-xl p-4 text-center"><p class="text-xs text-slate-500 uppercase mb-1">Pass Rate</p><p class="font-display text-2xl font-bold text-green-400">' + passRate + '%</p></div>' +
-                '<div class="card rounded-xl p-4 text-center"><p class="text-xs text-slate-500 uppercase mb-1">Failed</p><p class="font-display text-2xl font-bold text-red-400">' + failed + '</p></div>' +
+                '<div class="card rounded-xl p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Total</p><p class="font-display text-2xl font-bold text-white">' + totalInspections + '</p><p class="text-xs text-slate-400">inspections</p></div>' +
+                '<div class="card rounded-xl p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Pass Rate</p><p class="font-display text-2xl font-bold text-green-400">' + passRate + '%</p></div>' +
+                '<div class="card rounded-xl p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Failed</p><p class="font-display text-2xl font-bold text-red-400">' + failed + '</p></div>' +
               '</div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Pass Rate Distribution</h3><div class="flex items-center justify-center gap-4 py-4">' +
                 '<div class="text-center"><div class="w-24 h-24 rounded-full border-8 border-green-500 flex items-center justify-center"><div><p class="text-2xl font-bold text-white">' + passRate + '%</p><p class="text-xs text-slate-400">Pass</p></div></div></div>' +
@@ -1378,8 +1378,8 @@ export default async function SolTrendApp() {
                   return { lead: c.lead, count: theirs.length, rate: theirs.length > 0 ? Math.round((passed / theirs.length) * 100) : null };
                 }).filter(function(x) { return x.count > 0; }).sort(function(a, b) { return b.count - a.count; }).slice(0, 3);
                 return '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Inspector Performance</h3><div class="space-y-2">' + (leadStats.length > 0 ? leadStats.map(function(x) {
-                  return '<div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-medium">' + x.lead.split(' ').map(function(n) { return n[0]; }).join('') + '</div><div><p class="text-sm text-white">' + x.lead + '</p><p class="text-xs text-slate-500">' + x.count + ' inspections</p></div></div><div class="text-right"><p class="text-lg font-bold text-green-400">' + x.rate + '%</p><p class="text-xs text-slate-500">pass rate</p></div></div>';
-                }).join('') : '<p class="text-slate-500 text-sm text-center py-4">No inspections logged yet</p>') + '</div></div>';
+                  return '<div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-medium">' + x.lead.split(' ').map(function(n) { return n[0]; }).join('') + '</div><div><p class="text-sm text-white">' + x.lead + '</p><p class="text-xs text-slate-400">' + x.count + ' inspections</p></div></div><div class="text-right"><p class="text-lg font-bold text-green-400">' + x.rate + '%</p><p class="text-xs text-slate-400">pass rate</p></div></div>';
+                }).join('') : '<p class="text-slate-400 text-sm text-center py-4">No inspections logged yet</p>') + '</div></div>';
               })() +
             '</div>';
           }
@@ -1393,13 +1393,13 @@ export default async function SolTrendApp() {
 
             return '<div class="space-y-6 stagger-children">' +
               '<div class="grid grid-cols-2 gap-4">' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Total Refusals</p><p class="font-display text-2xl font-bold text-orange-400">' + totalRefusals + '</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Avg Depth</p><p class="font-display text-2xl font-bold text-white">' + avgDepth + '"</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Total Refusals</p><p class="font-display text-2xl font-bold text-orange-400">' + totalRefusals + '</p></div>' +
+                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Avg Depth</p><p class="font-display text-2xl font-bold text-white">' + avgDepth + '"</p></div>' +
               '</div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Refusal Reasons</h3><div class="space-y-3">' +
                 Object.entries(reasons).map(([reason, count]) => { const pct = Math.round((count / totalRefusals) * 100); return '<div><div class="flex justify-between text-sm mb-1"><span class="text-slate-300 capitalize">' + reason + '</span><span class="text-white">' + count + ' (' + pct + '%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-orange-500 rounded-full" style="width: ' + pct + '%"></div></div></div>'; }).join('') || '<div class="flex justify-between text-sm mb-1"><span class="text-slate-300">Bedrock</span><span class="text-white">' + Math.floor(totalRefusals * 0.5) + ' (50%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-orange-500 rounded-full" style="width: 50%"></div></div><div class="flex justify-between text-sm mb-1 mt-3"><span class="text-slate-300">Cobble</span><span class="text-white">' + Math.floor(totalRefusals * 0.3) + ' (30%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-amber-500 rounded-full" style="width: 30%"></div></div><div class="flex justify-between text-sm mb-1 mt-3"><span class="text-slate-300">Obstruction</span><span class="text-white">' + Math.floor(totalRefusals * 0.2) + ' (20%)</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-yellow-500 rounded-full" style="width: 20%"></div></div>' +
               '</div></div>' +
-              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Avg Shortfall</h3><div class="flex items-center gap-4"><div class="flex-1 h-4 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-green-500 via-amber-500 to-red-500" style="width: 100%"></div></div><span class="text-lg font-bold text-amber-400">' + avgShortfall + '"</span></div><p class="text-xs text-slate-500 mt-2">Average depth shortfall from target</p></div>' +
+              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Avg Shortfall</h3><div class="flex items-center gap-4"><div class="flex-1 h-4 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-green-500 via-amber-500 to-red-500" style="width: 100%"></div></div><span class="text-lg font-bold text-amber-400">' + avgShortfall + '"</span></div><p class="text-xs text-slate-400 mt-2">Average depth shortfall from target</p></div>' +
             '</div>';
           }
 
@@ -1426,14 +1426,14 @@ export default async function SolTrendApp() {
             const rows = Object.values(bySub).sort(function(a, b) { return b.piles - a.piles; });
             const maxPiles = Math.max(1, ...rows.map(function(r) { return r.piles; }));
             return '<div class="space-y-6 stagger-children">' +
-              (rows.length === 0 ? '<div class="card rounded-xl p-8 text-center text-slate-500 text-sm">No production logged with a subcontractor attached yet.</div>' :
+              (rows.length === 0 ? '<div class="card rounded-xl p-8 text-center text-slate-400 text-sm">No production logged with a subcontractor attached yet.</div>' :
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Piles Installed by Subcontractor</h3><div class="space-y-4">' +
                 rows.map(function(r) {
                   const pct = Math.round((r.piles / maxPiles) * 100);
                   const avg = r.days > 0 ? (r.piles / r.days).toFixed(1) : '0';
-                  return '<div><div class="flex justify-between text-sm mb-1"><span class="text-slate-300">' + r.name + '</span><span class="text-white font-medium">' + r.piles + ' piles</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full" style="width: ' + pct + '%"></div></div><div class="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-slate-500"><span>' + r.days + ' day' + (r.days === 1 ? '' : 's') + ' logged</span><span>' + avg + ' piles/day avg</span>' + (r.belowTarget > 0 ? '<span class="text-red-400">' + r.belowTarget + ' day' + (r.belowTarget === 1 ? '' : 's') + ' under 50% target</span>' : '') + '<span>Last: ' + formatDate(r.lastDate) + '</span></div></div>';
+                  return '<div><div class="flex justify-between text-sm mb-1"><span class="text-slate-300">' + r.name + '</span><span class="text-white font-medium">' + r.piles + ' piles</span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full" style="width: ' + pct + '%"></div></div><div class="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-slate-400"><span>' + r.days + ' day' + (r.days === 1 ? '' : 's') + ' logged</span><span>' + avg + ' piles/day avg</span>' + (r.belowTarget > 0 ? '<span class="text-red-400">' + r.belowTarget + ' day' + (r.belowTarget === 1 ? '' : 's') + ' under 50% target</span>' : '') + '<span>Last: ' + formatDate(r.lastDate) + '</span></div></div>';
                 }).join('') + '</div></div>') +
-              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500">Pace and schedule adherence only — QC pass rate and refusal rate aren\\'t attributed to a specific subcontractor yet, since inspections and refusals aren\\'t tagged with one today.</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400">Pace and schedule adherence only — QC pass rate and refusal rate aren\\'t attributed to a specific subcontractor yet, since inspections and refusals aren\\'t tagged with one today.</p></div>' +
             '</div>';
           }
 
@@ -1458,20 +1458,20 @@ export default async function SolTrendApp() {
               '<path d="M0,50 Q25,50 50,25 T100,0" fill="none" stroke="#475569" stroke-width="0.5" stroke-dasharray="1"/>' +
               '<path d="M0,50 Q25,48 50,30 T' + progress + ',' + (50 - progress/2) + '" fill="none" stroke="#f59e0b" stroke-width="1"/>' +
               '</svg>' +
-              '<div class="absolute bottom-2 left-2 text-xs text-slate-500">Start</div>' +
-              '<div class="absolute bottom-2 right-2 text-xs text-slate-500">End</div>' +
+              '<div class="absolute bottom-2 left-2 text-xs text-slate-400">Start</div>' +
+              '<div class="absolute bottom-2 right-2 text-xs text-slate-400">End</div>' +
               '<div class="absolute top-2 left-1/2 -translate-x-1/2 bg-amber-500 px-2 py-0.5 rounded text-xs text-black font-medium">' + progress + '%</div>' +
               '</div></div>' +
               '<div class="grid grid-cols-2 gap-4">' +
-              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Days Elapsed</p><p class="font-display text-2xl font-bold text-white">' + (daysElapsed === null ? '—' : daysElapsed) + '</p></div>' +
-              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Days Remaining</p><p class="font-display text-2xl font-bold text-amber-400">' + (daysRemaining === null ? '—' : daysRemaining) + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Days Elapsed</p><p class="font-display text-2xl font-bold text-white">' + (daysElapsed === null ? '—' : daysElapsed) + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Days Remaining</p><p class="font-display text-2xl font-bold text-amber-400">' + (daysRemaining === null ? '—' : daysRemaining) + '</p></div>' +
               '</div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Key Milestones</h3><div class="space-y-3">' +
               [25, 50, 75, 100].map(function(pct) {
                 const achieved = progress >= pct;
                 const label = pct === 100 ? 'Final Completion' : pct + '% Complete';
                 const status = achieved ? 'Achieved' : (pct === 100 && expectedEnd ? 'Est. ' + expectedEnd : 'Pending');
-                return '<div class="flex items-center gap-3"><div class="w-3 h-3 rounded-full ' + (achieved ? 'bg-green-500' : 'bg-slate-600') + '"></div><div class="flex-1"><p class="text-sm text-white">' + label + '</p><p class="text-xs text-slate-500">' + status + '</p></div></div>';
+                return '<div class="flex items-center gap-3"><div class="w-3 h-3 rounded-full ' + (achieved ? 'bg-green-500' : 'bg-slate-600') + '"></div><div class="flex-1"><p class="text-sm text-white">' + label + '</p><p class="text-xs text-slate-400">' + status + '</p></div></div>';
               }).join('') +
               '</div></div>' +
             '</div>';
@@ -1481,7 +1481,7 @@ export default async function SolTrendApp() {
             const weekCounts = inspectionsThisWeek();
             const maxCount = Math.max(1, ...weekCounts);
             return '<div class="space-y-6 stagger-children">' +
-              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Daily Inspections This Week</h3><div class="h-32 flex items-end gap-2">' + weekCounts.map((v, i) => { const h = v > 0 ? Math.max(8, Math.round((v / maxCount) * 100)) : 2; return '<div class="flex-1 flex flex-col items-center"><div class="chart-bar w-full bg-indigo-500 rounded-t" style="height: ' + h + '%"></div><span class="text-[10px] text-slate-500 mt-1">' + ['M','T','W','T','F','S','S'][i] + '</span></div>'; }).join('') + '</div></div>' +
+              '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-4">Daily Inspections This Week</h3><div class="h-32 flex items-end gap-2">' + weekCounts.map((v, i) => { const h = v > 0 ? Math.max(8, Math.round((v / maxCount) * 100)) : 2; return '<div class="flex-1 flex flex-col items-center"><div class="chart-bar w-full bg-indigo-500 rounded-t" style="height: ' + h + '%"></div><span class="text-[10px] text-slate-400 mt-1">' + ['M','T','W','T','F','S','S'][i] + '</span></div>'; }).join('') + '</div></div>' +
               (function() {
                 // Was a fake (85 - i*5) count in whatever order state.crews
                 // happened to be in. Ranks crews by their lead's real
@@ -1491,8 +1491,8 @@ export default async function SolTrendApp() {
                   return { crew: c, count: state.inspections.filter(function(i) { return i.user === c.lead; }).length };
                 }).sort(function(a, b) { return b.count - a.count; }).slice(0, 3);
                 return '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Top Performers</h3><div class="space-y-2">' + (ranked.length > 0 ? ranked.map(function(x, i) {
-                  return '<div class="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg"><div class="w-8 h-8 rounded-full flex items-center justify-center ' + (i === 0 ? 'bg-amber-500 text-black' : i === 1 ? 'bg-gray-400 text-black' : 'bg-amber-700 text-white') + ' font-bold">' + (i + 1) + '</div><div class="flex-1"><p class="text-sm text-white">' + x.crew.lead + '</p><p class="text-xs text-slate-500">' + x.crew.name + '</p></div><div class="text-right"><p class="text-lg font-bold text-white">' + x.count + '</p><p class="text-xs text-slate-500">inspections</p></div></div>';
-                }).join('') : '<p class="text-slate-500 text-sm text-center py-4">No inspections logged yet</p>') + '</div></div>';
+                  return '<div class="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg"><div class="w-8 h-8 rounded-full flex items-center justify-center ' + (i === 0 ? 'bg-amber-500 text-black' : i === 1 ? 'bg-gray-400 text-black' : 'bg-amber-700 text-white') + ' font-bold">' + (i + 1) + '</div><div class="flex-1"><p class="text-sm text-white">' + x.crew.lead + '</p><p class="text-xs text-slate-400">' + x.crew.name + '</p></div><div class="text-right"><p class="text-lg font-bold text-white">' + x.count + '</p><p class="text-xs text-slate-400">inspections</p></div></div>';
+                }).join('') : '<p class="text-slate-400 text-sm text-center py-4">No inspections logged yet</p>') + '</div></div>';
               })() +
             '</div>';
           }
@@ -1542,7 +1542,7 @@ export default async function SolTrendApp() {
               '<div class="bg-white/10 rounded-xl p-4"><p class="text-xs text-indigo-200">Estimated Completion</p><p class="text-2xl font-bold">' + (projectedCompletion || 'Not enough data yet') + '</p><p class="text-xs text-indigo-200 mt-1">' + (daysRemaining === null ? 'Log production entries to get an estimate' : daysRemaining === 0 ? 'Complete' : daysRemaining + ' working days remaining (est.)') + '</p></div></div>' +
               '<div class="card rounded-xl p-5"><h3 class="font-semibold text-white mb-3">Risk Assessment</h3><div class="space-y-3">' +
               risks.map(function(r) {
-                return '<div class="flex items-center gap-3 p-3 ' + (cardBg[r.level] || cardBg.slate) + ' border rounded-lg"><div class="w-2 h-2 rounded-full ' + (dotColor[r.level] || dotColor.slate) + '"></div><div class="flex-1"><p class="text-sm text-white">' + r.title + '</p><p class="text-xs text-slate-500">' + r.detail + '</p></div></div>';
+                return '<div class="flex items-center gap-3 p-3 ' + (cardBg[r.level] || cardBg.slate) + ' border rounded-lg"><div class="w-2 h-2 rounded-full ' + (dotColor[r.level] || dotColor.slate) + '"></div><div class="flex-1"><p class="text-sm text-white">' + r.title + '</p><p class="text-xs text-slate-400">' + r.detail + '</p></div></div>';
               }).join('') +
               '</div></div>' +
             '</div>';
@@ -1566,24 +1566,24 @@ export default async function SolTrendApp() {
               '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Reports</h1><p class="text-slate-400">Generate and export reports</p></div></div>' +
               '<div class="grid md:grid-cols-3 gap-4 stagger-children">' +
                 '<div class="card rounded-xl p-5">' +
-                  '<div class="flex items-center gap-3 mb-4">' + icon('file-text', 'w-8 h-8 text-amber-400') + '<div><h3 class="font-display font-semibold text-white">Daily Report</h3><p class="text-xs text-slate-500">Production summary</p></div></div>' +
+                  '<div class="flex items-center gap-3 mb-4">' + icon('file-text', 'w-8 h-8 text-amber-400') + '<div><h3 class="font-display font-semibold text-white">Daily Report</h3><p class="text-xs text-slate-400">Production summary</p></div></div>' +
                   '<div class="mb-3">' + calendarField('reportDates.daily') + '</div>' +
                   '<button onclick="generateDailyReport()" class="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5">' +
-                  '<div class="flex items-center gap-3 mb-4">' + icon('calendar', 'w-8 h-8 text-blue-400') + '<div><h3 class="font-display font-semibold text-white">Weekly Report</h3><p class="text-xs text-slate-500">7-day analysis</p></div></div>' +
+                  '<div class="flex items-center gap-3 mb-4">' + icon('calendar', 'w-8 h-8 text-blue-400') + '<div><h3 class="font-display font-semibold text-white">Weekly Report</h3><p class="text-xs text-slate-400">7-day analysis</p></div></div>' +
                   '<div class="mb-3">' + calendarField('reportDates.weekly') + '</div>' +
                   '<button onclick="generateWeeklyReport()" class="w-full py-2.5 bg-blue-500 hover:bg-blue-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5">' +
-                  '<div class="flex items-center gap-3 mb-4">' + icon('bar-chart', 'w-8 h-8 text-green-400') + '<div><h3 class="font-display font-semibold text-white">Monthly Report</h3><p class="text-xs text-slate-500">Full month analysis</p></div></div>' +
+                  '<div class="flex items-center gap-3 mb-4">' + icon('bar-chart', 'w-8 h-8 text-green-400') + '<div><h3 class="font-display font-semibold text-white">Monthly Report</h3><p class="text-xs text-slate-400">Full month analysis</p></div></div>' +
                   '<input type="month" id="monthlyReportMonth" value="' + state.reportDates.monthly + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm mb-3">' +
                   '<button onclick="generateMonthlyReport()" class="w-full py-2.5 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
               '</div>' +
               '<div class="grid md:grid-cols-3 gap-4">' +
                 '<div class="card rounded-xl p-5">' +
-                  '<div class="flex items-center gap-3 mb-4">' + icon('clipboard-check', 'w-8 h-8 text-purple-400') + '<div><h3 class="font-display font-semibold text-white">QC Report</h3><p class="text-xs text-slate-500">Inspection summary</p></div></div>' +
+                  '<div class="flex items-center gap-3 mb-4">' + icon('clipboard-check', 'w-8 h-8 text-purple-400') + '<div><h3 class="font-display font-semibold text-white">QC Report</h3><p class="text-xs text-slate-400">Inspection summary</p></div></div>' +
                   '<div class="grid grid-cols-2 gap-2 mb-3">' +
                     '<div><label class="text-xs text-slate-400 mb-1 block">Start</label>' + calendarField('reportDates.qcStart') + '</div>' +
                     '<div><label class="text-xs text-slate-400 mb-1 block">End</label>' + calendarField('reportDates.qcEnd') + '</div>' +
@@ -1591,11 +1591,11 @@ export default async function SolTrendApp() {
                   '<button onclick="generateQCReport()" class="w-full py-2.5 bg-purple-500 hover:bg-purple-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5">' +
-                  '<div class="flex items-center gap-3 mb-4">' + icon('map', 'w-8 h-8 text-cyan-400') + '<div><h3 class="font-display font-semibold text-white">Pile Status Report</h3><p class="text-xs text-slate-500">Current status map</p></div></div>' +
+                  '<div class="flex items-center gap-3 mb-4">' + icon('map', 'w-8 h-8 text-cyan-400') + '<div><h3 class="font-display font-semibold text-white">Pile Status Report</h3><p class="text-xs text-slate-400">Current status map</p></div></div>' +
                   '<button onclick="generatePileStatusReport()" class="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5">' +
-                  '<div class="flex items-center gap-3 mb-4">' + icon('alert-triangle', 'w-8 h-8 text-orange-400') + '<div><h3 class="font-display font-semibold text-white">Refusal Report</h3><p class="text-xs text-slate-500">Refusal analysis</p></div></div>' +
+                  '<div class="flex items-center gap-3 mb-4">' + icon('alert-triangle', 'w-8 h-8 text-orange-400') + '<div><h3 class="font-display font-semibold text-white">Refusal Report</h3><p class="text-xs text-slate-400">Refusal analysis</p></div></div>' +
                   '<div class="grid grid-cols-2 gap-2 mb-3">' +
                     '<div><label class="text-xs text-slate-400 mb-1 block">Start</label>' + calendarField('reportDates.refusalStart') + '</div>' +
                     '<div><label class="text-xs text-slate-400 mb-1 block">End</label>' + calendarField('reportDates.refusalEnd') + '</div>' +
@@ -1604,7 +1604,7 @@ export default async function SolTrendApp() {
                 '</div>' +
               '</div>' +
               '<div class="card rounded-xl p-5">' +
-                '<div class="flex items-center gap-3 mb-4">' + icon('table', 'w-8 h-8 text-slate-400') + '<div><h3 class="font-display font-semibold text-white">Data Export</h3><p class="text-xs text-slate-500">Raw data as CSV, for Excel or Sheets</p></div></div>' +
+                '<div class="flex items-center gap-3 mb-4">' + icon('table', 'w-8 h-8 text-slate-400') + '<div><h3 class="font-display font-semibold text-white">Data Export</h3><p class="text-xs text-slate-400">Raw data as CSV, for Excel or Sheets</p></div></div>' +
                 '<div class="grid md:grid-cols-3 gap-3">' +
                   '<button onclick="exportProductionCSV()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Production Log</button>' +
                   '<button onclick="exportInspectionsCSV()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Inspections</button>' +
@@ -3220,7 +3220,7 @@ export default async function SolTrendApp() {
                   const borderColor = p.color ? p.color.toLowerCase().replace(/\s+/g, '') : '';
                   cells += '<button onclick="showPileDetails(\\'' + p.pileId + '\\')" class="heat-cell status-' + getInspectionStatus(p.pileId) + (term && !isMatch ? ' dimmed' : '') + '" style="width: ' + cellSize + 'px; height: ' + cellSize + 'px' + (borderColor && borderColor !== 'nocolor' ? '; border-bottom: 3px solid ' + borderColor : '') + '" title="' + p.pileId + (typeLabel ? ' · ' + typeLabel : '') + '"></button>';
                 });
-                rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-500 font-mono text-right pr-1">' + rowNum + '</span>' + cells + '</div>';
+                rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-400 font-mono text-right pr-1">' + rowNum + '</span>' + cells + '</div>';
               });
               headerNote = 'Custom layout · ' + realPileCount + ' piles across ' + rowNums.length + ' rows';
             } else {
@@ -3232,11 +3232,11 @@ export default async function SolTrendApp() {
                   if (term && isMatch) matchCount++;
                   cells += '<button onclick="showPileDetails(\\'' + pileId + '\\')" class="heat-cell status-' + getInspectionStatus(pileId) + (term && !isMatch ? ' dimmed' : '') + '" style="width: ' + cellSize + 'px; height: ' + cellSize + 'px" title="' + pileId + '"></button>';
                 }
-                rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-500 font-mono text-right pr-1">' + row + '</span>' + cells + '</div>';
+                rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-400 font-mono text-right pr-1">' + row + '</span>' + cells + '</div>';
               }
             }
             const editLayoutBtn = hasRole('manager') ? '<button onclick="state.settingsTab=\\'pileLayout\\'; navigateTo(\\'settings\\')" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('layout-grid', 'w-3.5 h-3.5') + ' Edit Layout</button>' : '';
-            return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Pile Map</h1><p class="text-slate-400">' + headerNote + '</p></div><div class="flex items-center gap-2">' + editLayoutBtn + '<button onclick="zoomOut()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-out', 'w-4 h-4') + '</button><span class="text-sm text-slate-400 w-12 text-center">' + Math.round(zoom * 100) + '%</span><button onclick="zoomIn()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-in', 'w-4 h-4') + '</button></div></div><div class="flex flex-wrap items-center gap-3 bg-slate-800/50 border border-slate-700 rounded-xl p-3"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-green-500"></div><span class="text-xs text-slate-300">Passed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-red-500"></div><span class="text-xs text-slate-300">Failed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-orange-500"></div><span class="text-xs text-slate-300">Refusal</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-slate-500"></div><span class="text-xs text-slate-300">Not Started</span></div><div class="flex items-center gap-2 ml-auto"><input type="text" id="pileMapSearch" value="' + (search || '') + '" oninput="filterPileMap(this.value)" placeholder="Search pile, e.g. 12-7" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-40">' + (term ? '<span class="text-xs text-slate-500">' + matchCount + ' match' + (matchCount === 1 ? '' : 'es') + '</span>' : '') + '</div></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4 overflow-x-auto" style="max-height: 60vh; overflow-y: auto;"><div class="inline-block">' + rows + '</div></div></div><div id="pileModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop"><div class="bg-slate-800 border border-slate-700 rounded-xl max-w-sm w-full" id="pileModalContent"></div></div>';
+            return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Pile Map</h1><p class="text-slate-400">' + headerNote + '</p></div><div class="flex items-center gap-2">' + editLayoutBtn + '<button onclick="zoomOut()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-out', 'w-4 h-4') + '</button><span class="text-sm text-slate-400 w-12 text-center">' + Math.round(zoom * 100) + '%</span><button onclick="zoomIn()" class="p-2 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-in', 'w-4 h-4') + '</button></div></div><div class="flex flex-wrap items-center gap-3 bg-slate-800/50 border border-slate-700 rounded-xl p-3"><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-green-500"></div><span class="text-xs text-slate-300">Passed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-red-500"></div><span class="text-xs text-slate-300">Failed</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-orange-500"></div><span class="text-xs text-slate-300">Refusal</span></div><div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-slate-500"></div><span class="text-xs text-slate-300">Not Started</span></div><div class="flex items-center gap-2 ml-auto"><input type="text" id="pileMapSearch" value="' + (search || '') + '" oninput="filterPileMap(this.value)" placeholder="Search pile, e.g. 12-7" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-40">' + (term ? '<span class="text-xs text-slate-400">' + matchCount + ' match' + (matchCount === 1 ? '' : 'es') + '</span>' : '') + '</div></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4 overflow-x-auto" style="max-height: 60vh; overflow-y: auto;"><div class="inline-block">' + rows + '</div></div></div><div id="pileModal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop"><div class="bg-slate-800 border border-slate-700 rounded-xl max-w-sm w-full" id="pileModalContent"></div></div>';
           }
 
           // Live-filters the pile map as the user types without a full
@@ -3262,7 +3262,7 @@ export default async function SolTrendApp() {
             const info = labels[status];
             const timeString = (inspection || refusal)?.timestamp ? new Date((inspection || refusal).timestamp).toLocaleString() : 'N/A';
             const userString = (inspection || refusal)?.user || 'Unknown';
-            content.innerHTML = '<div class="p-5 border-b border-slate-700/50 flex justify-between items-center"><h3 class="font-display text-lg font-bold text-white">Pile ' + pileId + '</h3><button onclick="closePileModal()" class="p-1 text-slate-400 hover:text-white">' + icon('x', 'w-5 h-5') + '</button></div><div class="p-5"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-full ' + info.bg + ' flex items-center justify-center ' + info.color + '">' + icon(info.icon, 'w-5 h-5') + '</div><div><span class="' + info.color + ' font-bold text-lg">' + info.label + '</span><p class="text-xs text-slate-500">' + (status !== 'notstarted' ? 'Recorded' : 'No data') + '</p></div></div>' + (status !== 'notstarted' ? '<div class="space-y-2 mb-4 text-sm"><div class="flex justify-between text-slate-300"><span class="text-slate-500">Inspector:</span><span>' + userString + '</span></div><div class="flex justify-between text-slate-300"><span class="text-slate-500">Timestamp:</span><span>' + timeString + '</span></div>' + (inspection?.depth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Depth:</span><span>' + inspection.depth + '"</span></div>' : '') + (inspection?.plumbNS ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Plumb N-S:</span><span>' + inspection.plumbNS + '°</span></div>' : '') + (status === 'refusal' ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Reason:</span><span class="capitalize">' + (refusal?.reason || 'N/A') + '</span></div>' + (refusal?.achievedDepth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Achieved Depth:</span><span>' + refusal.achievedDepth + '"</span></div>' : '') + (refusal?.notes ? '<div class="flex justify-between text-slate-300"><span class="text-slate-500">Notes:</span><span class="text-right">' + refusal.notes + '</span></div>' : '') : '') + '</div>' : '') + '<div class="grid grid-cols-2 gap-2 mt-4">' + (status === 'fail' || status === 'refusal' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('refresh-cw', 'w-4 h-4') + ' Reinspect</button><button onclick="deletePileRecord(\\'' + pileId + '\\')" class="w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button><button onclick="closePileModal()" class="col-span-2 w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>' : status === 'notstarted' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="col-span-2 w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('plus', 'w-4 h-4') + ' Inspect Now</button>' : '<button onclick="deletePileRecord(\\'' + pileId + '\\')" class="w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button><button onclick="closePileModal()" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>') + '</div></div>';
+            content.innerHTML = '<div class="p-5 border-b border-slate-700/50 flex justify-between items-center"><h3 class="font-display text-lg font-bold text-white">Pile ' + pileId + '</h3><button onclick="closePileModal()" class="p-1 text-slate-400 hover:text-white">' + icon('x', 'w-5 h-5') + '</button></div><div class="p-5"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-full ' + info.bg + ' flex items-center justify-center ' + info.color + '">' + icon(info.icon, 'w-5 h-5') + '</div><div><span class="' + info.color + ' font-bold text-lg">' + info.label + '</span><p class="text-xs text-slate-400">' + (status !== 'notstarted' ? 'Recorded' : 'No data') + '</p></div></div>' + (status !== 'notstarted' ? '<div class="space-y-2 mb-4 text-sm"><div class="flex justify-between text-slate-300"><span class="text-slate-400">Inspector:</span><span>' + userString + '</span></div><div class="flex justify-between text-slate-300"><span class="text-slate-400">Timestamp:</span><span>' + timeString + '</span></div>' + (inspection?.depth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-400">Depth:</span><span>' + inspection.depth + '"</span></div>' : '') + (inspection?.plumbNS ? '<div class="flex justify-between text-slate-300"><span class="text-slate-400">Plumb N-S:</span><span>' + inspection.plumbNS + '°</span></div>' : '') + (status === 'refusal' ? '<div class="flex justify-between text-slate-300"><span class="text-slate-400">Reason:</span><span class="capitalize">' + (refusal?.reason || 'N/A') + '</span></div>' + (refusal?.achievedDepth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-400">Achieved Depth:</span><span>' + refusal.achievedDepth + '"</span></div>' : '') + (refusal?.notes ? '<div class="flex justify-between text-slate-300"><span class="text-slate-400">Notes:</span><span class="text-right">' + refusal.notes + '</span></div>' : '') : '') + '</div>' : '') + '<div class="grid grid-cols-2 gap-2 mt-4">' + (status === 'fail' || status === 'refusal' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('refresh-cw', 'w-4 h-4') + ' Reinspect</button><button onclick="deletePileRecord(\\'' + pileId + '\\')" class="w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button><button onclick="closePileModal()" class="col-span-2 w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>' : status === 'notstarted' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="col-span-2 w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('plus', 'w-4 h-4') + ' Inspect Now</button>' : '<button onclick="deletePileRecord(\\'' + pileId + '\\')" class="w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button><button onclick="closePileModal()" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>') + '</div></div>';
             modal.classList.remove('hidden'); modal.classList.add('flex'); lucide.createIcons();
           }
           function reinspectPile(pileId) { const { row, pile } = parsePileId(pileId); state.currentRow = row; state.currentPile = pile; syncInspectionPileTypeFromLayout(); closePileModal(); navigateTo('inspection'); }
@@ -3375,9 +3375,9 @@ export default async function SolTrendApp() {
               '</div></div>' : '';
 
             const groupsHtml = groups.length === 0
-              ? '<div class="card rounded-xl p-8 text-center"><p class="text-slate-500 text-sm">No photos yet. Photos from Production, QC Inspection, and Refusals will show up here automatically, or add some directly with "Add Photos".</p></div>'
+              ? '<div class="card rounded-xl p-8 text-center"><p class="text-slate-400 text-sm">No photos yet. Photos from Production, QC Inspection, and Refusals will show up here automatically, or add some directly with "Add Photos".</p></div>'
               : groups.map(function(g) {
-                  return '<div><h3 class="text-xs font-semibold text-amber-400/90 uppercase tracking-wider mb-2">' + g.label + ' <span class="text-slate-500 normal-case font-normal">&middot; ' + g.photos.length + '</span></h3>' +
+                  return '<div><h3 class="text-xs font-semibold text-amber-400/90 uppercase tracking-wider mb-2">' + g.label + ' <span class="text-slate-400 normal-case font-normal">&middot; ' + g.photos.length + '</span></h3>' +
                     '<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">' +
                     g.photos.map(function(p) {
                       const isSel = selected.indexOf(p.key) !== -1;
@@ -3422,7 +3422,7 @@ export default async function SolTrendApp() {
                 '<div class="lb-nav prev' + (index === 0 ? ' disabled' : '') + '" id="lbPrevNav" onclick="lbGo(-1)">' + icon('chevron-left', 'w-5 h-5') + '</div>' +
                 '<div class="lb-nav next' + (index === photos.length - 1 ? ' disabled' : '') + '" id="lbNextNav" onclick="lbGo(1)">' + icon('chevron-right', 'w-5 h-5') + '</div>' +
               '</div>' +
-              '<div class="lb-meta"><p class="text-white font-medium" id="lbLabel">' + photo.label + '</p><p class="text-xs text-slate-500 mt-1" id="lbDate">' + formatDate(photo.date) + (photo.uploader ? ' &middot; ' + photo.uploader : '') + '</p>' +
+              '<div class="lb-meta"><p class="text-white font-medium" id="lbLabel">' + photo.label + '</p><p class="text-xs text-slate-400 mt-1" id="lbDate">' + formatDate(photo.date) + (photo.uploader ? ' &middot; ' + photo.uploader : '') + '</p>' +
               '<div id="lbActions">' + renderLbActions(photo) + '</div>' +
               '</div></div>';
           }
@@ -3972,23 +3972,23 @@ export default async function SolTrendApp() {
             const statusBanner = '<div class="card rounded-xl p-4 flex items-center gap-3">' +
               '<div class="w-10 h-10 rounded-full ' + (isCustom ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-700/50 text-slate-400') + ' flex items-center justify-center">' + icon(isCustom ? 'layout-grid' : 'grid-3x3', 'w-5 h-5') + '</div>' +
               '<div class="flex-1"><p class="text-sm font-semibold text-white">' + (isCustom ? 'Custom layout' : 'Standard grid') + '</p>' +
-              '<p class="text-xs text-slate-500">' + (isCustom ? state.piles.filter(function(p) { return !p.skip; }).length + ' piles across ' + (project.totalRows || 0) + ' rows, imported or entered manually.' : 'Procedural ' + (project?.totalRows || 0) + ' x ' + (project?.pilesPerRow || 0) + ' rectangle - the default until a CSV is imported or a pile is added below.') + '</p></div>' +
+              '<p class="text-xs text-slate-400">' + (isCustom ? state.piles.filter(function(p) { return !p.skip; }).length + ' piles across ' + (project.totalRows || 0) + ' rows, imported or entered manually.' : 'Procedural ' + (project?.totalRows || 0) + ' x ' + (project?.pilesPerRow || 0) + ' rectangle - the default until a CSV is imported or a pile is added below.') + '</p></div>' +
               '</div>';
 
             const preview = state.pileCsvPreview;
             const importCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
               '<div class="flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Import from CSV</h3>' +
               '<button onclick="downloadPileCsvTemplate()" class="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">' + icon('download', 'w-3.5 h-3.5') + ' Download template</button></div>' +
-              '<p class="text-xs text-slate-500">Columns: row, position, zone, pileType, color, skip, lat, lng, notes, pileId. Only row and position are required - pileType is matched by label against ' + (activeProfile ? '"' + activeProfile.name + '"' : 'the project\\'s racking profile') + '; mark a gap or obstacle with skip=true.</p>' +
+              '<p class="text-xs text-slate-400">Columns: row, position, zone, pileType, color, skip, lat, lng, notes, pileId. Only row and position are required - pileType is matched by label against ' + (activeProfile ? '"' + activeProfile.name + '"' : 'the project\\'s racking profile') + '; mark a gap or obstacle with skip=true.</p>' +
               '<input type="file" id="pileCsvInput" accept=".csv,text/csv" class="hidden" onchange="handlePileCsvSelect(event)">' +
               '<button onclick="triggerPileCsvInput()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('upload', 'w-3.5 h-3.5') + ' Choose CSV file</button>' +
               (preview ? (
                 '<div class="border-t border-slate-700/50 pt-3 space-y-2">' +
                 '<p class="text-xs text-slate-400"><span class="text-white font-medium">' + preview.fileName + '</span> - ' + preview.rows.length + ' pile' + (preview.rows.length === 1 ? '' : 's') + ' ready to import' + (preview.warnings.length > 0 ? ', ' + preview.warnings.length + ' warning' + (preview.warnings.length === 1 ? '' : 's') : '') + '.</p>' +
-                (preview.warnings.length > 0 ? '<div class="max-h-28 overflow-y-auto space-y-1">' + preview.warnings.slice(0, 15).map(function(w) { return '<p class="text-xs text-amber-400/90">' + w + '</p>'; }).join('') + (preview.warnings.length > 15 ? '<p class="text-xs text-slate-500">+ ' + (preview.warnings.length - 15) + ' more</p>' : '') + '</div>' : '') +
+                (preview.warnings.length > 0 ? '<div class="max-h-28 overflow-y-auto space-y-1">' + preview.warnings.slice(0, 15).map(function(w) { return '<p class="text-xs text-amber-400/90">' + w + '</p>'; }).join('') + (preview.warnings.length > 15 ? '<p class="text-xs text-slate-400">+ ' + (preview.warnings.length - 15) + ' more</p>' : '') + '</div>' : '') +
                 (preview.rows.length > 0 ? '<div class="max-h-40 overflow-y-auto rounded-lg border border-slate-700/50"><table class="w-full text-xs"><thead class="bg-slate-800/70 text-slate-400"><tr><th class="text-left px-2 py-1.5">Pile</th><th class="text-left px-2 py-1.5">Zone</th><th class="text-left px-2 py-1.5">Type</th><th class="text-left px-2 py-1.5">Skip</th></tr></thead><tbody>' +
                   preview.rows.slice(0, 25).map(function(r) { return '<tr class="border-t border-slate-800"><td class="px-2 py-1 text-slate-300">' + r.pileId + '</td><td class="px-2 py-1 text-slate-400">' + (r.zone || '-') + '</td><td class="px-2 py-1 text-slate-400">' + (r.pileType ? (typeLabels[r.pileType] || r.pileType) : (r.typeLabelRaw || '-')) + '</td><td class="px-2 py-1 text-slate-400">' + (r.skip ? 'Yes' : '') + '</td></tr>'; }).join('') +
-                '</tbody></table>' + (preview.rows.length > 25 ? '<p class="text-xs text-slate-500 px-2 py-1.5">+ ' + (preview.rows.length - 25) + ' more row' + (preview.rows.length - 25 === 1 ? '' : 's') + ' not shown</p>' : '') + '</div>' : '') +
+                '</tbody></table>' + (preview.rows.length > 25 ? '<p class="text-xs text-slate-400 px-2 py-1.5">+ ' + (preview.rows.length - 25) + ' more row' + (preview.rows.length - 25 === 1 ? '' : 's') + ' not shown</p>' : '') + '</div>' : '') +
                 '<div class="flex gap-2 pt-1">' +
                   '<button onclick="cancelPileCsvImport()" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium">Cancel</button>' +
                   (preview.rows.length > 0 ? '<button onclick="confirmPileCsvImport()" class="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-sm font-semibold">Import ' + preview.rows.length + ' pile' + (preview.rows.length === 1 ? '' : 's') + '</button>' : '') +
@@ -4003,7 +4003,7 @@ export default async function SolTrendApp() {
             const manualCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
               '<div class="flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Piles (' + state.piles.length + ')</h3>' +
               '<button onclick="openPileModal(null)" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-xs flex items-center gap-1">' + icon('plus', 'w-3.5 h-3.5') + ' Add Pile</button></div>' +
-              (state.piles.length === 0 ? '<p class="text-sm text-slate-500 text-center py-6">No custom piles yet. Import a CSV above or add piles one at a time.</p>' :
+              (state.piles.length === 0 ? '<p class="text-sm text-slate-400 text-center py-6">No custom piles yet. Import a CSV above or add piles one at a time.</p>' :
                 '<div class="max-h-96 overflow-y-auto rounded-lg border border-slate-700/50"><table class="w-full text-xs"><thead class="bg-slate-800/70 text-slate-400 sticky top-0"><tr><th class="text-left px-2 py-1.5">Row</th><th class="text-left px-2 py-1.5">Pile</th><th class="text-left px-2 py-1.5">Zone</th><th class="text-left px-2 py-1.5">Type</th><th class="text-left px-2 py-1.5">Skip</th><th class="text-right px-2 py-1.5">Actions</th></tr></thead><tbody>' +
                 rowNums.map(function(rowNum) {
                   return byRow[rowNum].sort(function(a, b) { return a.position - b.position; }).map(function(p) {
@@ -4015,7 +4015,7 @@ export default async function SolTrendApp() {
 
             const dangerCard = (canClear && isCustom) ? '<div class="card rounded-xl p-4 border-red-500/30 space-y-2">' +
               '<h3 class="font-display font-semibold text-red-400 text-sm">Danger Zone</h3>' +
-              '<p class="text-xs text-slate-500">Deletes every custom pile record for this project and reverts the Pile Map back to the standard procedural grid.</p>' +
+              '<p class="text-xs text-slate-400">Deletes every custom pile record for this project and reverts the Pile Map back to the standard procedural grid.</p>' +
               '<button onclick="clearCustomLayout()" class="px-3 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('trash-2', 'w-3.5 h-3.5') + ' Clear custom layout</button>' +
               '</div>' : '';
 
@@ -4040,18 +4040,18 @@ export default async function SolTrendApp() {
             const selTol = selectedType ? (selectedType.tolerances || {}) : null;
             const detailedPanel = state.inspectionMode === 'detailed' ? (
               '<div class="card rounded-xl p-4 mb-3"><h3 class="font-display font-semibold text-white text-sm mb-3">Detailed Measurements</h3>' +
-              (!activeProfile ? '<p class="text-xs text-slate-500 mb-3">No racking profile set for this project (set one in Settings → Projects)</p>' :
+              (!activeProfile ? '<p class="text-xs text-slate-400 mb-3">No racking profile set for this project (set one in Settings → Projects)</p>' :
                 activeTypes.length === 0 ? '<p class="text-xs text-amber-400/80 mb-3">' + activeProfile.name + ' has no pile types configured yet (Settings → Racking).</p>' :
                 '<label class="text-xs text-slate-400 mb-1 block">Pile Type (' + activeProfile.name + ')</label>' +
                 '<select id="inspPileTypeInput" onchange="state.inspectionPileType=this.value; render();" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm mb-2">' +
                   '<option value="">Select pile type...</option>' +
                   activeTypes.map(function(t) { return '<option value="' + t.id + '" ' + (state.inspectionPileType === t.id ? 'selected' : '') + '>' + (t.label || t.profile || 'Type') + '</option>'; }).join('') +
                 '</select>' +
-                (selTol ? '<p class="text-xs text-slate-500 mb-3">Target: ' + [
+                (selTol ? '<p class="text-xs text-slate-400 mb-3">Target: ' + [
                   selTol.embedmentMinIn ? 'min embed ' + selTol.embedmentMinIn + '"' : null,
                   selTol.plumbMaxDeg ? 'max plumb ' + selTol.plumbMaxDeg + '°' : null,
                   selTol.twistMaxDeg ? 'max twist ' + selTol.twistMaxDeg + '°' : null,
-                ].filter(Boolean).join(', ') + '</p>' : '<p class="text-xs text-slate-500 mb-3">Pick a pile type to see its tolerances.</p>')
+                ].filter(Boolean).join(', ') + '</p>' : '<p class="text-xs text-slate-400 mb-3">Pick a pile type to see its tolerances.</p>')
               ) +
               '<div class="grid grid-cols-3 gap-3 mb-3">' +
               '<div><label class="text-xs text-slate-400 mb-1 block">Embedment (in)</label><input type="number" id="inspDepthInput" value="' + (state.inspectionDepth||'') + '" oninput="state.inspectionDepth=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-white text-sm"></div>' +
@@ -4073,7 +4073,7 @@ export default async function SolTrendApp() {
               }).join('') +
               '</div></div>'
             ) : '';
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">QC Inspection</h1></div><div class="flex items-center gap-2"><span class="badge-pass px-3 py-1.5 rounded-full text-sm">' + state.session.passed + ' Pass</span><span class="badge-fail px-3 py-1.5 rounded-full text-sm">' + state.session.failed + ' Fail</span></div></div><div class="flex gap-2"><button onclick="setInspectionMode(\\'quick\\')" class="mode-btn ' + (state.inspectionMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">quick</button><button onclick="setInspectionMode(\\'detailed\\')" class="mode-btn ' + (state.inspectionMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">detailed</button></div><div class="pile-display p-6"><p class="text-xs text-slate-500 uppercase tracking-wider text-center mb-3">INSPECTING</p><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.currentRow + '</span><button onclick="incRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div>' + detailedPanel + '<div class="grid grid-cols-2 gap-3"><button onclick="recordInspection(\\'pass\\')" class="btn-action bg-green-600 text-white flex flex-col items-center justify-center gap-2">' + icon('check-circle', 'w-12 h-12') + '<span>PASS</span></button><button onclick="recordInspection(\\'fail\\')" class="btn-action bg-red-600 text-white flex flex-col items-center justify-center gap-2">' + icon('x-circle', 'w-12 h-12') + '<span>FAIL</span></button></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('inspection') + '</div></div>';
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">QC Inspection</h1></div><div class="flex items-center gap-2"><span class="badge-pass px-3 py-1.5 rounded-full text-sm">' + state.session.passed + ' Pass</span><span class="badge-fail px-3 py-1.5 rounded-full text-sm">' + state.session.failed + ' Fail</span></div></div><div class="flex gap-2"><button onclick="setInspectionMode(\\'quick\\')" class="mode-btn ' + (state.inspectionMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">quick</button><button onclick="setInspectionMode(\\'detailed\\')" class="mode-btn ' + (state.inspectionMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">detailed</button></div><div class="pile-display p-6"><p class="text-xs text-slate-400 uppercase tracking-wider text-center mb-3">INSPECTING</p><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.currentRow + '</span><button onclick="incRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div>' + detailedPanel + '<div class="grid grid-cols-2 gap-3"><button onclick="recordInspection(\\'pass\\')" class="btn-action bg-green-600 text-white flex flex-col items-center justify-center gap-2">' + icon('check-circle', 'w-12 h-12') + '<span>PASS</span></button><button onclick="recordInspection(\\'fail\\')" class="btn-action bg-red-600 text-white flex flex-col items-center justify-center gap-2">' + icon('x-circle', 'w-12 h-12') + '<span>FAIL</span></button></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('inspection') + '</div></div>';
           }
           function incPile() { hapticFeedback(); if (state.currentPile < getRowPileCount(state.currentRow)) state.currentPile++; syncInspectionPileTypeFromLayout(); render(); }
           function decPile() { hapticFeedback(); if (state.currentPile > 1) state.currentPile--; syncInspectionPileTypeFromLayout(); render(); }
@@ -4329,10 +4329,10 @@ export default async function SolTrendApp() {
             const openIncidents = state.safetyIncidents.filter(function(i) { return i.status !== 'closed'; }).length;
 
             const statRow = '<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">' +
-              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Days Since Last Incident</p><p class="text-2xl font-display font-bold ' + (daysSinceIncident === null ? 'text-slate-500' : 'text-emerald-400') + '">' + (daysSinceIncident === null ? '—' : daysSinceIncident) + '</p></div>' +
-              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Talks This Month</p><p class="text-2xl font-display font-bold text-white">' + thisMonthTalks + '</p></div>' +
-              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Observations This Month</p><p class="text-2xl font-display font-bold text-white">' + thisMonthObs + '</p></div>' +
-              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-500 uppercase mb-1">Open Corrective Actions</p><p class="text-2xl font-display font-bold ' + (openIncidents > 0 ? 'text-amber-400' : 'text-white') + '">' + openIncidents + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Days Since Last Incident</p><p class="text-2xl font-display font-bold ' + (daysSinceIncident === null ? 'text-slate-400' : 'text-emerald-400') + '">' + (daysSinceIncident === null ? '—' : daysSinceIncident) + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Talks This Month</p><p class="text-2xl font-display font-bold text-white">' + thisMonthTalks + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Observations This Month</p><p class="text-2xl font-display font-bold text-white">' + thisMonthObs + '</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">Open Corrective Actions</p><p class="text-2xl font-display font-bold ' + (openIncidents > 0 ? 'text-amber-400' : 'text-white') + '">' + openIncidents + '</p></div>' +
             '</div>';
 
             const tabBar = '<div class="flex gap-2 mb-4 flex-wrap">' + tabs.map(function(t) { return '<button onclick="setSafetyTab(\\'' + t.id + '\\')" class="mode-btn ' + (state.safetyTab === t.id ? 'mode-btn-active' : 'mode-btn-inactive') + '">' + t.label + '</button>'; }).join('') + '</div>';
@@ -4360,8 +4360,8 @@ export default async function SolTrendApp() {
               '<button onclick="submitToolboxTalk()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Log Talk</button>' +
             '</div>' +
             '<div class="space-y-2">' + (talks.length > 0 ? talks.map(function(t) {
-              return '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-sm font-medium text-white">' + t.topic + '</p><p class="text-xs text-slate-500">' + (t.conductedBy || '') + (t.crewName ? ' · ' + t.crewName : '') + ' · ' + t.attendeeCount + ' attendees</p></div><span class="text-xs text-slate-500">' + formatDate(t.date) + '</span></div>';
-            }).join('') : '<p class="text-sm text-slate-500">No toolbox talks logged yet.</p>') + '</div>';
+              return '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-sm font-medium text-white">' + t.topic + '</p><p class="text-xs text-slate-400">' + (t.conductedBy || '') + (t.crewName ? ' · ' + t.crewName : '') + ' · ' + t.attendeeCount + ' attendees</p></div><span class="text-xs text-slate-400">' + formatDate(t.date) + '</span></div>';
+            }).join('') : '<p class="text-sm text-slate-400">No toolbox talks logged yet.</p>') + '</div>';
           }
           function submitToolboxTalk() {
             hapticFeedback();
@@ -4402,8 +4402,8 @@ export default async function SolTrendApp() {
               '<button onclick="submitObservation()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Log Observation</button>' +
             '</div>' +
             '<div class="space-y-2">' + (obs.length > 0 ? obs.map(function(o) {
-              return '<div class="card rounded-xl p-4"><div class="flex items-start justify-between gap-3"><div><p class="text-sm font-medium text-white">' + o.description + '</p><p class="text-xs text-slate-500 capitalize">' + o.category.replace(/_/g, ' ') + (o.location ? ' · ' + o.location : '') + ' · ' + o.reportedBy + ' · ' + formatDate(o.createdAt) + '</p></div><span class="badge-pill ' + (o.type === 'positive' ? 'badge-pass' : 'badge-fail') + ' text-[10px] px-2 py-1 rounded-full flex-shrink-0">' + (o.type === 'positive' ? 'Positive' : 'At-Risk') + '</span></div></div>';
-            }).join('') : '<p class="text-sm text-slate-500">No observations logged yet.</p>') + '</div>';
+              return '<div class="card rounded-xl p-4"><div class="flex items-start justify-between gap-3"><div><p class="text-sm font-medium text-white">' + o.description + '</p><p class="text-xs text-slate-400 capitalize">' + o.category.replace(/_/g, ' ') + (o.location ? ' · ' + o.location : '') + ' · ' + o.reportedBy + ' · ' + formatDate(o.createdAt) + '</p></div><span class="badge-pill ' + (o.type === 'positive' ? 'badge-pass' : 'badge-fail') + ' text-[10px] px-2 py-1 rounded-full flex-shrink-0">' + (o.type === 'positive' ? 'Positive' : 'At-Risk') + '</span></div></div>';
+            }).join('') : '<p class="text-sm text-slate-400">No observations logged yet.</p>') + '</div>';
           }
           function setObsType(type) { hapticFeedback(); state.obsType = type; render(); }
           function setObsCategory(cat) { hapticFeedback(); state.obsCategory = cat; render(); }
@@ -4446,8 +4446,8 @@ export default async function SolTrendApp() {
             '</div>' +
             '<div class="space-y-2">' + (incidents.length > 0 ? incidents.map(function(i) {
               const sev = sevMap[i.severity] || { label: i.severity, hex: '#64748b' };
-              return '<div class="card rounded-xl p-4"><div class="flex items-start justify-between gap-3"><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white">' + i.description + '</p>' + (i.correctiveAction ? '<p class="text-xs text-slate-400 mt-1">Corrective action: ' + i.correctiveAction + '</p>' : '') + '<p class="text-xs text-slate-500 mt-1">' + i.reportedBy + ' · ' + formatDate(i.createdAt) + '</p></div><div class="flex flex-col items-end gap-2 flex-shrink-0">' + statusBadge(sev.label, sev.hex) + (i.status === 'closed' ? '<span class="text-xs text-emerald-400">Closed</span>' : '<button onclick="closeIncident(\\'' + i.id + '\\')" class="text-xs text-amber-400 hover:text-amber-300">Close out</button>') + '</div></div></div>';
-            }).join('') : '<p class="text-sm text-slate-500">No incidents reported. Nice work.</p>') + '</div>';
+              return '<div class="card rounded-xl p-4"><div class="flex items-start justify-between gap-3"><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white">' + i.description + '</p>' + (i.correctiveAction ? '<p class="text-xs text-slate-400 mt-1">Corrective action: ' + i.correctiveAction + '</p>' : '') + '<p class="text-xs text-slate-400 mt-1">' + i.reportedBy + ' · ' + formatDate(i.createdAt) + '</p></div><div class="flex flex-col items-end gap-2 flex-shrink-0">' + statusBadge(sev.label, sev.hex) + (i.status === 'closed' ? '<span class="text-xs text-emerald-400">Closed</span>' : '<button onclick="closeIncident(\\'' + i.id + '\\')" class="text-xs text-amber-400 hover:text-amber-300">Close out</button>') + '</div></div></div>';
+            }).join('') : '<p class="text-sm text-slate-400">No incidents reported. Nice work.</p>') + '</div>';
           }
           function setIncidentSeverity(s) { hapticFeedback(); state.incidentSeverity = s; render(); }
           function submitIncident() {
@@ -4534,7 +4534,7 @@ export default async function SolTrendApp() {
               '<div></div>' +
               '<div class="relative h-4">' + monthTicks.map(function(t) {
                 return '<div class="absolute top-0 bottom-0 border-l border-slate-700/50" style="left:' + t.pct + '%;"></div>' +
-                  '<span class="absolute top-0 text-[9px] text-slate-500 whitespace-nowrap" style="left:' + t.pct + '%;transform:' + (t.pct > 92 ? 'translateX(-100%)' : 'translateX(2px)') + ';">' + t.label + '</span>';
+                  '<span class="absolute top-0 text-[9px] text-slate-400 whitespace-nowrap" style="left:' + t.pct + '%;transform:' + (t.pct > 92 ? 'translateX(-100%)' : 'translateX(2px)') + ';">' + t.label + '</span>';
               }).join('') +
               '</div>' +
             '</div>' : '';
@@ -4545,7 +4545,7 @@ export default async function SolTrendApp() {
               const percent = effectivePercent(m);
               const barColor = statusHex[m.status] || '#64748b';
               return '<div class="grid grid-cols-[110px_1fr] items-center gap-3">' +
-                '<div class="min-w-0"><p class="text-xs font-semibold text-white truncate">' + m.phase + '</p><p class="text-[10px] text-slate-500">' + percent + '%</p></div>' +
+                '<div class="min-w-0"><p class="text-xs font-semibold text-white truncate">' + m.phase + '</p><p class="text-[10px] text-slate-400">' + percent + '%</p></div>' +
                 '<div class="relative h-4 bg-slate-900 rounded-md overflow-hidden">' +
                   tickLines +
                   (hasPlanned ? '<div class="absolute top-0 bottom-0 rounded-md" style="left:' + plannedLeft + '%;width:' + Math.max(2, plannedRight - plannedLeft) + '%;background:rgba(148,163,184,0.18);border:1px dashed rgba(148,163,184,0.4);"></div>' : '') +
@@ -4558,7 +4558,7 @@ export default async function SolTrendApp() {
             // place - no jump anywhere, not even within the table. There's
             // no specific row for a brand-new phase to anchor to, so Add
             // Phase keeps opening just above the table (addForm below).
-            const table = '<div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-500 uppercase"><th class="p-3">Phase</th><th class="p-3">Planned</th><th class="p-3">Actual</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
+            const table = '<div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-400 uppercase"><th class="p-3">Phase</th><th class="p-3">Planned</th><th class="p-3">Actual</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
               (milestones.length > 0 ? milestones.map(function(m) {
                 if (state.milestoneFormOpen && state.editingMilestoneId === m.id) {
                   return '<tr class="border-t-2 border-amber-400/50"><td colspan="5" class="p-0">' + renderMilestoneForm() + '</td></tr>';
@@ -4569,7 +4569,7 @@ export default async function SolTrendApp() {
                   '<td class="p-3 text-slate-400 text-xs">' + (m.actualStart ? formatDate(m.actualStart) : '—') + ' &ndash; ' + (m.actualEnd ? formatDate(m.actualEnd) : '—') + '</td>' +
                   '<td class="p-3">' + statusBadge(statusLabel[m.status] || m.status, statusHex[m.status] || '#64748b') + '</td>' +
                   '<td class="p-3 text-right"><button onclick="openMilestoneForm(\\'' + m.id + '\\')" class="text-xs text-amber-400 hover:text-amber-300 mr-3">Edit</button>' + (canDelete ? '<button onclick="deleteMilestone(\\'' + m.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') + '</td></tr>';
-              }).join('') : '<tr><td class="p-4 text-slate-500 text-sm" colspan="5">No milestones yet — add your first phase below.</td></tr>') +
+              }).join('') : '<tr><td class="p-4 text-slate-400 text-sm" colspan="5">No milestones yet — add your first phase below.</td></tr>') +
             '</tbody></table></div>';
 
             const addForm = (state.milestoneFormOpen && !state.editingMilestoneId) ? renderMilestoneForm() : '';
@@ -4707,8 +4707,8 @@ export default async function SolTrendApp() {
               '<button onclick="submitDocument()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Upload</button>' +
             '</div>';
             const list = state.documents.length > 0 ? '<div class="space-y-2">' + state.documents.map(function(d) {
-              return '<div class="card rounded-xl p-4 flex items-center justify-between gap-3"><a href="' + d.fileUrl + '" target="_blank" rel="noopener" class="flex items-center gap-3 flex-1 min-w-0">' + icon('file-text', 'w-5 h-5 text-slate-400 flex-shrink-0') + '<div class="min-w-0"><p class="text-sm font-medium text-white truncate">' + d.title + '</p><p class="text-xs text-slate-500">' + (catLabel[d.category] || d.category) + ' · ' + d.uploadedBy + ' · ' + formatDate(d.createdAt) + '</p></div></a>' + (canDelete ? '<button onclick="deleteDocument(\\'' + d.id + '\\')" class="text-slate-500 hover:text-red-400 p-1 flex-shrink-0">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') + '</div>';
-            }).join('') + '</div>' : '<p class="text-sm text-slate-500">No documents uploaded yet.</p>';
+              return '<div class="card rounded-xl p-4 flex items-center justify-between gap-3"><a href="' + d.fileUrl + '" target="_blank" rel="noopener" class="flex items-center gap-3 flex-1 min-w-0">' + icon('file-text', 'w-5 h-5 text-slate-400 flex-shrink-0') + '<div class="min-w-0"><p class="text-sm font-medium text-white truncate">' + d.title + '</p><p class="text-xs text-slate-400">' + (catLabel[d.category] || d.category) + ' · ' + d.uploadedBy + ' · ' + formatDate(d.createdAt) + '</p></div></a>' + (canDelete ? '<button onclick="deleteDocument(\\'' + d.id + '\\')" class="text-slate-400 hover:text-red-400 p-1 flex-shrink-0">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') + '</div>';
+            }).join('') + '</div>' : '<p class="text-sm text-slate-400">No documents uploaded yet.</p>';
             return form + list;
           }
           function submitDocument() {
@@ -4767,11 +4767,11 @@ export default async function SolTrendApp() {
             '</div>';
             const expiredOrSoon = state.cois.filter(function(c) { return coiStatus(c.expiresAt).label !== 'Valid'; });
             const warnBanner = expiredOrSoon.length > 0 ? '<div class="mb-4 px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;">' + icon('alert-triangle', 'w-4 h-4 flex-shrink-0') + '<span>' + expiredOrSoon.length + ' certificate' + (expiredOrSoon.length === 1 ? ' is' : 's are') + ' expired or expiring within 30 days.</span></div>' : '';
-            const table = '<div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-500 uppercase"><th class="p-3">Subcontractor</th><th class="p-3">Coverage</th><th class="p-3">Expires</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
+            const table = '<div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-400 uppercase"><th class="p-3">Subcontractor</th><th class="p-3">Coverage</th><th class="p-3">Expires</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
               (state.cois.length > 0 ? state.cois.map(function(c) {
                 const st = coiStatus(c.expiresAt);
                 return '<tr class="border-t border-slate-700/50"><td class="p-3 text-white font-medium">' + c.subcontractor + '</td><td class="p-3 text-slate-400 text-xs">' + (covLabel[c.coverageType] || c.coverageType) + '</td><td class="p-3 text-slate-400 text-xs">' + formatDate(c.expiresAt) + '</td><td class="p-3">' + statusBadge(st.label, st.hex) + '</td><td class="p-3 text-right">' + (canDelete ? '<button onclick="deleteCoi(\\'' + c.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') + '</td></tr>';
-              }).join('') : '<tr><td class="p-4 text-slate-500 text-sm" colspan="5">No certificates on file yet.</td></tr>') +
+              }).join('') : '<tr><td class="p-4 text-slate-400 text-sm" colspan="5">No certificates on file yet.</td></tr>') +
             '</tbody></table></div>';
             return form + warnBanner + table;
           }
@@ -4846,8 +4846,8 @@ export default async function SolTrendApp() {
             const openCount = state.rfis.filter(function(r) { return r.status !== 'closed'; }).length;
             const blockingCount = state.rfis.filter(function(r) { return r.blocking && r.status !== 'closed'; }).length;
             const statRow = '<div class="grid grid-cols-2 gap-3 mb-4">' +
-              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold text-white">' + openCount + '</p><p class="text-xs text-slate-500">Open RFIs</p></div>' +
-              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold ' + (blockingCount > 0 ? 'text-red-400' : 'text-white') + '">' + blockingCount + '</p><p class="text-xs text-slate-500">Blocking Work</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold text-white">' + openCount + '</p><p class="text-xs text-slate-400">Open RFIs</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold ' + (blockingCount > 0 ? 'text-red-400' : 'text-white') + '">' + blockingCount + '</p><p class="text-xs text-slate-400">Blocking Work</p></div>' +
             '</div>';
 
             const form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
@@ -4870,13 +4870,13 @@ export default async function SolTrendApp() {
             const cards = filteredRfis.length > 0 ? '<div class="space-y-3">' + filteredRfis.map(function(r) {
               const statusHex = r.status === 'open' ? '#eab308' : r.status === 'answered' ? '#3b82f6' : '#22c55e';
               const statusLabel = r.status === 'open' ? 'Open' : r.status === 'answered' ? 'Answered' : 'Closed';
-              const previousAnswer = r.answer ? '<div class="mt-3 pt-3 border-t border-slate-700/50"><p class="text-xs text-slate-500 mb-1">' + (r.status === 'open' ? 'Previous answer:' : 'Answer:') + '</p><p class="text-sm text-slate-300">' + r.answer + '</p></div>' : '';
+              const previousAnswer = r.answer ? '<div class="mt-3 pt-3 border-t border-slate-700/50"><p class="text-xs text-slate-400 mb-1">' + (r.status === 'open' ? 'Previous answer:' : 'Answer:') + '</p><p class="text-sm text-slate-300">' + r.answer + '</p></div>' : '';
               const answerInput = r.status === 'open' && canAnswer ?
                 '<div class="' + (r.answer ? 'mt-2' : 'mt-3 pt-3 border-t border-slate-700/50') + ' space-y-2"><textarea id="rfiAnswerInput-' + r.id + '" oninput="state.rfiAnswerDraft[\\'' + r.id + '\\']=this.value" rows="2" placeholder="Type an answer…" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + (state.rfiAnswerDraft[r.id] || '') + '</textarea><button onclick="submitRfiAnswer(\\'' + r.id + '\\')" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium">Answer</button></div>' : '';
               const answerBox = previousAnswer + answerInput;
               return '<div class="card rounded-xl p-4">' +
                 '<div class="flex items-start justify-between gap-3">' +
-                  '<div class="min-w-0"><p class="text-sm font-medium text-white">' + r.number + ': ' + r.subject + '</p><p class="text-xs text-slate-500">' + (catLabel[r.category] || r.category) + (r.submittedTo ? ' · to ' + r.submittedTo : '') + ' · ' + r.submittedBy + ' · ' + formatDate(r.createdAt) + '</p></div>' +
+                  '<div class="min-w-0"><p class="text-sm font-medium text-white">' + r.number + ': ' + r.subject + '</p><p class="text-xs text-slate-400">' + (catLabel[r.category] || r.category) + (r.submittedTo ? ' · to ' + r.submittedTo : '') + ' · ' + r.submittedBy + ' · ' + formatDate(r.createdAt) + '</p></div>' +
                   '<div class="flex items-center gap-2 flex-shrink-0">' + (r.blocking ? statusBadge('Blocking', '#ef4444') : '') + statusBadge(statusLabel, statusHex) + '</div>' +
                 '</div>' +
                 '<p class="text-sm text-slate-300 mt-2">' + r.question + '</p>' +
@@ -4888,7 +4888,7 @@ export default async function SolTrendApp() {
                   (canDelete ? '<button onclick="deleteRfi(\\'' + r.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') +
                 '</div>' +
               '</div>';
-            }).join('') + '</div>' : '<p class="text-sm text-slate-500">No ' + (state.rfiFilter === 'all' ? '' : state.rfiFilter + ' ') + 'RFIs.</p>';
+            }).join('') + '</div>' : '<p class="text-sm text-slate-400">No ' + (state.rfiFilter === 'all' ? '' : state.rfiFilter + ' ') + 'RFIs.</p>';
 
             return statRow + form + filterBar + cards;
           }
@@ -4982,8 +4982,8 @@ export default async function SolTrendApp() {
             const openCount = state.submittals.filter(function(s) { return notDoneStatuses.indexOf(s.status) === -1; }).length;
             const overdueCount = state.submittals.filter(function(s) { return s.dueDate && new Date(s.dueDate).getTime() < Date.now() && notDoneStatuses.indexOf(s.status) === -1; }).length;
             const statRow = '<div class="grid grid-cols-2 gap-3 mb-4">' +
-              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold text-white">' + openCount + '</p><p class="text-xs text-slate-500">In Review</p></div>' +
-              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold ' + (overdueCount > 0 ? 'text-red-400' : 'text-white') + '">' + overdueCount + '</p><p class="text-xs text-slate-500">Overdue</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold text-white">' + openCount + '</p><p class="text-xs text-slate-400">In Review</p></div>' +
+              '<div class="card rounded-xl p-4"><p class="text-2xl font-bold ' + (overdueCount > 0 ? 'text-red-400' : 'text-white') + '">' + overdueCount + '</p><p class="text-xs text-slate-400">Overdue</p></div>' +
             '</div>';
             const warnBanner = overdueCount > 0 ? '<div class="mb-4 px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;">' + icon('alert-triangle', 'w-4 h-4 flex-shrink-0') + '<span>' + overdueCount + ' submittal' + (overdueCount === 1 ? ' is' : 's are') + ' past its due date.</span></div>' : '';
 
@@ -5004,7 +5004,7 @@ export default async function SolTrendApp() {
             const filterBar = '<div class="flex gap-1 p-1 bg-slate-800/50 rounded-xl overflow-x-auto mb-4">' + subFilters.map(function(f) { return '<button onclick="setSubFilter(\\'' + f.id + '\\')" class="px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ' + (state.subFilter === f.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white') + '">' + f.label + '</button>'; }).join('') + '</div>';
             const filteredSubmittals = state.subFilter === 'all' ? state.submittals : state.submittals.filter(function(s) { return s.status === state.subFilter; });
 
-            const table = '<div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-500 uppercase"><th class="p-3">Number</th><th class="p-3">Spec Section</th><th class="p-3">Type</th><th class="p-3">Rev</th><th class="p-3">Due</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
+            const table = '<div class="card rounded-xl overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-400 uppercase"><th class="p-3">Number</th><th class="p-3">Spec Section</th><th class="p-3">Type</th><th class="p-3">Rev</th><th class="p-3">Due</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
               (filteredSubmittals.length > 0 ? filteredSubmittals.map(function(s) {
                 const meta = statusMeta[s.status] || { label: s.status, hex: '#64748b' };
                 const canAdvance = notDoneStatuses.indexOf(s.status) === -1;
@@ -5012,7 +5012,7 @@ export default async function SolTrendApp() {
                 const reopenLink = canReview && !canAdvance ? ' <button onclick="reopenSubmittal(\\'' + s.id + '\\')" class="text-xs text-amber-400 hover:text-amber-300 ml-2">Reopen</button>' : '';
                 const statusSelect = (canReview && canAdvance ? '<select onchange="advanceSubmittal(\\'' + s.id + '\\', this.value)" class="bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-white text-xs">' + SUBMITTAL_STATUSES.map(function(st) { return '<option value="' + st.id + '"' + (s.status === st.id ? ' selected' : '') + '>' + st.label + '</option>'; }).join('') + '</select>' : statusBadge(meta.label, meta.hex)) + reopenLink;
                 return '<tr class="border-t border-slate-700/50"><td class="p-3 text-white font-medium">' + s.number + '</td><td class="p-3 text-slate-400 text-xs">' + s.specSection + (s.materialName ? ' · ' + s.materialName : '') + '</td><td class="p-3 text-slate-400 text-xs">' + (typeLabel[s.type] || s.type) + '</td><td class="p-3 text-slate-400 text-xs">' + s.revision + '</td><td class="p-3 text-xs ' + (overdue ? 'text-red-400 font-medium' : 'text-slate-400') + '">' + (s.dueDate ? formatDate(s.dueDate) : '—') + '</td><td class="p-3">' + statusSelect + '</td><td class="p-3 text-right">' + (s.fileUrl ? '<a href="' + s.fileUrl + '" target="_blank" rel="noopener" class="text-xs text-blue-400 hover:text-blue-300 mr-2">View</a>' : '') + (canDelete ? '<button onclick="deleteSubmittal(\\'' + s.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') + '</td></tr>';
-              }).join('') : '<tr><td class="p-4 text-slate-500 text-sm" colspan="7">No ' + (state.subFilter === 'all' ? 'submittals tracked' : 'matching submittals') + ' yet.</td></tr>') +
+              }).join('') : '<tr><td class="p-4 text-slate-400 text-sm" colspan="7">No ' + (state.subFilter === 'all' ? 'submittals tracked' : 'matching submittals') + ' yet.</td></tr>') +
             '</tbody></table></div>';
 
             return statRow + warnBanner + form + filterBar + table;
@@ -5100,10 +5100,10 @@ export default async function SolTrendApp() {
               '<div class="flex gap-3"><button onclick="state.materialFormOpen=false; render();" class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-medium">Cancel</button><button onclick="submitMaterial()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add</button></div>' +
             '</div>' : '';
 
-            const bomTable = '<div class="card rounded-xl overflow-x-auto mb-4"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-500 uppercase"><th class="p-3">Material</th><th class="p-3">Ordered</th><th class="p-3">Delivered</th><th class="p-3">Remaining</th><th class="p-3">Expected</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
+            const bomTable = '<div class="card rounded-xl overflow-x-auto mb-4"><table class="w-full text-sm"><thead><tr class="text-left text-[10px] text-slate-400 uppercase"><th class="p-3">Material</th><th class="p-3">Ordered</th><th class="p-3">Delivered</th><th class="p-3">Remaining</th><th class="p-3">Expected</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>' +
               (state.materials.length > 0 ? state.materials.map(function(m) {
                 return '<tr class="border-t border-slate-700/50"><td class="p-3 text-white font-medium">' + m.name + '</td><td class="p-3 text-slate-400">' + m.orderedQty + '</td><td class="p-3 text-slate-400">' + m.deliveredQty + '</td><td class="p-3 text-slate-400">' + Math.max(0, m.orderedQty - m.deliveredQty) + '</td><td class="p-3 text-slate-400 text-xs">' + (m.expectedDate ? formatDate(m.expectedDate) : '—') + '</td><td class="p-3">' + materialStatus(m) + '</td><td class="p-3 text-right">' + (canDelete ? '<button onclick="deleteMaterial(\\'' + m.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') + '</td></tr>';
-              }).join('') : '<tr><td class="p-4 text-slate-500 text-sm" colspan="7">No materials tracked yet.</td></tr>') +
+              }).join('') : '<tr><td class="p-4 text-slate-400 text-sm" colspan="7">No materials tracked yet.</td></tr>') +
             '</tbody></table></div>';
 
             const deliveryForm = state.deliveryFormOpen ? '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
@@ -5119,8 +5119,8 @@ export default async function SolTrendApp() {
             '</div>' : '';
 
             const deliveryLog = '<div class="space-y-2">' + (state.deliveries.length > 0 ? state.deliveries.slice(0, 15).map(function(d) {
-              return '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-sm font-medium text-white">' + d.material + ' — ' + d.quantity + ' ' + d.unit + '</p><p class="text-xs text-slate-500">' + (d.supplier ? d.supplier + ' · ' : '') + (d.receivedBy ? 'received by ' + d.receivedBy : '') + '</p></div><span class="text-xs text-slate-500">' + formatDate(d.date) + '</span></div>';
-            }).join('') : '<p class="text-sm text-slate-500">No deliveries logged yet.</p>') + '</div>';
+              return '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-sm font-medium text-white">' + d.material + ' — ' + d.quantity + ' ' + d.unit + '</p><p class="text-xs text-slate-400">' + (d.supplier ? d.supplier + ' · ' : '') + (d.receivedBy ? 'received by ' + d.receivedBy : '') + '</p></div><span class="text-xs text-slate-400">' + formatDate(d.date) + '</span></div>';
+            }).join('') : '<p class="text-sm text-slate-400">No deliveries logged yet.</p>') + '</div>';
 
             return '<div class="space-y-4 animate-fade-in">' +
               '<div class="flex items-center justify-between flex-wrap gap-2"><h1 class="font-display text-xl font-bold text-white">Materials</h1><div class="flex gap-2"><button onclick="state.materialFormOpen=!state.materialFormOpen; render();" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">+ Material</button><button onclick="state.deliveryFormOpen=!state.deliveryFormOpen; render();" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm">+ Delivery</button></div></div>' +
@@ -5446,7 +5446,7 @@ export default async function SolTrendApp() {
             ];
             const recent = state.delays.slice(0, 10);
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto">' +
-              '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Delays</h1><span class="text-sm text-slate-500">' + state.delays.length + ' logged</span></div>' +
+              '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Delays</h1><span class="text-sm text-slate-400">' + state.delays.length + ' logged</span></div>' +
               '<div class="card rounded-xl p-5 space-y-4">' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Date</label>' + calendarField('delayDate') + '</div>' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Reason</label><div class="grid grid-cols-3 gap-2">' + reasons.map(r => '<button onclick="setDelayReason(\\'' + r.id + '\\')" class="reason-btn ' + (state.delayReason === r.id ? 'reason-btn-selected' : '') + '"><span class="text-xs text-white">' + r.label + '</span></button>').join('') + '</div></div>' +
@@ -5454,7 +5454,7 @@ export default async function SolTrendApp() {
                 '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Notes</label><textarea id="delayDescInput" rows="2" placeholder="Any detail worth keeping for the record..." oninput="state.delayDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (state.delayDescription || '') + '</textarea></div>' +
                 '<button onclick="submitDelay()" class="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-lg">Log Delay</button>' +
               '</div>' +
-              '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Recent Delays</h3>' + (recent.length > 0 ? '<div class="space-y-2">' + recent.map(d => '<div class="flex items-center justify-between py-2 border-b border-slate-700/50 last:border-0"><div><p class="text-sm text-white capitalize">' + d.reason.replace(/_/g, ' ') + '</p><p class="text-xs text-slate-500">' + formatDate(d.date) + (d.description ? ' · ' + d.description : '') + '</p></div>' + (d.hoursLost ? '<span class="text-xs text-slate-400">' + d.hoursLost + 'h</span>' : '') + '</div>').join('') + '</div>' : '<p class="text-sm text-slate-500">No delays logged yet.</p>') + '</div>' +
+              '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Recent Delays</h3>' + (recent.length > 0 ? '<div class="space-y-2">' + recent.map(d => '<div class="flex items-center justify-between py-2 border-b border-slate-700/50 last:border-0"><div><p class="text-sm text-white capitalize">' + d.reason.replace(/_/g, ' ') + '</p><p class="text-xs text-slate-400">' + formatDate(d.date) + (d.description ? ' · ' + d.description : '') + '</p></div>' + (d.hoursLost ? '<span class="text-xs text-slate-400">' + d.hoursLost + 'h</span>' : '') + '</div>').join('') + '</div>' : '<p class="text-sm text-slate-400">No delays logged yet.</p>') + '</div>' +
             '</div>';
           }
           function setDelayReason(reason) { hapticFeedback(); state.delayReason = reason; render(); }
@@ -5558,14 +5558,14 @@ export default async function SolTrendApp() {
                 dayProduction.map(function(p) { return '<div class="flex items-center justify-between py-1.5 border-b border-slate-700/50"><span class="text-slate-300">Production</span><span class="text-slate-400">' + p.piles + ' piles, ' + (p.tables || 0) + ' tables, ' + (p.modules || 0) + ' modules</span></div>'; }).join('') +
                 dayDelays.map(function(d) { return '<div class="flex items-center justify-between py-1.5 border-b border-slate-700/50"><span class="text-slate-300">Delay</span><span class="text-slate-400 capitalize">' + d.reason.replace(/_/g, ' ') + (d.hoursLost ? ' · ' + d.hoursLost + 'h' : '') + '</span></div>'; }).join('') +
                 (dayRefusals.length > 0 ? '<div class="flex items-center justify-between py-1.5"><span class="text-slate-300">Refusals</span><span class="text-slate-400">' + dayRefusals.length + ' pile' + (dayRefusals.length === 1 ? '' : 's') + '</span></div>' : '') +
-              '</div>' : '<p class="text-sm text-slate-500">Nothing logged yet for this date in Production, Delays, or Refusals.</p>') +
+              '</div>' : '<p class="text-sm text-slate-400">Nothing logged yet for this date in Production, Delays, or Refusals.</p>') +
             '</div>';
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto">' +
-              '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Daily Log</h1><span class="text-sm text-slate-500">' + state.dailyLogs.length + ' logged</span></div>' +
+              '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Daily Log</h1><span class="text-sm text-slate-400">' + state.dailyLogs.length + ' logged</span></div>' +
               '<div class="card rounded-xl p-5 space-y-4">' +
-                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Date</label>' + calendarField('dailyLogDate') + '<p class="text-xs text-slate-500 mt-1">Picking a date that already has a log loads it for editing.</p></div>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Date</label>' + calendarField('dailyLogDate') + '<p class="text-xs text-slate-400 mt-1">Picking a date that already has a log loads it for editing.</p></div>' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Crew on Site</label><div class="space-y-2">' +
-                  state.dailyLogCrew.map(function(c, idx) { return '<div class="flex gap-2"><input type="text" value="' + (c.trade || '') + '" oninput="updateCrewRow(' + idx + ', \\'trade\\', this.value)" placeholder="Trade (e.g. Pile Driving)" class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><input type="number" min="0" value="' + (c.count || '') + '" oninput="updateCrewRow(' + idx + ', \\'count\\', this.value)" placeholder="#" class="w-16 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm text-center"><button onclick="removeCrewRow(' + idx + ')" class="px-2 text-slate-500 hover:text-red-400">' + icon('x', 'w-4 h-4') + '</button></div>'; }).join('') +
+                  state.dailyLogCrew.map(function(c, idx) { return '<div class="flex gap-2"><input type="text" value="' + (c.trade || '') + '" oninput="updateCrewRow(' + idx + ', \\'trade\\', this.value)" placeholder="Trade (e.g. Pile Driving)" class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><input type="number" min="0" value="' + (c.count || '') + '" oninput="updateCrewRow(' + idx + ', \\'count\\', this.value)" placeholder="#" class="w-16 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm text-center"><button onclick="removeCrewRow(' + idx + ')" class="px-2 text-slate-400 hover:text-red-400">' + icon('x', 'w-4 h-4') + '</button></div>'; }).join('') +
                 '</div><button onclick="addCrewRow()" class="mt-2 text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">' + icon('plus', 'w-3.5 h-3.5') + ' Add Trade</button></div>' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Weather</label><input type="text" value="' + (state.dailyLogWeather || '') + '" oninput="state.dailyLogWeather=this.value" placeholder="e.g. Clear, 78F, light wind" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm"></div>' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Visitors</label><input type="text" value="' + (state.dailyLogVisitors || '') + '" oninput="state.dailyLogVisitors=this.value" placeholder="e.g. Client walkthrough, AHJ inspector" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm"></div>' +
@@ -5574,7 +5574,7 @@ export default async function SolTrendApp() {
                 '<button onclick="submitDailyLog()" ' + (submitting ? 'disabled' : '') + ' class="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold text-lg flex items-center justify-center gap-2">' + (submitting ? '<span class="spinner"></span><span>Saving...</span>' : '<span>Save Daily Log</span>') + '</button>' +
               '</div>' +
               recap +
-              '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Recent Daily Logs</h3>' + (recent.length > 0 ? '<div class="space-y-2">' + recent.map(function(l) { return '<div onclick="setDailyLogDate(\\'' + l.date + '\\')" class="flex items-center justify-between py-2 border-b border-slate-700/50 last:border-0 cursor-pointer hover:bg-slate-800/40 rounded px-1 -mx-1"><div><p class="text-sm text-white">' + formatDate(l.date) + '</p><p class="text-xs text-slate-500">' + (l.weather || 'No weather noted') + (l.narrative ? ' · ' + l.narrative.slice(0, 40) + (l.narrative.length > 40 ? '...' : '') : '') + '</p></div>' + (Array.isArray(l.crew) && l.crew.length > 0 ? '<span class="text-xs text-slate-400">' + l.crew.reduce(function(sum, c) { return sum + (parseInt(c.count) || 0); }, 0) + ' crew</span>' : '') + '</div>'; }).join('') + '</div>' : '<p class="text-sm text-slate-500">No daily logs yet.</p>') + '</div>' +
+              '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Recent Daily Logs</h3>' + (recent.length > 0 ? '<div class="space-y-2">' + recent.map(function(l) { return '<div onclick="setDailyLogDate(\\'' + l.date + '\\')" class="flex items-center justify-between py-2 border-b border-slate-700/50 last:border-0 cursor-pointer hover:bg-slate-800/40 rounded px-1 -mx-1"><div><p class="text-sm text-white">' + formatDate(l.date) + '</p><p class="text-xs text-slate-400">' + (l.weather || 'No weather noted') + (l.narrative ? ' · ' + l.narrative.slice(0, 40) + (l.narrative.length > 40 ? '...' : '') : '') + '</p></div>' + (Array.isArray(l.crew) && l.crew.length > 0 ? '<span class="text-xs text-slate-400">' + l.crew.reduce(function(sum, c) { return sum + (parseInt(c.count) || 0); }, 0) + ' crew</span>' : '') + '</div>'; }).join('') + '</div>' : '<p class="text-sm text-slate-400">No daily logs yet.</p>') + '</div>' +
             '</div>';
           }
           async function submitDailyLog() {
@@ -5665,23 +5665,23 @@ export default async function SolTrendApp() {
               '</div>'
             ) : '';
             return '<div class="space-y-4 animate-fade-in">' +
-              '<div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">Punch List</h1><p class="text-sm text-slate-500">' + openCount + ' open item' + (openCount === 1 ? '' : 's') + '</p></div>' + (state.punchFormOpen ? '' : '<button onclick="openPunchForm()" class="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Item</button>') + '</div>' +
+              '<div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">Punch List</h1><p class="text-sm text-slate-400">' + openCount + ' open item' + (openCount === 1 ? '' : 's') + '</p></div>' + (state.punchFormOpen ? '' : '<button onclick="openPunchForm()" class="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Item</button>') + '</div>' +
               addForm +
               '<div class="flex gap-1 p-1 bg-slate-800/50 rounded-xl overflow-x-auto max-w-md">' + filters.map(function(f) { return '<button onclick="setPunchFilter(\\'' + f.id + '\\')" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ' + (state.punchFilter === f.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white') + '">' + f.label + '</button>'; }).join('') + '</div>' +
-              (items.length === 0 ? '<div class="card rounded-xl p-8 text-center text-slate-500 text-sm">No ' + (state.punchFilter === 'all' ? '' : state.punchFilter.replace('_', ' ') + ' ') + 'punch items.</div>' :
+              (items.length === 0 ? '<div class="card rounded-xl p-8 text-center text-slate-400 text-sm">No ' + (state.punchFilter === 'all' ? '' : state.punchFilter.replace('_', ' ') + ' ') + 'punch items.</div>' :
               '<div class="space-y-3">' + items.map(function(p) {
                 const dueLabel = p.dueDate ? new Date(p.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
                 const overdue = p.dueDate && p.status !== 'resolved' && new Date(p.dueDate).getTime() < Date.now();
                 return '<div class="card rounded-xl p-4">' +
                   '<div class="flex items-start justify-between gap-3">' +
                     '<div class="flex-1 min-w-0"><p class="text-white text-sm">' + p.description + '</p>' +
-                    '<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs text-slate-500">' +
+                    '<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs text-slate-400">' +
                       (p.location ? '<span>' + p.location + '</span>' : '') +
                       (p.assignedTo ? '<span>' + p.assignedTo + '</span>' : '') +
                       '<span class="' + (priorityColor[p.priority] || 'text-slate-400') + ' capitalize">' + p.priority + '</span>' +
                       (dueLabel ? '<span class="' + (overdue ? 'text-red-400' : '') + '">Due ' + dueLabel + '</span>' : '') +
                     '</div></div>' +
-                    (canDelete ? '<button onclick="deletePunchItem(\\'' + p.id + '\\')" class="p-1.5 text-slate-500 hover:text-red-400">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
+                    (canDelete ? '<button onclick="deletePunchItem(\\'' + p.id + '\\')" class="p-1.5 text-slate-400 hover:text-red-400">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
                   '</div>' +
                   (p.photos && p.photos.length > 0 ? '<div class="photo-grid mt-3">' + p.photos.slice(0, 4).map(function(ph) { return '<div class="photo-thumb"><img src="' + ph.url + '" alt="Photo"></div>'; }).join('') + '</div>' : '') +
                   '<div class="flex gap-2 mt-3">' +
@@ -5885,16 +5885,26 @@ export default async function SolTrendApp() {
               const cls = isSelected ? 'bg-amber-500 text-black font-bold' : isDisabled ? 'text-slate-600 cursor-not-allowed' : isToday ? 'border border-amber-500 text-amber-400' : 'text-slate-200 hover:bg-slate-700';
               cells += '<button type="button" ' + (isDisabled ? 'disabled' : 'onclick="selectCalendarDate(\\'' + ds + '\\')"') + ' class="h-9 w-9 rounded-lg text-sm flex items-center justify-center ' + cls + '">' + day + '</button>';
             }
-            const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(function(d) { return '<div class="h-6 flex items-center justify-center text-[10px] text-slate-500 uppercase">' + d + '</div>'; }).join('');
+            const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(function(d) { return '<div class="h-6 flex items-center justify-center text-[10px] text-slate-400 uppercase">' + d + '</div>'; }).join('');
             return '<div onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="fixed inset-0 z-20"></div>' +
-              '<div class="absolute z-30 mt-2 p-3 bg-slate-900 border border-slate-600 rounded-xl shadow-xl" style="width:272px;" onclick="event.stopPropagation()">' +
+              // width:100% (not a fixed px value) so this always matches the
+              // field's own width exactly, left edge to right edge. A fixed
+              // width left a gap on either side whenever the card it's in
+              // was wider than that px value - on a phone-width single-
+              // column card that gap was wide enough for whatever sits
+              // below the field (e.g. the card's Export PDF button) to show
+              // through on the side, even though z-30 already paints this
+              // dropdown above it everywhere the dropdown actually covers.
+              // min-width keeps the 7-day grid from ever being crushed
+              // narrower than it needs.
+              '<div class="absolute z-30 mt-2 p-3 bg-slate-900 border border-slate-600 rounded-xl shadow-xl" style="width:100%;min-width:272px;" onclick="event.stopPropagation()">' +
                 '<div class="flex items-center justify-between mb-2">' +
                   '<button type="button" onclick="navCalendar(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-left', 'w-4 h-4') + '</button>' +
                   '<span class="text-sm font-semibold text-white">' + monthLabel + '</span>' +
                   '<button type="button" onclick="navCalendar(1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-right', 'w-4 h-4') + '</button>' +
                 '</div>' +
-                '<div class="grid grid-cols-7 gap-1 mb-1">' + weekdays + '</div>' +
-                '<div class="grid grid-cols-7 gap-1">' + cells + '</div>' +
+                '<div class="grid grid-cols-7 gap-1 mb-1 justify-items-center">' + weekdays + '</div>' +
+                '<div class="grid grid-cols-7 gap-1 justify-items-center">' + cells + '</div>' +
                 '<button type="button" onclick="selectCalendarDate(\\'' + todayStr + '\\')" class="w-full mt-2 py-2 text-xs text-amber-400 hover:text-amber-300 font-medium">Jump to Today</button>' +
               '</div>';
           }
@@ -5910,8 +5920,8 @@ export default async function SolTrendApp() {
             const btnClass = compact
               ? 'w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm flex items-center justify-between'
               : 'w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white flex items-center justify-between';
-            const iconClass = compact ? 'w-3.5 h-3.5 text-slate-500 flex-shrink-0' : 'w-4 h-4 text-slate-500 flex-shrink-0';
-            return '<div class="relative"><button type="button" onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="' + btnClass + '"><span' + (val ? '' : ' class="text-slate-500"') + '>' + label + '</span>' + icon('calendar', iconClass) + '</button>' + (state.calendarOpenField === fieldPath ? renderCalendarDropdown(fieldPath) : '') + '</div>';
+            const iconClass = compact ? 'w-3.5 h-3.5 text-slate-400 flex-shrink-0' : 'w-4 h-4 text-slate-400 flex-shrink-0';
+            return '<div class="relative"><button type="button" onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="' + btnClass + '"><span' + (val ? '' : ' class="text-slate-400"') + '>' + label + '</span>' + icon('calendar', iconClass) + '</button>' + (state.calendarOpenField === fieldPath ? renderCalendarDropdown(fieldPath) : '') + '</div>';
           }
 
           // PRODUCTION - WITH PHOTO CAPTURE
@@ -5919,7 +5929,7 @@ export default async function SolTrendApp() {
             const entry = state.productionEntry;
             const submitting = state.productionSubmitting;
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div><h1 class="font-display text-xl font-bold text-white">Production Entry</h1></div><div class="bg-slate-800/50 border border-slate-700 rounded-xl p-5 space-y-4">' +
-              '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Date</label>' + calendarField('productionEntry.date') + '<p class="text-xs text-slate-500 mt-1">Logging counts/photos for an earlier day? Pick that date here.</p></div>' +
+              '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Date</label>' + calendarField('productionEntry.date') + '<p class="text-xs text-slate-400 mt-1">Logging counts/photos for an earlier day? Pick that date here.</p></div>' +
               '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Crew</label><select onchange="state.productionEntry.crew=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '"' + (entry.crew === c.id ? ' selected' : '') + '>' + c.name + '</option>').join('') + '</select></div>' +
               '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Subcontractor</label><select onchange="state.productionEntry.subcontractor=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '"' + (entry.subcontractor === s.id ? ' selected' : '') + '>' + s.name + '</option>').join('') + '</select></div>' +
               '<div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-400 mb-1 block">Piles</label><input type="number" min="0" value="' + entry.piles + '" oninput="state.productionEntry.piles=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-400 mb-1 block">Tables</label><input type="number" min="0" value="' + entry.tables + '" oninput="state.productionEntry.tables=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-400 mb-1 block">Modules</label><input type="number" min="0" value="' + entry.modules + '" oninput="state.productionEntry.modules=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div>' +
@@ -6056,7 +6066,7 @@ export default async function SolTrendApp() {
             const dis = canEdit ? '' : ' disabled';
             return '<div class="card rounded-xl p-6">' +
               '<h3 class="font-display font-semibold text-white mb-6">Company Information</h3>' +
-              (canEdit ? '' : '<p class="text-xs text-slate-500 mb-4">View only - ask an admin to change company settings.</p>') +
+              (canEdit ? '' : '<p class="text-xs text-slate-400 mb-4">View only - ask an admin to change company settings.</p>') +
               '<div class="space-y-4">' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Company Name</label>' +
                 '<input type="text" id="companyName" value="' + (company.name || '') + '"' + dis + ' class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white disabled:opacity-50" placeholder="Enter company name"></div>' +
@@ -6078,8 +6088,8 @@ export default async function SolTrendApp() {
             return '<div class="space-y-4">' +
               (canEdit ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'project\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Project</button>' +
-              '</div>' : '<p class="text-xs text-slate-500">View only - ask a manager or admin to make changes.</p>') +
-              (canReorder ? '<p class="text-xs text-slate-500">Drag ' + icon('grip-vertical', 'w-3 h-3 inline -mt-0.5') + ' to reorder - this is the order used everywhere projects are listed (sidebar, dashboard, here).</p>' : '') +
+              '</div>' : '<p class="text-xs text-slate-400">View only - ask a manager or admin to make changes.</p>') +
+              (canReorder ? '<p class="text-xs text-slate-400">Drag ' + icon('grip-vertical', 'w-3 h-3 inline -mt-0.5') + ' to reorder - this is the order used everywhere projects are listed (sidebar, dashboard, here).</p>' : '') +
               '<div class="grid gap-4" id="projectOrderList">' +
                 (state.projects.length === 0 ? '<p class="text-slate-400 text-center py-8">No projects yet. Create your first project above.</p>' :
                 state.projects.map(p => '<div class="card rounded-xl p-5 project-order-row" id="project-card-' + p.id + '" data-project-id="' + p.id + '">' +
@@ -6092,9 +6102,9 @@ export default async function SolTrendApp() {
                         '<span class="px-2 py-1 text-xs rounded ' + (p.status === 'active' ? 'bg-green-500/20 text-green-400' : p.status === 'completed' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-500/20 text-slate-400') + '">' + p.status + '</span>' +
                       '</div>' +
                       '<div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mb-3">' +
-                        '<div><span class="block text-slate-500">Total Piles</span><span class="text-white font-medium">' + p.totalPiles + '</span></div>' +
-                        '<div><span class="block text-slate-500">Rows</span><span class="text-white font-medium">' + p.totalRows + '</span></div>' +
-                        '<div><span class="block text-slate-500">Piles/Row</span><span class="text-white font-medium">' + p.pilesPerRow + '</span></div>' +
+                        '<div><span class="block text-slate-400">Total Piles</span><span class="text-white font-medium">' + p.totalPiles + '</span></div>' +
+                        '<div><span class="block text-slate-400">Rows</span><span class="text-white font-medium">' + p.totalRows + '</span></div>' +
+                        '<div><span class="block text-slate-400">Piles/Row</span><span class="text-white font-medium">' + p.pilesPerRow + '</span></div>' +
                       '</div>' +
                       (canEdit || canDelete ? '<div class="flex gap-2">' +
                         (canEdit ? '<button onclick="openEditModal(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
@@ -6209,7 +6219,7 @@ export default async function SolTrendApp() {
             return '<div class="space-y-4">' +
               (canEdit ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'crew\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Crew</button>' +
-              '</div>' : '<p class="text-xs text-slate-500">View only - ask a manager or admin to make changes.</p>') +
+              '</div>' : '<p class="text-xs text-slate-400">View only - ask a manager or admin to make changes.</p>') +
               '<div class="grid gap-4">' +
                 (state.crews.length === 0 ? '<p class="text-slate-400 text-center py-8">No crews yet. Create your first crew above.</p>' :
                 state.crews.map(c => '<div class="card rounded-xl p-5">' +
@@ -6234,7 +6244,7 @@ export default async function SolTrendApp() {
             return '<div class="space-y-4">' +
               (canEdit ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'subcontractor\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Subcontractor</button>' +
-              '</div>' : '<p class="text-xs text-slate-500">View only - ask a manager or admin to make changes.</p>') +
+              '</div>' : '<p class="text-xs text-slate-400">View only - ask a manager or admin to make changes.</p>') +
               '<div class="grid gap-4">' +
                 (state.subcontractors.length === 0 ? '<p class="text-slate-400 text-center py-8">No subcontractors yet. Add your first one above.</p>' :
                 state.subcontractors.map(s => '<div class="card rounded-xl p-5">' +
@@ -6243,8 +6253,8 @@ export default async function SolTrendApp() {
                     '<p class="text-sm text-slate-400">' + (s.contactPerson || 'No contact on file') + '</p></div>' +
                   '</div>' +
                   '<div class="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-3">' +
-                    '<div><span class="block text-slate-500">Phone</span><span class="text-white font-medium">' + (s.phone || '—') + '</span></div>' +
-                    '<div><span class="block text-slate-500">Email</span><span class="text-white font-medium">' + (s.email || '—') + '</span></div>' +
+                    '<div><span class="block text-slate-400">Phone</span><span class="text-white font-medium">' + (s.phone || '—') + '</span></div>' +
+                    '<div><span class="block text-slate-400">Email</span><span class="text-white font-medium">' + (s.email || '—') + '</span></div>' +
                   '</div>' +
                   (canEdit || canDelete ? '<div class="flex gap-2">' +
                     (canEdit ? '<button onclick="openEditModal(\\'subcontractor\\', ' + (s.id ? '\\'' + s.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
@@ -6261,7 +6271,7 @@ export default async function SolTrendApp() {
             return '<div class="space-y-4">' +
               (canEdit ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'rackingProfile\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' New Profile</button>' +
-              '</div>' : '<p class="text-xs text-slate-500">View only - ask a manager or admin to make changes.</p>') +
+              '</div>' : '<p class="text-xs text-slate-400">View only - ask a manager or admin to make changes.</p>') +
               '<div class="grid gap-4">' +
                 (state.rackingProfiles.length === 0 ? '<p class="text-slate-400 text-center py-8">No racking profiles yet.</p>' :
                 state.rackingProfiles.map(r => '<div class="card rounded-xl p-5">' +
@@ -6287,7 +6297,7 @@ export default async function SolTrendApp() {
             return '<div class="space-y-4">' +
               (canManage ? '<div class="flex justify-end">' +
                 '<button onclick="openEditModal(\\'user\\', null)" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + icon('plus', 'w-4 h-4') + ' Invite User</button>' +
-              '</div>' : '<p class="text-xs text-slate-500">View only - ask an admin to manage users.</p>') +
+              '</div>' : '<p class="text-xs text-slate-400">View only - ask an admin to manage users.</p>') +
               '<div class="grid gap-4">' +
                 (state.users.length === 0 ? '<p class="text-slate-400 text-center py-8">No users yet.</p>' :
                 state.users.map(u => '<div class="card rounded-xl p-5">' +
@@ -6347,7 +6357,7 @@ export default async function SolTrendApp() {
                 '<div class="grid grid-cols-2 gap-3">' +
                   '<div><input type="number" step="any" id="modalLatitude" value="' + (p.latitude ?? '') + '" placeholder="Latitude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                   '<div><input type="number" step="any" id="modalLongitude" value="' + (p.longitude ?? '') + '" placeholder="Longitude" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '</div><p class="text-xs text-slate-500 mt-1">Leave blank to use the default Phoenix, AZ forecast.</p></div>' +
+                '</div><p class="text-xs text-slate-400 mt-1">Leave blank to use the default Phoenix, AZ forecast.</p></div>' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Status</label>' +
                 '<select id="modalStatus" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
                   '<option value="active" ' + (p.status === 'active' ? 'selected' : '') + '>Active</option>' +
@@ -6384,11 +6394,11 @@ export default async function SolTrendApp() {
                   '<label class="text-xs text-slate-400 uppercase block">Pile Types &amp; Tolerances</label>' +
                   '<button type="button" onclick="addRackingType()" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-xs flex items-center gap-1">' + icon('plus', 'w-3.5 h-3.5') + ' Add Pile Type</button>' +
                 '</div>' +
-                (types.length === 0 ? '<p class="text-sm text-slate-500 text-center py-6">No pile types yet. Add one for each distinct pile spec this vendor gives you (e.g. by steel profile and embedment depth).</p>' :
+                (types.length === 0 ? '<p class="text-sm text-slate-400 text-center py-6">No pile types yet. Add one for each distinct pile spec this vendor gives you (e.g. by steel profile and embedment depth).</p>' :
                 types.map(function(t, i) {
                   const tol = t.tolerances || {};
                   return '<div class="card rounded-xl p-4 space-y-3 bg-slate-800/40">' +
-                    '<div class="flex items-center justify-between"><span class="text-xs text-slate-500 uppercase">Pile Type ' + (i + 1) + '</span>' +
+                    '<div class="flex items-center justify-between"><span class="text-xs text-slate-400 uppercase">Pile Type ' + (i + 1) + '</span>' +
                     '<button type="button" onclick="removeRackingType(' + i + ')" class="text-red-400 hover:text-red-300 text-xs flex items-center gap-1">' + icon('trash-2', 'w-3.5 h-3.5') + ' Remove</button></div>' +
                     '<div class="grid grid-cols-2 gap-3">' +
                       '<div><label class="text-xs text-slate-400 mb-1 block">Label</label><input type="text" value="' + (t.label || '') + '" oninput="state.editingRackingTypes[' + i + '].label=this.value" placeholder="W6x9 - 17.92ft" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
@@ -6399,7 +6409,7 @@ export default async function SolTrendApp() {
                       '<div><label class="text-xs text-slate-400 mb-1 block">Length (ft)</label><input type="number" step="0.01" value="' + (t.lengthFt ?? '') + '" oninput="state.editingRackingTypes[' + i + '].lengthFt=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
                       '<div><label class="text-xs text-slate-400 mb-1 block">Target Embed (ft)</label><input type="number" step="0.01" value="' + (t.embedmentTargetFt ?? '') + '" oninput="state.editingRackingTypes[' + i + '].embedmentTargetFt=this.value?parseFloat(this.value):null" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
                     '</div>' +
-                    '<div class="border-t border-slate-700/50 pt-3"><p class="text-xs text-slate-500 uppercase mb-2">QC Tolerances</p><div class="grid grid-cols-2 gap-3">' +
+                    '<div class="border-t border-slate-700/50 pt-3"><p class="text-xs text-slate-400 uppercase mb-2">QC Tolerances</p><div class="grid grid-cols-2 gap-3">' +
                       rackingTolInput(i, 'embedmentMinIn', 'Embedment Min (in)', tol.embedmentMinIn) +
                       rackingTolInput(i, 'embedmentMaxIn', 'Embedment Max (in)', tol.embedmentMaxIn) +
                       rackingTolInput(i, 'heightMinIn', 'Reveal Height Min (in)', tol.heightMinIn) +
@@ -6762,7 +6772,7 @@ export default async function SolTrendApp() {
           }
           function renderNotifPanel() {
             const typeIcon = { inspection_fail: 'x-circle', refusal: 'alert-triangle', behind_schedule: 'trending-down' };
-            const items = state.notifications.length > 0 ? state.notifications.map(n => '<div onclick="markNotificationRead(\\'' + n.id + '\\')" class="px-4 py-3 border-b border-slate-700/50 cursor-pointer hover:bg-slate-800/70 transition-colors ' + (n.read ? 'opacity-50' : 'bg-slate-800/40') + '"><div class="flex items-start gap-3"><div class="mt-0.5 text-amber-400">' + icon(typeIcon[n.type] || 'bell', 'w-4 h-4') + '</div><div class="flex-1 min-w-0"><p class="text-sm text-slate-200 leading-snug">' + n.message + '</p><p class="text-xs text-slate-500 mt-0.5">' + timeAgo(new Date(n.createdAt).getTime()) + '</p></div>' + (!n.read ? '<div class="w-2 h-2 rounded-full bg-amber-400 mt-1.5 flex-shrink-0"></div>' : '') + '</div></div>').join('') : '<div class="px-4 py-8 text-center text-sm text-slate-500">No notifications yet</div>';
+            const items = state.notifications.length > 0 ? state.notifications.map(n => '<div onclick="markNotificationRead(\\'' + n.id + '\\')" class="px-4 py-3 border-b border-slate-700/50 cursor-pointer hover:bg-slate-800/70 transition-colors ' + (n.read ? 'opacity-50' : 'bg-slate-800/40') + '"><div class="flex items-start gap-3"><div class="mt-0.5 text-amber-400">' + icon(typeIcon[n.type] || 'bell', 'w-4 h-4') + '</div><div class="flex-1 min-w-0"><p class="text-sm text-slate-200 leading-snug">' + n.message + '</p><p class="text-xs text-slate-400 mt-0.5">' + timeAgo(new Date(n.createdAt).getTime()) + '</p></div>' + (!n.read ? '<div class="w-2 h-2 rounded-full bg-amber-400 mt-1.5 flex-shrink-0"></div>' : '') + '</div></div>').join('') : '<div class="px-4 py-8 text-center text-sm text-slate-400">No notifications yet</div>';
             return '<div class="fixed top-16 right-4 lg:top-6 lg:left-64 lg:right-auto z-[60] w-80 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-fade-in"><div class="px-4 py-3 border-b border-slate-700/50 flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Notifications</h3>' + (state.unreadCount > 0 ? '<button onclick="markAllNotificationsRead()" class="text-xs text-amber-400 hover:text-amber-300">Mark all read</button>' : '') + '</div><div class="max-h-96 overflow-y-auto">' + items + '</div></div>';
           }
           function toggleNotifPanel(e) {
