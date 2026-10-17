@@ -175,6 +175,31 @@ export default async function SolTrendApp() {
         <div className="app-loading-text">Loading SolTrend Pro...</div>
       </div>
       <div id="app" />
+      {/*
+        calendarField's dropdown used to render inline, nested deep inside
+        whichever card/column it belonged to (position:absolute inside a
+        position:relative wrapper). That meant its z-30 was only ever
+        winning *within* that card's own stacking context - any sibling
+        card elsewhere in the same stagger-children grid (the next column,
+        or the next row once the grid wrapped) could still paint over or
+        under it unpredictably, and on narrow paired Start/End fields the
+        dropdown's min-width ran it straight off the side of its ~164px
+        column. Real Safari/WebKit showed both failure modes even after
+        the z-index/width were tuned from inside the card - see the
+        session notes on the Reports page calendar bug.
+
+        calendarPortal is the fix: a single dedicated element OUTSIDE
+        #app entirely (a sibling, never touched by render()'s innerHTML
+        swap), so an open calendar is always the very last thing in the
+        document and always paints above every card regardless of
+        animation/stacking-context quirks on any ancestor. renderCalendar
+        Portal() (near toggleCalendar) computes the trigger button's own
+        on-screen position with getBoundingClientRect() and positions the
+        dropdown there with position:fixed, clamped to stay inside the
+        viewport - so it's sized to itself, not to whatever column it was
+        triggered from.
+      */}
+      <div id="calendarPortal" />
       <Script src="https://cdn.tailwindcss.com" strategy="beforeInteractive" />
       <Script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" strategy="afterInteractive" />
       <Script id="soltrend-app" strategy="afterInteractive">
@@ -5843,6 +5868,10 @@ export default async function SolTrendApp() {
           function formatCalendarDateLabel(dateStr, compact) {
             return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', compact ? { month: 'short', day: 'numeric', year: 'numeric' } : { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
           }
+          // fieldPath can contain dots ('reportDates.qcStart') which aren't
+          // legal in a bare id selector, hence the swap below wherever a
+          // field path is used as a DOM id.
+          function calendarTriggerId(fieldPath) { return 'calendar-trigger-' + fieldPath.replace(/\\./g, '-'); }
           function toggleCalendar(fieldPath) {
             if (state.calendarOpenField === fieldPath) {
               state.calendarOpenField = null;
@@ -5865,6 +5894,9 @@ export default async function SolTrendApp() {
             state.calendarOpenField = null;
             render();
           }
+          // Just the calendar's own content box (header/weekdays/day grid/
+          // Jump to Today) with no positioning of its own - renderCalendar
+          // Portal() below is what decides where this lands on screen.
           function renderCalendarDropdown(fieldPath) {
             const opts = CALENDAR_CONFIG[fieldPath] || {};
             const todayStr = localDateStr(Date.now());
@@ -5886,18 +5918,7 @@ export default async function SolTrendApp() {
               cells += '<button type="button" ' + (isDisabled ? 'disabled' : 'onclick="selectCalendarDate(\\'' + ds + '\\')"') + ' class="h-9 w-9 rounded-lg text-sm flex items-center justify-center ' + cls + '">' + day + '</button>';
             }
             const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(function(d) { return '<div class="h-6 flex items-center justify-center text-[10px] text-slate-400 uppercase">' + d + '</div>'; }).join('');
-            return '<div onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="fixed inset-0 z-20"></div>' +
-              // width:100% (not a fixed px value) so this always matches the
-              // field's own width exactly, left edge to right edge. A fixed
-              // width left a gap on either side whenever the card it's in
-              // was wider than that px value - on a phone-width single-
-              // column card that gap was wide enough for whatever sits
-              // below the field (e.g. the card's Export PDF button) to show
-              // through on the side, even though z-30 already paints this
-              // dropdown above it everywhere the dropdown actually covers.
-              // min-width keeps the 7-day grid from ever being crushed
-              // narrower than it needs.
-              '<div class="absolute z-30 mt-2 p-3 bg-slate-900 border border-slate-600 rounded-xl shadow-xl" style="width:100%;min-width:272px;" onclick="event.stopPropagation()">' +
+            return '<div class="p-3 bg-slate-900 border border-slate-600 rounded-xl shadow-xl" style="width:272px;" onclick="event.stopPropagation()">' +
                 '<div class="flex items-center justify-between mb-2">' +
                   '<button type="button" onclick="navCalendar(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-left', 'w-4 h-4') + '</button>' +
                   '<span class="text-sm font-semibold text-white">' + monthLabel + '</span>' +
@@ -5908,10 +5929,53 @@ export default async function SolTrendApp() {
                 '<button type="button" onclick="selectCalendarDate(\\'' + todayStr + '\\')" class="w-full mt-2 py-2 text-xs text-amber-400 hover:text-amber-300 font-medium">Jump to Today</button>' +
               '</div>';
           }
+          // Positions and fills #calendarPortal - the dedicated element
+          // declared as a sibling of #app in page.tsx's JSX, outside the
+          // tree render() rewrites, so an open calendar is never nested
+          // inside whatever card/column triggered it and is always the
+          // last thing painted in the document. Called at the end of every
+          // render(), since render() is also what runs on every toggle/
+          // nav/select (see toggleCalendar/navCalendar/selectCalendarDate
+          // above) - so this re-syncs on every one of those too.
+          function renderCalendarPortal() {
+            const portal = document.getElementById('calendarPortal');
+            if (!portal) return;
+            const fieldPath = state.calendarOpenField;
+            if (!fieldPath) { portal.innerHTML = ''; return; }
+            const trigger = document.getElementById(calendarTriggerId(fieldPath));
+            if (!trigger) { portal.innerHTML = ''; return; }
+            const rect = trigger.getBoundingClientRect();
+            const margin = 8;
+            const boxWidth = 272;
+            // Default: left-aligned under the field, like the old inline
+            // version. Clamp so it never runs off either edge of the
+            // viewport - this is what actually fixes the QC/Refusal Start/
+            // End fields, whose ~164px column is narrower than the
+            // calendar itself; those just get nudged left until they fit
+            // instead of overflowing past the edge of the screen.
+            let left = rect.left;
+            if (left + boxWidth > window.innerWidth - margin) left = window.innerWidth - margin - boxWidth;
+            if (left < margin) left = margin;
+            // Flip above the field when there isn't room below - the box
+            // is a little over 300px tall with the header/weekdays/6 rows/
+            // Jump to Today button, so this estimate only needs to be in
+            // the right ballpark to pick the better side.
+            const estBoxHeight = 340;
+            let top = rect.bottom + margin;
+            if (top + estBoxHeight > window.innerHeight && rect.top - estBoxHeight - margin > 0) {
+              top = rect.top - estBoxHeight - margin;
+            }
+            portal.innerHTML =
+              '<div onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="fixed inset-0 z-[90]"></div>' +
+              '<div class="fixed z-[91]" style="top:' + top + 'px;left:' + left + 'px;">' + renderCalendarDropdown(fieldPath) + '</div>';
+            if (window.lucide) lucide.createIcons();
+          }
           // Drop-in replacement for input[type=date] - call as
           // calendarField('someStatePath') wherever a date field used to be
           // a native input. placeholder (optional) shows when the field is
           // unset; CALENDAR_CONFIG controls size and the max-today rule.
+          // The dropdown itself no longer renders inline here - see
+          // renderCalendarPortal() above.
           function calendarField(fieldPath, placeholder) {
             const opts = CALENDAR_CONFIG[fieldPath] || {};
             const val = getStateByPath(fieldPath);
@@ -5921,7 +5985,7 @@ export default async function SolTrendApp() {
               ? 'w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm flex items-center justify-between'
               : 'w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white flex items-center justify-between';
             const iconClass = compact ? 'w-3.5 h-3.5 text-slate-400 flex-shrink-0' : 'w-4 h-4 text-slate-400 flex-shrink-0';
-            return '<div class="relative"><button type="button" onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="' + btnClass + '"><span' + (val ? '' : ' class="text-slate-400"') + '>' + label + '</span>' + icon('calendar', iconClass) + '</button>' + (state.calendarOpenField === fieldPath ? renderCalendarDropdown(fieldPath) : '') + '</div>';
+            return '<div class="relative"><button type="button" id="' + calendarTriggerId(fieldPath) + '" onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="' + btnClass + '"><span' + (val ? '' : ' class="text-slate-400"') + '>' + label + '</span>' + icon('calendar', iconClass) + '</button></div>';
           }
 
           // PRODUCTION - WITH PHOTO CAPTURE
@@ -6844,7 +6908,22 @@ export default async function SolTrendApp() {
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button>' + mobileHeaderBrand() + '<span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();
+            // #calendarPortal lives outside #app (see page.tsx JSX next to
+            // id="app"), so the innerHTML swap above never touches it -
+            // it has to be synced explicitly on every render(), which is
+            // also what runs on every calendar toggle/nav/select.
+            renderCalendarPortal();
           }
+          // The calendar portal is position:fixed and placed using the
+          // trigger button's screen coordinates at the moment it opened.
+          // If the page itself scrolls or the viewport resizes while it's
+          // open, those coordinates go stale - the button moves (or the
+          // layout reflows) but the fixed box doesn't follow it. Rather
+          // than re-measuring on every scroll tick, just close it, the
+          // same way clicking the backdrop does; same behavior most native
+          // date pickers and dropdowns use.
+          window.addEventListener('scroll', function() { if (state.calendarOpenField) { state.calendarOpenField = null; render(); } }, { passive: true, capture: true });
+          window.addEventListener('resize', function() { if (state.calendarOpenField) { state.calendarOpenField = null; render(); } });
 
           // Notifications poll every 60s (see initializeApp below) and can
           // also be marked read/opened at any time - none of that should
