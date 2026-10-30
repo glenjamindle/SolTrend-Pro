@@ -254,6 +254,16 @@ export default async function SolTrendApp() {
             piles: [],
             pileCsvPreview: null,
             editingPile: null,
+            // Pile QA/QC bulk import (Settings -> QA/QC Import) - a field
+            // master sheet's per-pile drive/refusal readings, mapped into
+            // the existing Inspection + Refusal tables (and the Pile layout
+            // table, for any pile id the project doesn't already have) in
+            // one upload instead of 1000+ individual entries. See
+            // parseQaqcCsvText/confirmQaqcImport near the Pile Layout CSV
+            // import functions.
+            qaqcCsvPreview: null,
+            qaqcOverwriteExisting: false,
+            qaqcImportResult: null,
             // Photo Gallery tab - standalone photos added directly (not via
             // an inspection/refusal/production entry); see GalleryPhoto in
             // schema.prisma and renderGallery() near the other view
@@ -3891,6 +3901,144 @@ export default async function SolTrendApp() {
             } catch (e) { console.error('Pile import error:', e); alert('Failed to import the pile layout.'); }
           }
 
+          // PILE QA/QC BULK IMPORT - takes a field master sheet (pile id,
+          // predrilled depth, stickup height, post angle N/S + E/W, drive
+          // time, refusal Y/N, final-interval length, comments - the shape
+          // of a typical pile-driving QA/QC log) and maps it into the
+          // existing Inspection and Refusal tables, one row per pile,
+          // instead of keying 1000+ piles through the single-pile
+          // Inspect/Log Refusal forms by hand. Column format matches
+          // Hogan's field sheet; reused CSV helpers (parseCsvLine) from the
+          // Pile Layout importer above.
+          //
+          // Pile ID accepts either "R<row>P<pile>" (the field sheet's own
+          // format, e.g. "R12P5") or this app's own "row-pile" format
+          // (e.g. "12-5") - either way it's normalized to "row-pile" before
+          // being sent, since that's what Inspection/Refusal/Pile all key
+          // on (see parsePileId in the API routes).
+          //
+          // Post angle readings are the field crew's raw gauge reading in
+          // degrees, where 90 = perfectly plumb - NOT the plumbNS/plumbEW
+          // fields' own convention, which is degrees OF DEVIATION from
+          // plumb (0 = perfectly plumb; see the demo-data generator near
+          // the top of this file for the 0-2=pass/2-4=fail range that
+          // convention assumes). Converted here as plumb = |90 - reading|.
+          function qaqcParsePileId(raw) {
+            const s = String(raw || '').trim();
+            let m = s.match(/^R(\\d+)P(\\d+)$/i);
+            if (m) return { row: parseInt(m[1], 10), pile: parseInt(m[2], 10) };
+            m = s.match(/^(\\d+)-(\\d+)$/);
+            if (m) return { row: parseInt(m[1], 10), pile: parseInt(m[2], 10) };
+            return null;
+          }
+          function qaqcInferReason(comments) {
+            const c = (comments || '').toLowerCase();
+            if (c.indexOf('bedrock') !== -1) return 'bedrock';
+            if (c.indexOf('cobble') !== -1) return 'cobble';
+            if (c.indexOf('obstruction') !== -1) return 'obstruction';
+            return 'other';
+          }
+          function qaqcParseTwist(comments) {
+            const m = String(comments || '').match(/twist[-\\s]*(\\d+(?:\\.\\d+)?)[-\\s]*deg/i);
+            return m ? parseFloat(m[1]) : null;
+          }
+          function parseQaqcCsvText(text) {
+            const lines = text.split(/\\r?\\n/).filter(function(l) { return l.trim().length > 0; });
+            if (lines.length < 2) return { rows: [], warnings: ['The file needs a header row plus at least one data row.'], skippedCount: 0 };
+            const header = parseCsvLine(lines[0]).map(function(h) { return h.trim().toLowerCase(); });
+            const idx = {};
+            header.forEach(function(h, i) { idx[h] = i; });
+            if (idx.pileid === undefined) {
+              return { rows: [], warnings: ['The CSV must include a "pileId" column.'], skippedCount: 0 };
+            }
+            const rows = []; const warnings = []; let skippedCount = 0;
+            for (let li = 1; li < lines.length; li++) {
+              const cells = parseCsvLine(lines[li]);
+              const get = function(key) { return idx[key] !== undefined ? (cells[idx[key]] || '').trim() : ''; };
+              const parsedId = qaqcParsePileId(get('pileid'));
+              if (!parsedId) { warnings.push('Line ' + (li + 1) + ': "' + get('pileid') + '" isn\\'t a recognized pile id (expected R<row>P<pile> or row-pile) - skipped.'); skippedCount++; continue; }
+              const num = function(key) { const v = get(key); if (v === '') return null; const f = parseFloat(v); return isNaN(f) ? null : f; };
+              const predrilledDepthFt = num('predrilleddepthft');
+              const stickupHeightIn = num('stickupheightin');
+              const postAngleNS = num('postanglens');
+              const postAngleEW = num('postangleew');
+              const plumbNS = postAngleNS !== null ? Math.round(Math.abs(90 - postAngleNS) * 10) / 10 : null;
+              const plumbEW = postAngleEW !== null ? Math.round(Math.abs(90 - postAngleEW) * 10) / 10 : null;
+              const driveTime = get('drivetime') || null;
+              const refusalRaw = get('refusalyn').toUpperCase();
+              const isRefusal = refusalRaw === 'Y' || refusalRaw === 'YES';
+              const finalIntervalIn = num('finalintervalin');
+              const comments = get('comments') || '';
+              const twistDeg = qaqcParseTwist(comments);
+              const reason = isRefusal ? qaqcInferReason(comments) : null;
+              const noteParts = [];
+              if (comments) noteParts.push(comments);
+              if (driveTime) noteParts.push('Drive time: ' + driveTime);
+              if (predrilledDepthFt !== null) noteParts.push('Predrilled depth: ' + predrilledDepthFt + ' ft');
+              const inspectionNotes = noteParts.join(' \\u2014 ') || null;
+              // Refusal piles don't get an Inspection record (see the
+              // import route) - these readings have no structured column
+              // of their own on a Refusal, so fold them into its notes
+              // here rather than silently dropping them.
+              const refusalNoteParts = noteParts.slice();
+              if (stickupHeightIn !== null) refusalNoteParts.push('Stickup: ' + stickupHeightIn + ' in');
+              if (plumbNS !== null) refusalNoteParts.push('Plumb N-S: ' + plumbNS + '\\u00b0');
+              if (plumbEW !== null) refusalNoteParts.push('Plumb E-W: ' + plumbEW + '\\u00b0');
+              if (finalIntervalIn !== null) refusalNoteParts.push('Final interval: ' + finalIntervalIn + ' in');
+              const refusalNotes = refusalNoteParts.join(' \\u2014 ') || null;
+              rows.push({
+                pileId: parsedId.row + '-' + parsedId.pile, row: parsedId.row, pile: parsedId.pile,
+                sourcePileId: get('pileid'), stickupHeightIn: stickupHeightIn, plumbNS: plumbNS, plumbEW: plumbEW,
+                twistDeg: twistDeg, inspectionNotes: inspectionNotes,
+                isRefusal: isRefusal, reason: reason, finalIntervalIn: finalIntervalIn, refusalNotes: refusalNotes,
+              });
+            }
+            return { rows: rows, warnings: warnings, skippedCount: skippedCount };
+          }
+          function downloadQaqcCsvTemplate() {
+            const rows = [
+              { pileId: 'R1P1', predrilledDepthFt: '', stickupHeightIn: 70.5, postAngleNS: 89.6, postAngleEW: 89.5, driveTime: '4:17', refusalYN: 'Y', finalIntervalIn: 157, comments: 'Obstruction' },
+              { pileId: 'R1P2', predrilledDepthFt: '', stickupHeightIn: '', postAngleNS: 89.3, postAngleEW: 89.8, driveTime: '13:00', refusalYN: 'N', finalIntervalIn: '', comments: '' },
+            ];
+            downloadCSV('pile-qaqc-template.csv', toCSV(rows, ['pileId', 'predrilledDepthFt', 'stickupHeightIn', 'postAngleNS', 'postAngleEW', 'driveTime', 'refusalYN', 'finalIntervalIn', 'comments']));
+          }
+          function triggerQaqcCsvInput() { document.getElementById('qaqcCsvInput').click(); }
+          function handleQaqcCsvSelect(event) {
+            const file = event.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+              const parsed = parseQaqcCsvText(String(e.target.result || ''));
+              state.qaqcCsvPreview = Object.assign({ fileName: file.name }, parsed);
+              state.qaqcImportResult = null;
+              render();
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+          }
+          function cancelQaqcImport() { state.qaqcCsvPreview = null; render(); }
+          function toggleQaqcOverwrite() { state.qaqcOverwriteExisting = !state.qaqcOverwriteExisting; render(); }
+          async function confirmQaqcImport() {
+            const preview = state.qaqcCsvPreview;
+            if (!preview || !preview.rows || preview.rows.length === 0) return;
+            try {
+              const res = await fetch('/api/pile-qaqc-import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: state.currentProject.id, records: preview.rows, overwriteExisting: state.qaqcOverwriteExisting }),
+              });
+              const data = await res.json().catch(function() { return {}; });
+              if (res.ok) {
+                state.qaqcCsvPreview = null;
+                state.qaqcImportResult = data;
+                await Promise.all([loadPiles(), loadInspections(), loadRefusals()]);
+                syncProjectPileMode(data.pilesCreated > 0 ? 'custom' : state.currentProject.pileLayoutMode);
+                render();
+              } else {
+                alert(data.error || 'Failed to import QA/QC data.');
+              }
+            } catch (e) { console.error('QA/QC import error:', e); alert('Failed to import QA/QC data.'); }
+          }
+
           function openPileModal(pileId) {
             if (pileId) {
               const p = state.piles.find(function(x) { return x.pileId === pileId; });
@@ -4048,6 +4196,42 @@ export default async function SolTrendApp() {
               '<p class="text-sm text-slate-400">Import or edit the real pile-by-pile layout so the Pile Map and QC tolerances follow the actual site, gaps included.</p>' +
               statusBanner + importCard + manualCard + dangerCard +
               renderPileEditModal(typeOptions) +
+            '</div>';
+          }
+
+          // PILE QA/QC IMPORT SETTINGS - uploads a field QA/QC master sheet
+          // (pile id, predrilled depth, stickup, post angle N/S+E/W, drive
+          // time, refusal Y/N, final interval, comments) and maps every row
+          // into the existing Inspection + Refusal tables via
+          // /api/pile-qaqc-import, instead of keying each pile by hand
+          // through Inspect/Log Refusal. See parseQaqcCsvText above for the
+          // column mapping and unit conversions.
+          function renderQaqcImportSettings() {
+            const canEdit = hasRole('manager');
+            const preview = state.qaqcCsvPreview;
+            const result = state.qaqcImportResult;
+            const refusalCount = preview ? preview.rows.filter(function(r) { return r.isRefusal; }).length : 0;
+
+            const importCard = !canEdit ? '<div class="card rounded-xl p-4"><p class="text-sm text-slate-400">Only managers and admins can run a QA/QC import.</p></div>' : '<div class="card rounded-xl p-4 space-y-3">' +
+              '<div class="flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Import from CSV</h3>' +
+              '<button onclick="downloadQaqcCsvTemplate()" class="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">' + icon('download', 'w-3.5 h-3.5') + ' Download template</button></div>' +
+              '<p class="text-xs text-slate-400">Columns: pileId, predrilledDepthFt, stickupHeightIn, postAngleNS, postAngleEW, driveTime, refusalYN, finalIntervalIn, comments. Only pileId is required (accepts "R12P5" or "12-5"). Post angle readings are the raw gauge value where 90&deg; = plumb - converted automatically to a plumb-deviation reading. A row with refusalYN=N creates an Inspection record (status: pass). A row with refusalYN=Y creates a Refusal record instead - not also a passing inspection, since a drive log doesn\\'t carry a real QC sign-off; its reason is inferred from the comments (bedrock/cobble/obstruction/other), its readings go in its notes, and its target depth defaults to 72in unless this is re-run after a correction.</p>' +
+              '<input type="file" id="qaqcCsvInput" accept=".csv,text/csv" class="hidden" onchange="handleQaqcCsvSelect(event)">' +
+              '<button onclick="triggerQaqcCsvInput()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('upload', 'w-3.5 h-3.5') + ' Choose CSV file</button>' +
+              (preview ? (
+                '<div class="border-t border-slate-700/50 pt-3 space-y-2">' +
+                '<p class="text-xs text-slate-400"><span class="text-white font-medium">' + preview.fileName + '</span> - ' + preview.rows.length + ' pile' + (preview.rows.length === 1 ? '' : 's') + ' ready (' + refusalCount + ' refusal' + (refusalCount === 1 ? '' : 's') + ')' + (preview.skippedCount > 0 ? ', ' + preview.skippedCount + ' row' + (preview.skippedCount === 1 ? '' : 's') + ' unreadable' : '') + '.</p>' +
+                (preview.warnings.length > 0 ? '<div class="max-h-28 overflow-y-auto space-y-1">' + preview.warnings.slice(0, 15).map(function(w) { return '<p class="text-xs text-amber-400/90">' + w + '</p>'; }).join('') + (preview.warnings.length > 15 ? '<p class="text-xs text-slate-400">+ ' + (preview.warnings.length - 15) + ' more</p>' : '') + '</div>' : '') +
+                '<label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" ' + (state.qaqcOverwriteExisting ? 'checked' : '') + ' onchange="toggleQaqcOverwrite()" class="rounded"> Overwrite piles that already have an inspection or refusal on file (off = those piles are skipped, not touched)</label>' +
+                '<div class="flex gap-2 pt-1"><button onclick="confirmQaqcImport()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold">Import ' + preview.rows.length + ' pile' + (preview.rows.length === 1 ? '' : 's') + '</button><button onclick="cancelQaqcImport()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium">Cancel</button></div>' +
+                '</div>'
+              ) : '') +
+              (result ? '<div class="border-t border-slate-700/50 pt-3"><p class="text-xs text-emerald-400">Imported: ' + result.inspectionsCreated + ' inspection' + (result.inspectionsCreated === 1 ? '' : 's') + ', ' + result.refusalsCreated + ' refusal' + (result.refusalsCreated === 1 ? '' : 's') + (result.pilesCreated > 0 ? ', ' + result.pilesCreated + ' new pile layout row' + (result.pilesCreated === 1 ? '' : 's') : '') + '.' + ((result.inspectionsSkipped + result.refusalsSkipped) > 0 ? ' Skipped ' + result.inspectionsSkipped + ' inspection' + (result.inspectionsSkipped === 1 ? '' : 's') + ' and ' + result.refusalsSkipped + ' refusal' + (result.refusalsSkipped === 1 ? '' : 's') + ' that already had a record (check "overwrite" to replace them instead).' : '') + '</p></div>' : '') +
+              '</div>';
+
+            return '<div class="space-y-4 max-w-3xl">' +
+              '<p class="text-sm text-slate-400">Bulk-load a field QA/QC master sheet into this project\\'s Inspection and Refusal logs - no per-pile hand entry.</p>' +
+              importCard +
             '</div>';
           }
 
@@ -6098,6 +6282,7 @@ export default async function SolTrendApp() {
               { id: 'subcontractors', label: 'Subcontractors', icon: 'hard-hat' },
               { id: 'racking', label: 'Racking', icon: 'sliders-horizontal' },
               { id: 'pileLayout', label: 'Pile Layout', icon: 'layout-grid' },
+              { id: 'qaqcImport', label: 'QA/QC Import', icon: 'upload' },
               { id: 'users', label: 'Users', icon: 'user' },
             ];
             
@@ -6119,6 +6304,7 @@ export default async function SolTrendApp() {
               case 'subcontractors': return renderSubcontractorsSettings();
               case 'racking': return renderRackingSettings();
               case 'pileLayout': return renderPileLayoutSettings();
+              case 'qaqcImport': return renderQaqcImportSettings();
               case 'users': return renderUsersSettings();
               default: return renderCompanySettings();
             }
