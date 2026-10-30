@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
 
 const DEMO_CREDENTIALS = [
   { role: 'Admin', email: 'admin@apexsolar.com', password: 'demo123' },
@@ -13,7 +12,6 @@ const DEMO_CREDENTIALS = [
 ]
 
 export default function LoginForm() {
-  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -33,8 +31,18 @@ export default function LoginForm() {
       setError('Invalid email or password')
       return
     }
-    router.push('/')
-    router.refresh()
+    // A real navigation, not router.push()+router.refresh(). The app's
+    // currentUser (name/role - see page.tsx) comes from a plain inline
+    // <script>window.__SESSION_USER__ = {...}</script> tag the server
+    // renders into the page, which only runs when the browser parses it
+    // as part of a real HTML load. router.refresh() re-fetches the route's
+    // server payload and has React patch it into the DOM instead - script
+    // tags inserted that way are never executed, so __SESSION_USER__ stayed
+    // unset and every freshly-signed-in user fell back to the hardcoded
+    // placeholder (id: '', name: 'Unknown User', role: 'inspector') until
+    // they manually reloaded the page. A full navigation guarantees the
+    // real HTML parse that actually runs the script.
+    window.location.href = '/'
   }
 
   function fillDemo(demoEmail: string, demoPassword: string) {
