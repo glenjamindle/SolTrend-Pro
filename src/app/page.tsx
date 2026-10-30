@@ -264,6 +264,13 @@ export default async function SolTrendApp() {
             qaqcCsvPreview: null,
             qaqcOverwriteExisting: false,
             qaqcImportResult: null,
+            // Admin-only undo for a bad QA/QC import (wrong row mapping,
+            // wrong file, etc.) - see checkQaqcRevert/confirmQaqcRevert and
+            // /api/pile-qaqc-import/revert. null until a lookback check has
+            // been run; then holds the server's preview counts plus the
+            // since/until window that produced them, so the actual delete
+            // targets exactly what was shown.
+            qaqcRevertPreview: null,
             // Photo Gallery tab - standalone photos added directly (not via
             // an inspection/refusal/production entry); see GalleryPhoto in
             // schema.prisma and renderGallery() near the other view
@@ -4039,6 +4046,50 @@ export default async function SolTrendApp() {
             } catch (e) { console.error('QA/QC import error:', e); alert('Failed to import QA/QC data.'); }
           }
 
+          // Undo for a QA/QC import that turned out wrong (e.g. the file's
+          // row numbers didn't match this project's real pile layout) -
+          // see /api/pile-qaqc-import/revert. There's no "which import"
+          // tracking, so this works off a lookback window: check how many
+          // Inspection/Refusal/Pile rows were written in the last N hours
+          // (no mutation), show that to the admin, and only delete that
+          // exact window if they confirm. Deliberately two steps, not one
+          // button - this can't be undone once run.
+          async function checkQaqcRevert() {
+            hapticFeedback();
+            const hours = parseInt(document.getElementById('qaqcRevertHours')?.value, 10) || 2;
+            const projectId = state.currentProject?.id || 'proj_001';
+            const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+            const until = new Date().toISOString();
+            try {
+              const res = await fetch('/api/pile-qaqc-import/revert?projectId=' + encodeURIComponent(projectId) + '&since=' + encodeURIComponent(since) + '&until=' + encodeURIComponent(until));
+              const data = await res.json().catch(function() { return {}; });
+              if (!res.ok) { alert(data.error || 'Failed to check for a recent import.'); return; }
+              state.qaqcRevertPreview = Object.assign({}, data, { since: since, until: until, hours: hours });
+              render();
+            } catch (e) { console.error('Check QA/QC revert error:', e); alert('Failed to check for a recent import.'); }
+          }
+          function cancelQaqcRevert() { state.qaqcRevertPreview = null; render(); }
+          async function confirmQaqcRevert() {
+            const preview = state.qaqcRevertPreview;
+            if (!preview) return;
+            const total = preview.inspectionsToDelete + preview.refusalsToDelete + preview.pilesToDelete;
+            if (total === 0) { alert('Nothing to undo in that window.'); return; }
+            if (!confirm('Permanently delete ' + preview.inspectionsToDelete + ' inspection(s), ' + preview.refusalsToDelete + ' refusal(s) and ' + preview.pilesToDelete + ' pile layout row(s) added in the last ' + preview.hours + ' hour(s)?\\n\\nThis cannot be undone.')) return;
+            hapticFeedback();
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/pile-qaqc-import/revert?projectId=' + encodeURIComponent(projectId) + '&since=' + encodeURIComponent(preview.since) + '&until=' + encodeURIComponent(preview.until), { method: 'DELETE' });
+              const data = await res.json().catch(function() { return {}; });
+              if (!res.ok) { alert(data.error || 'Failed to undo.'); return; }
+              // loadInspections()/loadRefusals() only MERGE in rows that
+              // aren't already in local state - they don't drop ones that
+              // were just deleted server-side, so stale red/orange cells
+              // would linger on the Pile Map until this reloads fresh.
+              alert('Undo complete: removed ' + data.deletedInspections + ' inspection(s), ' + data.deletedRefusals + ' refusal(s), ' + data.deletedPiles + ' pile row(s).');
+              window.location.reload();
+            } catch (e) { console.error('Confirm QA/QC revert error:', e); alert('Failed to undo. Please try again.'); }
+          }
+
           function openPileModal(pileId) {
             if (pileId) {
               const p = state.piles.find(function(x) { return x.pileId === pileId; });
@@ -4229,9 +4280,25 @@ export default async function SolTrendApp() {
               (result ? '<div class="border-t border-slate-700/50 pt-3"><p class="text-xs text-emerald-400">Imported: ' + result.inspectionsCreated + ' inspection' + (result.inspectionsCreated === 1 ? '' : 's') + ', ' + result.refusalsCreated + ' refusal' + (result.refusalsCreated === 1 ? '' : 's') + (result.pilesCreated > 0 ? ', ' + result.pilesCreated + ' new pile layout row' + (result.pilesCreated === 1 ? '' : 's') : '') + '.' + ((result.inspectionsSkipped + result.refusalsSkipped) > 0 ? ' Skipped ' + result.inspectionsSkipped + ' inspection' + (result.inspectionsSkipped === 1 ? '' : 's') + ' and ' + result.refusalsSkipped + ' refusal' + (result.refusalsSkipped === 1 ? '' : 's') + ' that already had a record (check "overwrite" to replace them instead).' : '') + '</p></div>' : '') +
               '</div>';
 
+            const revertPreview = state.qaqcRevertPreview;
+            const revertTotal = revertPreview ? (revertPreview.inspectionsToDelete + revertPreview.refusalsToDelete + revertPreview.pilesToDelete) : 0;
+            const dangerCard = !hasRole('admin') ? '' : '<div class="card rounded-xl p-4 space-y-3 border border-red-500/30">' +
+              '<h3 class="font-display font-semibold text-red-400 text-sm">Undo a recent import</h3>' +
+              '<p class="text-xs text-slate-400">If an import used the wrong file or the wrong row mapping, this deletes every Inspection, Refusal and Pile layout row written to this project in the window below - not just the bad import\\'s. Nothing older than the window is touched, so pick the smallest window that covers it (just this import, not your original pile layout too). Admin only.</p>' +
+              '<div class="flex items-center gap-2"><label class="text-xs text-slate-400">Look back</label><input type="number" id="qaqcRevertHours" value="' + (revertPreview ? revertPreview.hours : 2) + '" min="1" class="w-16 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-white text-xs"><label class="text-xs text-slate-400">hour(s)</label><button onclick="checkQaqcRevert()" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium">Check</button></div>' +
+              (revertPreview ? (
+                '<div class="border-t border-slate-700/50 pt-3 space-y-2">' +
+                (revertTotal === 0 ? '<p class="text-xs text-slate-400">Nothing written in the last ' + revertPreview.hours + ' hour(s).</p>' :
+                  '<p class="text-xs text-amber-400">In the last ' + revertPreview.hours + ' hour(s): ' + revertPreview.inspectionsToDelete + ' inspection(s), ' + revertPreview.refusalsToDelete + ' refusal(s), ' + revertPreview.pilesToDelete + ' pile layout row(s).</p>' +
+                  '<div class="flex gap-2"><button onclick="confirmQaqcRevert()" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold">Delete permanently</button><button onclick="cancelQaqcRevert()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium">Cancel</button></div>') +
+                '</div>'
+              ) : '') +
+            '</div>';
+
             return '<div class="space-y-4 max-w-3xl">' +
               '<p class="text-sm text-slate-400">Bulk-load a field QA/QC master sheet into this project\\'s Inspection and Refusal logs - no per-pile hand entry.</p>' +
               importCard +
+              dangerCard +
             '</div>';
           }
 
