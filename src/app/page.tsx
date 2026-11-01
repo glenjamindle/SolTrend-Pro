@@ -1700,11 +1700,48 @@ export default async function SolTrendApp() {
             });
             downloadCSV(exportFilePrefix() + '-inspections.csv', toCSV(rows, ['pileId', 'status', 'date', 'user', 'depth', 'plumbNS', 'plumbEW', 'failReason']));
           }
+          // Pulls the per-pile readings bulk-imported via the QA/QC CSV
+          // import (see parseQaqcCsvText) back out of a Refusal's single
+          // notes string into their own columns, for the CSV export only.
+          // parseQaqcCsvText folds Drive time/Predrilled depth/Stickup/
+          // Plumb N-S/Plumb E-W/Final interval into notes (in that order,
+          // joined by \\u2014) because the Refusal model has no columns of
+          // its own for them - that's fine for the on-screen notes field,
+          // but it buries real numbers inside one text blob for anyone
+          // trying to sort/filter/pivot the export in Excel or Sheets. A
+          // manually-logged refusal's free-text notes won't match any of
+          // these label patterns, so they pass through untouched into the
+          // comments column.
+          function parseRefusalNotesForExport(notes) {
+            const out = { driveTime: '', predrilledDepthFt: '', stickupHeightIn: '', plumbNS: '', plumbEW: '', finalIntervalIn: '', comments: '' };
+            if (!notes) return out;
+            const parts = String(notes).split(' \\u2014 ');
+            const leftover = [];
+            parts.forEach(function(part) {
+              let m;
+              if ((m = part.match(/^Drive time: (.+)$/))) { out.driveTime = m[1]; }
+              else if ((m = part.match(/^Predrilled depth: ([\\d.]+) ft$/))) { out.predrilledDepthFt = m[1]; }
+              else if ((m = part.match(/^Stickup: ([\\d.]+) in$/))) { out.stickupHeightIn = m[1]; }
+              else if ((m = part.match(/^Plumb N-S: ([\\d.]+)\\u00b0$/))) { out.plumbNS = m[1]; }
+              else if ((m = part.match(/^Plumb E-W: ([\\d.]+)\\u00b0$/))) { out.plumbEW = m[1]; }
+              else if ((m = part.match(/^Final interval: ([\\d.]+) in$/))) { out.finalIntervalIn = m[1]; }
+              else { leftover.push(part); }
+            });
+            out.comments = leftover.join(' \\u2014 ');
+            return out;
+          }
           function exportRefusalsCSV() {
             const rows = state.refusals.map(function(r) {
-              return { pileId: r.pileId, reason: r.reason, date: localDateStr(r.timestamp), user: r.user, targetDepth: r.targetDepth, achievedDepth: r.achievedDepth ?? '', notes: r.notes || '' };
+              const parsed = parseRefusalNotesForExport(r.notes);
+              return {
+                pileId: r.pileId, reason: r.reason, date: localDateStr(r.timestamp), user: r.user,
+                targetDepth: r.targetDepth, achievedDepth: r.achievedDepth ?? '',
+                stickupHeightIn: parsed.stickupHeightIn, plumbNS: parsed.plumbNS, plumbEW: parsed.plumbEW,
+                finalIntervalIn: parsed.finalIntervalIn, driveTime: parsed.driveTime, predrilledDepthFt: parsed.predrilledDepthFt,
+                comments: parsed.comments
+              };
             });
-            downloadCSV(exportFilePrefix() + '-refusals.csv', toCSV(rows, ['pileId', 'reason', 'date', 'user', 'targetDepth', 'achievedDepth', 'notes']));
+            downloadCSV(exportFilePrefix() + '-refusals.csv', toCSV(rows, ['pileId', 'reason', 'date', 'user', 'targetDepth', 'achievedDepth', 'stickupHeightIn', 'plumbNS', 'plumbEW', 'finalIntervalIn', 'driveTime', 'predrilledDepthFt', 'comments']));
           }
 
           // WEATHER API INTEGRATION
