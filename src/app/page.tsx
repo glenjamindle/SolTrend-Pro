@@ -1606,6 +1606,10 @@ export default async function SolTrendApp() {
           function renderReports() {
             return '<div class="space-y-6 animate-fade-in">' +
               '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Reports</h1><p class="text-slate-400">Generate and export reports</p></div></div>' +
+              '<div class="card rounded-xl p-5">' +
+                '<div class="flex items-center gap-3 mb-4">' + icon('layers', 'w-8 h-8 text-indigo-400') + '<div><h3 class="font-display font-semibold text-white">Portfolio Report</h3><p class="text-xs text-slate-400">Company-wide rollup across every active project, as of right now</p></div></div>' +
+                '<button onclick="generatePortfolioReport()" class="w-full py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
+              '</div>' +
               '<div class="grid md:grid-cols-3 gap-4 stagger-children">' +
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('file-text', 'w-8 h-8 text-amber-400') + '<div><h3 class="font-display font-semibold text-white">Daily Report</h3><p class="text-xs text-slate-400">Production summary</p></div></div>' +
@@ -1921,6 +1925,76 @@ export default async function SolTrendApp() {
               }).join('') +
             '</div>';
           }
+          // "Needs Attention" callout - the thing every report was missing:
+          // a place that surfaces exceptions instead of making a reader
+          // find them by scanning every table. items: an array of plain-
+          // text strings, already worded as complete sentences. Renders
+          // nothing when there's nothing to flag - an empty box would just
+          // repeat what the rest of the report already implies (all clear).
+          function reportAttentionHtml(items) {
+            if (!items || items.length === 0) return '';
+            return '<div style="background:#fef2f2;border:1px solid #fecaca;border-left:4px solid #ef4444;border-radius:8px;padding:16px 20px;margin-bottom:25px;">' +
+              '<div style="font-size:13px;font-weight:700;color:#991b1b;margin-bottom:8px;">&#9888; Needs Attention</div>' +
+              '<ul style="margin:0;padding-left:18px;">' +
+                items.map(function(it) { return '<li style="font-size:12.5px;color:#7f1d1d;line-height:1.7;">' + it + '</li>'; }).join('') +
+              '</ul>' +
+            '</div>';
+          }
+          // Open RFIs/Submittals/Punch items, flagged the same way the
+          // Active Projects table on the Company Dashboard already flags
+          // them (a blocking RFI, an overdue submittal or punch item) - that
+          // data (project.rfis/submittals/punchItems, pre-filtered to
+          // "still open" by /api/settings) already drives a red highlight
+          // there, but no generated report ever mentioned it. Used by every
+          // single-project report's attention section, plus the Portfolio
+          // Report rolls this up across every project.
+          function projectAttentionItems(project) {
+            if (!project) return [];
+            const now = Date.now();
+            const items = [];
+            (project.rfis || []).filter(function(r) { return r.blocking; }).forEach(function(r) {
+              items.push('RFI ' + r.number + ' (' + r.subject + ') is marked blocking and still open &mdash; ' + daysElapsedSince(r.createdAt) + ' days.');
+            });
+            (project.submittals || []).filter(function(s) { return s.dueDate && new Date(s.dueDate).getTime() < now; }).forEach(function(s) {
+              items.push('Submittal ' + s.number + ' (' + s.specSection + ') is overdue &mdash; was due ' + formatDate(s.dueDate) + '.');
+            });
+            (project.punchItems || []).filter(function(p) { return p.dueDate && new Date(p.dueDate).getTime() < now; }).forEach(function(p) {
+              items.push('Punch item overdue: ' + p.description + (p.location ? ' (' + p.location + ')' : '') + '.');
+            });
+            return items;
+          }
+          // Richer schedule info for a report banner: current phase + %
+          // complete and the real finish-date timing (scheduleTiming), next
+          // to the on_track/at_risk/behind badge every report already
+          // showed. A flat "BEHIND" badge with nothing behind it was the
+          // single biggest thing standing between these reports and an
+          // actual executive schedule update - this is the fix for every
+          // report that has a project-banner.
+          function reportScheduleBlockHtml(project) {
+            if (!project) return '';
+            const status = projectScheduleStatus(project.milestones);
+            const phase = currentMilestonePhase(project.milestones);
+            const timing = scheduleTiming(project);
+            return '<div style="text-align:right;">' +
+              '<div style="background:' + status.bg + ';color:' + status.fg + ';padding:7px 16px;border-radius:20px;font-size:12px;font-weight:700;text-transform:uppercase;display:inline-block;">' + status.label + '</div>' +
+              (phase ? '<div style="font-size:12px;color:#cbd5e1;margin-top:6px;">' + phase.phase + ' &middot; ' + (phase.percentComplete || 0) + '%</div>' : '') +
+              (timing ? '<div style="font-size:11px;color:' + timing.hex + ';margin-top:2px;">' + timing.text + '</div>' : '') +
+            '</div>';
+          }
+          // Same schedule detail as reportScheduleBlockHtml, as a single
+          // plain-text line - for the five reports (QC, Pile Status,
+          // Refusal) whose header is a simple centered block rather than
+          // the dark project-banner the other three use.
+          function reportScheduleLineText(project) {
+            if (!project) return '';
+            const status = projectScheduleStatus(project.milestones);
+            const phase = currentMilestonePhase(project.milestones);
+            const timing = scheduleTiming(project);
+            const parts = [status.label];
+            if (phase) parts.push(phase.phase + ' (' + (phase.percentComplete || 0) + '%)');
+            if (timing) parts.push(timing.text);
+            return parts.join(' &middot; ');
+          }
           // A small in-report control bar (Print + Close, plus a guaranteed
           // link back to the app) injected into every generated report by
           // openReportWindow below. "no-print" so it never shows up in the
@@ -2189,6 +2263,10 @@ export default async function SolTrendApp() {
                 (dayLog.narrative ? dayLog.narrative : '<em>No narrative notes entered for this date.</em>')
               : 'Weather conditions were favorable for pile driving operations. All crews operating at normal capacity. ' + (failed > 0 ? failed + ' piles failed QC and require remediation. ' : '') + (dayRefusals > 0 ? dayRefusals + ' refusal(s) logged - engineering notified for alternative pile locations.' : 'No refusals encountered today.') +
                 '<div style="margin-top:8px;font-size:11px;color:#b45309;">No Daily Log was recorded for this date - showing an auto-generated summary instead.</div>';
+            // Needs Attention - open blocking RFIs / overdue submittals and
+            // punch items for this project (see projectAttentionItems), so
+            // a daily report surfaces exceptions instead of only tallies.
+            const dayAttentionItems = projectAttentionItems(project);
 
             const reportContent = \`
               <!DOCTYPE html>
@@ -2227,17 +2305,15 @@ export default async function SolTrendApp() {
                   .progress-container { background: #f8fafc; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
                   .progress-bar { height: 24px; background: #e2e8f0; border-radius: 12px; overflow: hidden; }
                   .progress-fill { height: 100%; background: linear-gradient(90deg, #22c55e 0%, #4ade80 100%); border-radius: 12px; }
-                  .qc-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 25px; }
+                  .qc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 25px; }
                   .qc-card { border-radius: 10px; padding: 18px; text-align: center; }
                   .qc-card.pass { background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); border: 2px solid #22c55e; }
                   .qc-card.fail { background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); border: 2px solid #ef4444; }
-                  .qc-card.hold { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 2px solid #f59e0b; }
                   .qc-card.refusal { background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%); border: 2px solid #f97316; }
                   .qc-card.total { background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); border: 2px solid #6366f1; }
                   .qc-card .value { font-size: 32px; font-weight: 800; }
                   .qc-card.pass .value { color: #16a34a; }
                   .qc-card.fail .value { color: #dc2626; }
-                  .qc-card.hold .value { color: #d97706; }
                   .qc-card.refusal .value { color: #ea580c; }
                   .qc-card.total .value { color: #4f46e5; }
                   .qc-card .label { font-size: 11px; font-weight: 600; text-transform: uppercase; margin-top: 4px; }
@@ -2266,8 +2342,9 @@ export default async function SolTrendApp() {
                     <h2>\${project?.name || 'Desert Sun Solar Farm'}</h2>
                     <div class="project-details">\${project?.location || 'Phoenix, AZ'} • Client: \${project?.client || 'NextEra Energy'} • PM: \${project?.projectManager || 'Sarah K.'}</div>
                   </div>
-                  <div class="project-badge">\${project?.status || 'Active'}</div>
+                  \${reportScheduleBlockHtml(project)}
                 </div>
+                \${reportAttentionHtml(dayAttentionItems)}
                 <div class="weather-section">
                   <div class="weather-icon">\${weatherIcon}</div>
                   <div class="weather-info">
@@ -2302,7 +2379,6 @@ export default async function SolTrendApp() {
                   <div class="qc-card total"><div class="value">\${totalInspected}</div><div class="label">Inspected</div></div>
                   <div class="qc-card pass"><div class="value">\${passed}</div><div class="label">Passed</div></div>
                   <div class="qc-card fail"><div class="value">\${failed}</div><div class="label">Failed</div></div>
-                  <div class="qc-card hold"><div class="value">0</div><div class="label">On Hold</div></div>
                   <div class="qc-card refusal"><div class="value">\${dayRefusals}</div><div class="label">Refusals</div></div>
                 </div>
                 <div class="section-title">Delays</div>
@@ -2372,7 +2448,7 @@ export default async function SolTrendApp() {
             // permitting, equipment, materials, other), which only shows
             // something when a delay was actually recorded.
             const weekDelaysList = (state.delays || []).filter(function(d) { return d.date >= startStr && d.date <= endStr; });
-            const scheduleStatus = projectScheduleStatus();
+            const weekAttentionItems = projectAttentionItems(project);
             // Refusal percentage - was a hardcoded "<=5 refusals = below avg"
             // threshold with no real average behind it. Now the real rate:
             // refusals as a share of piles actually installed this week.
@@ -2417,17 +2493,15 @@ export default async function SolTrendApp() {
                   .trend-bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; }
                   .trend-bar { width: 100%; background: linear-gradient(to top, #3b82f6, #60a5fa); border-radius: 4px 4px 0 0; }
                   .trend-label { font-size: 10px; color: #64748b; margin-top: 6px; }
-                  .qc-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 25px; }
+                  .qc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 25px; }
                   .qc-card { border-radius: 10px; padding: 15px; text-align: center; }
                   .qc-card.pass { background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); border: 2px solid #22c55e; }
                   .qc-card.fail { background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); border: 2px solid #ef4444; }
-                  .qc-card.hold { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border: 2px solid #f59e0b; }
                   .qc-card.refusal { background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%); border: 2px solid #f97316; }
                   .qc-card.total { background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); border: 2px solid #6366f1; }
                   .qc-card .value { font-size: 28px; font-weight: 800; }
                   .qc-card.pass .value { color: #16a34a; }
                   .qc-card.fail .value { color: #dc2626; }
-                  .qc-card.hold .value { color: #d97706; }
                   .qc-card.refusal .value { color: #ea580c; }
                   .qc-card.total .value { color: #4f46e5; }
                   .qc-card .label { font-size: 10px; font-weight: 600; text-transform: uppercase; margin-top: 4px; }
@@ -2466,8 +2540,9 @@ export default async function SolTrendApp() {
                     <h2>\${project?.name || 'Desert Sun Solar Farm'}</h2>
                     <div class="project-details">\${project?.location || 'Phoenix, AZ'} • \${project?.totalPiles || 0} Total Piles</div>
                   </div>
-                  <div class="project-badge" style="background:\${scheduleStatus.bg};color:\${scheduleStatus.fg};">\${scheduleStatus.label}</div>
+                  \${reportScheduleBlockHtml(project)}
                 </div>
+                \${reportAttentionHtml(weekAttentionItems)}
                 <div class="section-title">Weather Summary</div>
                 <div class="weather-week">
                   \${dailyWeather ? dailyWeather.time.slice(0, 5).map((d, i) => {
@@ -2501,7 +2576,6 @@ export default async function SolTrendApp() {
                   <div class="qc-card total"><div class="value">\${weekInspections.length}</div><div class="label">Inspected</div></div>
                   <div class="qc-card pass"><div class="value">\${weekPassed}</div><div class="label">Passed</div></div>
                   <div class="qc-card fail"><div class="value">\${weekFailed}</div><div class="label">Failed</div></div>
-                  <div class="qc-card hold"><div class="value">0</div><div class="label">On Hold</div></div>
                   <div class="qc-card refusal"><div class="value">\${weekRefusals}</div><div class="label">Refusals</div></div>
                 </div>
                 <div class="section-title">Project Progress</div>
@@ -2604,7 +2678,7 @@ export default async function SolTrendApp() {
             // badge, below, pulls from the same place real data lives - see
             // projectScheduleStatus()).
             const monthDelaysList = (state.delays || []).filter(function(d) { return d.date >= monthStartStr && d.date <= monthEndStr; });
-            const scheduleStatus = projectScheduleStatus();
+            const monthAttentionItems = projectAttentionItems(project);
             // Crew Performance Rankings - was hardcoded Alpha/Beta/Gamma
             // names with fixed 96.2/93.8/91.4% regardless of what crews
             // actually exist or how they performed. Ranks real crews by
@@ -2699,8 +2773,9 @@ export default async function SolTrendApp() {
                     <h2>\${project?.name || 'Desert Sun Solar Farm'}</h2>
                     <div class="project-details">\${project?.location || 'Phoenix, AZ'} • Client: \${project?.client || 'NextEra Energy'}</div>
                   </div>
-                  <div class="project-badge" style="background:\${scheduleStatus.bg};color:\${scheduleStatus.fg};">\${scheduleStatus.label}</div>
+                  \${reportScheduleBlockHtml(project)}
                 </div>
+                \${reportAttentionHtml(monthAttentionItems)}
                 <div class="section-title">Key Performance Indicators</div>
                 <div class="kpi-grid">
                   <div class="kpi-card highlight"><div class="value">\${Math.round(((project?.installedPiles || 0) / (project?.totalPiles || 1)) * 100)}%</div><div class="label">Complete</div></div>
@@ -2844,6 +2919,34 @@ export default async function SolTrendApp() {
             const inspectorRows = Object.values(byInspector).sort(function(a, b) { return b.total - a.total; });
 
             const meterColor = function(rate) { return rate >= 90 ? '#22c55e' : rate >= 70 ? '#eda100' : '#ef4444'; };
+
+            // Needs Attention: open project-level RFI/submittal/punch issues,
+            // plus any pile currently showing a failed inspection. Inspection
+            // is upserted one-per-pile (see pile-qaqc-import route), so a
+            // 'fail' status IS the current, unresolved state for that pile -
+            // there's no separate history of an older fail getting superseded
+            // by a later pass to check against.
+            const qcStuckFails = state.inspections.filter(function(i) { return i.status === 'fail'; });
+            const qcAttentionItems = projectAttentionItems(project).concat(
+              qcStuckFails.length > 0
+                ? ['Pile' + (qcStuckFails.length === 1 ? '' : 's') + ' ' + qcStuckFails.slice(0, 5).map(function(i) { return i.pileId; }).join(', ') + (qcStuckFails.length > 5 ? ' (+' + (qcStuckFails.length - 5) + ' more)' : '') + ' failed QC with no passing re-inspection on record.']
+                : []
+            );
+
+            // Narrative summary - same idea as the Daily/Weekly/Monthly
+            // reports' auto-generated text, built from this report's own
+            // real numbers rather than a template sentence with nothing
+            // behind it.
+            const qcNarrative = (function() {
+              const topReason = reasonRows.slice().sort(function(a, b) { return b.value - a.value; })[0];
+              const topInspector = inspectorRows.length > 0 ? inspectorRows.slice().sort(function(a, b) {
+                const ra = a.total > 0 ? a.passed / a.total : 0, rb = b.total > 0 ? b.passed / b.total : 0;
+                return rb - ra;
+              })[0] : null;
+              const reasonText = (topReason && topReason.value > 0) ? (', with "' + topReason.label.replace(/_/g, ' ') + '" the most common failure reason (' + topReason.value + ')') : '';
+              const inspectorText = topInspector ? ('. ' + topInspector.name + ' logged the most inspections (' + topInspector.total + ', ' + Math.round((topInspector.passed / topInspector.total) * 100) + '% pass rate)') : '';
+              return 'Of ' + total + ' inspections in this range, ' + passed + ' passed and ' + failed + ' failed (' + passRate + '% pass rate)' + reasonText + inspectorText + '.';
+            })();
             const reportContent = \`
               <!DOCTYPE html>
               <html>
@@ -2867,12 +2970,21 @@ export default async function SolTrendApp() {
                   th { background: #f1f5f9; font-weight: 600; }
                   .note { color: #94a3b8; font-size: 11px; margin-top: 8px; }
                   .footer { margin-top: 40px; text-align: center; color: #94a3b8; font-size: 12px; }
+                  .notes-section { background: #faf5ff; border: 2px dashed #a855f7; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
+                  .notes-section h3 { font-size: 14px; font-weight: 700; color: #6b21a8; margin-bottom: 10px; }
+                  .notes-content { font-size: 13px; color: #581c87; line-height: 1.6; }
                 </style>
               </head>
               <body>
                 <div class="header">
                   <h1>Quality Control Report</h1>
                   <p>\${project?.name || 'SolTrend Pro'} | \${new Date(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                  <p style="font-size:12px;color:#a855f7;font-weight:600;">\${reportScheduleLineText(project)}</p>
+                </div>
+                \${reportAttentionHtml(qcAttentionItems)}
+                <div class="notes-section">
+                  <h3>Summary</h3>
+                  <div class="notes-content">\${qcNarrative}</div>
                 </div>
                 <div class="section">
                   <h2>Inspection Summary</h2>
@@ -2910,15 +3022,16 @@ export default async function SolTrendApp() {
                 \${inspectorRows.length > 0 ? \`
                 <div class="section">
                   <h2>By Inspector</h2>
-                  <table>
-                    <thead><tr><th>Inspector</th><th>Inspections</th><th>Passed</th><th>Failed</th><th>Pass Rate</th></tr></thead>
-                    <tbody>
-                      \${inspectorRows.map(function(r) {
-                        const rate = r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
-                        return '<tr><td>' + r.name + '</td><td>' + r.total + '</td><td class="pass">' + r.passed + '</td><td class="fail">' + (r.total - r.passed) + '</td><td>' + rate + '%</td></tr>';
-                      }).join('')}
-                    </tbody>
-                  </table>
+                  <div style="display:flex;flex-direction:column;gap:10px;">
+                    \${inspectorRows.map(function(r) {
+                      const rate = r.total > 0 ? Math.round((r.passed / r.total) * 100) : 0;
+                      return '<div style="display:flex;align-items:center;gap:10px;">' +
+                        '<div style="width:150px;font-size:12px;color:#475569;text-align:right;flex-shrink:0;">' + r.name + '</div>' +
+                        '<div style="flex:1;background:#f1f5f9;border-radius:4px;height:18px;"><div style="width:' + rate + '%;height:100%;background:' + meterColor(rate) + ';border-radius:4px;"></div></div>' +
+                        '<div style="width:150px;font-size:12px;color:#1e293b;font-weight:600;flex-shrink:0;">' + rate + '% (' + r.passed + '/' + r.total + ')</div>' +
+                      '</div>';
+                    }).join('')}
+                  </div>
                 </div>
                 \` : ''}
                 <div class="section">
@@ -2977,6 +3090,14 @@ export default async function SolTrendApp() {
               });
             }
 
+            const pileStatusAttentionItems = projectAttentionItems(project);
+            const pileStatusNarrative = (function() {
+              const totalPiles = project?.totalPiles || 0;
+              const completionPct = totalPiles > 0 ? Math.round(((project?.installedPiles || 0) / totalPiles) * 100) : 0;
+              const zoneText = zoneRows.length > 0 ? ('. ' + zoneRows.length + ' zone' + (zoneRows.length === 1 ? '' : 's') + ' tracked on the custom layout') : '';
+              return formatNumber(totalPiles) + ' total piles across the layout: ' + statusCounts.pass + ' passed, ' + statusCounts.fail + ' failed, ' + statusCounts.refusal + ' refused, and ' + statusCounts.notstarted + ' not yet inspected (' + completionPct + '% installed)' + zoneText + '.';
+            })();
+
             const reportContent = \`
               <!DOCTYPE html>
               <html>
@@ -2998,12 +3119,21 @@ export default async function SolTrendApp() {
                   .refusal { color: #f97316; }
                   .pending { color: #64748b; }
                   .footer { margin-top: 40px; text-align: center; color: #94a3b8; font-size: 12px; }
+                  .notes-section { background: #ecfeff; border: 2px dashed #06b6d4; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
+                  .notes-section h3 { font-size: 14px; font-weight: 700; color: #0e7490; margin-bottom: 10px; }
+                  .notes-content { font-size: 13px; color: #155e75; line-height: 1.6; }
                 </style>
               </head>
               <body>
                 <div class="header">
                   <h1>Pile Status Report</h1>
                   <p>\${project?.name || 'SolTrend Pro'} | \${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+                  <p style="font-size:12px;color:#06b6d4;font-weight:600;">\${reportScheduleLineText(project)}</p>
+                </div>
+                \${reportAttentionHtml(pileStatusAttentionItems)}
+                <div class="notes-section">
+                  <h3>Summary</h3>
+                  <div class="notes-content">\${pileStatusNarrative}</div>
                 </div>
                 <div class="section">
                   <h2>Status Overview</h2>
@@ -3132,6 +3262,33 @@ export default async function SolTrendApp() {
               return { label: reason, color: reportColorFor(idx) };
             }).concat([{ label: 'No refusal', color: '#e2e8f0' }]);
 
+            // Needs Attention: open project-level RFI/submittal/punch issues,
+            // plus any large-shortfall refusal (48"+) that hasn't since been
+            // resolved by a real follow-up inspection (getInspectionStatus()
+            // checks Inspection before falling back to Refusal, so it still
+            // reads 'refusal' here only when nothing has superseded it).
+            const refusalAttentionItems = (function() {
+              const items = projectAttentionItems(project);
+              const unresolvedBigShortfalls = rangeRefusals.filter(function(r) {
+                const shortfall = (r.targetDepth || 72) - (r.achievedDepth || 0);
+                return shortfall >= 48 && getInspectionStatus(r.pileId) === 'refusal';
+              });
+              if (unresolvedBigShortfalls.length > 0) {
+                items.push('Pile' + (unresolvedBigShortfalls.length === 1 ? '' : 's') + ' ' + unresolvedBigShortfalls.slice(0, 5).map(function(r) { return r.pileId; }).join(', ') + (unresolvedBigShortfalls.length > 5 ? ' (+' + (unresolvedBigShortfalls.length - 5) + ' more)' : '') + ' refused 48"+ short of target depth with no resolving re-inspection on record.');
+              }
+              return items;
+            })();
+
+            // Narrative summary - mirrors the other reports' auto-generated
+            // text, built from this report's own computed numbers.
+            const refusalNarrative = (function() {
+              const topReason = reasonRows.slice().sort(function(a, b) { return b.value - a.value; })[0];
+              const reasonText = (topReason && topReason.value > 0) ? (', most often due to "' + topReason.label.replace(/_/g, ' ') + '" (' + topReason.value + ')') : '';
+              const bigBucket = shortfallRows[shortfallRows.length - 1];
+              const bigText = (bigBucket && bigBucket.value > 0) ? ('. ' + bigBucket.value + ' refusal' + (bigBucket.value === 1 ? '' : 's') + ' came in 48"+ short of target depth') : '';
+              return rangeRefusals.length + ' refusal' + (rangeRefusals.length === 1 ? '' : 's') + ' logged in this range, averaging ' + avgShortfallReport + '" short of target depth' + reasonText + bigText + '.';
+            })();
+
             const reportContent = \`
               <!DOCTYPE html>
               <html>
@@ -3153,15 +3310,24 @@ export default async function SolTrendApp() {
                   th { background: #f1f5f9; font-weight: 600; }
                   .note { color: #94a3b8; font-size: 11px; margin-top: 8px; }
                   .footer { margin-top: 40px; text-align: center; color: #94a3b8; font-size: 12px; }
+                  .notes-section { background: #fff7ed; border: 2px dashed #f97316; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
+                  .notes-section h3 { font-size: 14px; font-weight: 700; color: #9a3412; margin-bottom: 10px; }
+                  .notes-content { font-size: 13px; color: #7c2d12; line-height: 1.6; }
                 </style>
               </head>
               <body>
                 <div class="header">
                   <h1>Refusal Analysis Report</h1>
                   <p>\${project?.name || 'SolTrend Pro'} | \${new Date(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                  <p style="font-size:12px;color:#f97316;font-weight:600;">\${reportScheduleLineText(project)}</p>
+                </div>
+                \${reportAttentionHtml(refusalAttentionItems)}
+                <div class="notes-section">
+                  <h3>Summary</h3>
+                  <div class="notes-content">\${refusalNarrative}</div>
                 </div>
                 <div class="section">
-                  <h2>Summary</h2>
+                  <h2>Key Metrics</h2>
                   <div class="stats">
                     <div class="stat-box"><div class="value">\${rangeRefusals.length}</div><div class="label">Total Refusals</div></div>
                     <div class="stat-box"><div class="value">\${avgDepth}"</div><div class="label">Avg Achieved Depth</div></div>
@@ -3202,6 +3368,144 @@ export default async function SolTrendApp() {
                 </div>
                 <div class="footer">
                   <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
+                </div>
+              </body>
+              </html>
+            \`;
+            openReportWindow(reportContent);
+          }
+
+          // Portfolio Report - a company-wide rollup across every active
+          // project, for execs who need the whole book of business on one
+          // page rather than opening each project's reports in turn. Reuses
+          // the exact per-project computation renderActiveProjectsTable()
+          // already does for the live dashboard (schedule status/phase/
+          // timing from the milestone helpers, open RFI/submittal/punch
+          // counts from the server-filtered project.rfis/submittals/
+          // punchItems), just rendered into the same printable template
+          // style as the other six reports instead of that table's Tailwind
+          // markup. It's a current-state snapshot, not a date-ranged
+          // report, so unlike the others it has no date picker.
+          function generatePortfolioReport() {
+            const projects = state.projects.filter(function(p) { return p.status !== 'archived'; });
+            const now = Date.now();
+
+            const rows = projects.map(function(project) {
+              const scheduleStatus = projectScheduleStatus(project.milestones);
+              const phase = currentMilestonePhase(project.milestones);
+              const timing = scheduleTiming(project);
+              const rfis = project.rfis || [];
+              const submittals = project.submittals || [];
+              const punchItems = project.punchItems || [];
+              const rfiBlocking = rfis.filter(function(r) { return r.blocking; });
+              const subOverdue = submittals.filter(function(s) { return s.dueDate && new Date(s.dueDate).getTime() < now; });
+              const punchOverdue = punchItems.filter(function(p) { return p.dueDate && new Date(p.dueDate).getTime() < now; });
+              const pilesPct = project.totalPiles > 0 ? Math.round((project.installedPiles / project.totalPiles) * 100) : 0;
+              return { project: project, scheduleStatus: scheduleStatus, phase: phase, timing: timing, rfis: rfis, submittals: submittals, punchItems: punchItems, rfiBlocking: rfiBlocking, subOverdue: subOverdue, punchOverdue: punchOverdue, pilesPct: pilesPct };
+            });
+
+            const totalPiles = projects.reduce(function(s, p) { return s + (p.totalPiles || 0); }, 0);
+            const installedPiles = projects.reduce(function(s, p) { return s + (p.installedPiles || 0); }, 0);
+            const totalPassed = projects.reduce(function(s, p) { return s + (p.passedInspections || 0); }, 0);
+            const totalFailed = projects.reduce(function(s, p) { return s + (p.failedInspections || 0); }, 0);
+            const totalRefusals = projects.reduce(function(s, p) { return s + (p.refusalCount || 0); }, 0);
+            const overallPct = totalPiles > 0 ? Math.round((installedPiles / totalPiles) * 100) : 0;
+            const portfolioPassRate = (totalPassed + totalFailed) > 0 ? Math.round((totalPassed / (totalPassed + totalFailed)) * 100) : 0;
+            const atRiskCount = rows.filter(function(r) { return r.scheduleStatus.label === 'Behind' || r.scheduleStatus.label === 'At Risk'; }).length;
+
+            // Company-wide Needs Attention: every open-item flag any single
+            // project's report would raise, rolled up here with the project
+            // name on each line so it still reads clearly out of context.
+            const portfolioAttentionItems = [];
+            rows.forEach(function(r) {
+              projectAttentionItems(r.project).forEach(function(item) {
+                portfolioAttentionItems.push('<strong>' + r.project.name + ':</strong> ' + item);
+              });
+            });
+
+            const portfolioNarrative = projects.length === 0
+              ? 'No active projects in the portfolio.'
+              : projects.length + ' active project' + (projects.length === 1 ? '' : 's') + ' totaling ' + formatNumber(totalPiles) + ' piles, ' + overallPct + '% installed company-wide. ' +
+                (atRiskCount > 0 ? atRiskCount + ' project' + (atRiskCount === 1 ? '' : 's') + ' currently At Risk or Behind schedule' : 'All projects currently On Track or without a schedule set') +
+                '. Portfolio QC pass rate: ' + portfolioPassRate + '%, with ' + formatNumber(totalRefusals) + ' total refusals on record.';
+
+            const reportContent = \`
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <title>Portfolio Report</title>
+                <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
+                  .report-header { display: flex; justify-content: space-between; border-bottom: 3px solid #6366f1; padding-bottom: 20px; margin-bottom: 25px; }
+                  .company-info h1 { font-size: 28px; font-weight: 800; color: #1e293b; }
+                  .company-info .company-name { font-size: 14px; color: #6366f1; font-weight: 600; text-transform: uppercase; }
+                  .report-meta { text-align: right; }
+                  .report-meta .report-type { font-size: 12px; color: #64748b; text-transform: uppercase; }
+                  .report-meta .report-date { font-size: 20px; font-weight: 700; color: #1e293b; }
+                  .section-title { font-size: 16px; font-weight: 700; color: #1e293b; margin-bottom: 15px; }
+                  .kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 25px; }
+                  .kpi-card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; text-align: center; }
+                  .kpi-card .value { font-size: 24px; font-weight: 800; color: #1e293b; }
+                  .kpi-card .label { font-size: 10px; color: #64748b; text-transform: uppercase; margin-top: 4px; }
+                  .kpi-card.highlight { background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); border: 2px solid #6366f1; }
+                  .kpi-card.highlight .value { color: #4338ca; }
+                  table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+                  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
+                  th { background: #1e293b; color: white; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+                  tr:nth-child(even) td { background: #f8fafc; }
+                  .notes-section { background: #eef2ff; border: 2px dashed #6366f1; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
+                  .notes-section h3 { font-size: 14px; font-weight: 700; color: #3730a3; margin-bottom: 10px; }
+                  .notes-content { font-size: 13px; color: #312e81; line-height: 1.6; }
+                  .report-footer { border-top: 2px solid #e2e8f0; padding-top: 15px; margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
+                </style>
+              </head>
+              <body>
+                <div class="report-header">
+                  <div class="company-info">
+                    <div class="company-name">\${state.company?.name || 'Apex Solar Construction'}</div>
+                    <h1>Portfolio Report</h1>
+                  </div>
+                  <div class="report-meta">
+                    <div class="report-type">Company-Wide Snapshot</div>
+                    <div class="report-date">\${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                  </div>
+                </div>
+                \${reportAttentionHtml(portfolioAttentionItems)}
+                <div class="notes-section">
+                  <h3>Executive Summary</h3>
+                  <div class="notes-content">\${portfolioNarrative}</div>
+                </div>
+                <div class="section-title">Portfolio KPIs</div>
+                <div class="kpi-grid">
+                  <div class="kpi-card highlight"><div class="value">\${projects.length}</div><div class="label">Active Projects</div></div>
+                  <div class="kpi-card"><div class="value">\${formatNumber(totalPiles)}</div><div class="label">Total Piles</div></div>
+                  <div class="kpi-card"><div class="value">\${overallPct}%</div><div class="label">Installed</div></div>
+                  <div class="kpi-card"><div class="value">\${portfolioPassRate}%</div><div class="label">QC Pass Rate</div></div>
+                  <div class="kpi-card"><div class="value">\${formatNumber(totalRefusals)}</div><div class="label">Total Refusals</div></div>
+                </div>
+                <div class="section-title">Projects</div>
+                <table>
+                  <thead><tr><th>Project</th><th>Piles</th><th>Phase</th><th>Schedule</th><th>Est. Finish</th><th>Open RFIs</th><th>Open Submittals</th><th>Open Punch</th></tr></thead>
+                  <tbody>
+                    \${rows.length > 0 ? rows.map(function(r) {
+                      const p = r.project;
+                      return '<tr>' +
+                        '<td><strong>' + p.name + '</strong><br><span style="color:#64748b;font-size:11px;">' + (p.location || '') + '</span></td>' +
+                        '<td>' + r.pilesPct + '%</td>' +
+                        '<td>' + (r.phase ? r.phase.phase + ' (' + (r.phase.percentComplete || 0) + '%)' : '<span style="color:#94a3b8;">No phase logged</span>') + '</td>' +
+                        '<td><span style="background:' + r.scheduleStatus.bg + ';color:' + r.scheduleStatus.fg + ';padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;text-transform:uppercase;">' + r.scheduleStatus.label + '</span></td>' +
+                        '<td style="color:' + (r.timing ? r.timing.hex : '#64748b') + ';">' + (r.timing ? r.timing.text : '—') + '</td>' +
+                        '<td style="' + (r.rfiBlocking.length > 0 ? 'color:#dc2626;font-weight:700;' : '') + '">' + r.rfis.length + '</td>' +
+                        '<td style="' + (r.subOverdue.length > 0 ? 'color:#dc2626;font-weight:700;' : '') + '">' + r.submittals.length + '</td>' +
+                        '<td style="' + (r.punchOverdue.length > 0 ? 'color:#dc2626;font-weight:700;' : '') + '">' + r.punchItems.length + '</td>' +
+                      '</tr>';
+                    }).join('') : '<tr><td colspan="8" style="text-align:center;color:#94a3b8;">No active projects.</td></tr>'}
+                  </tbody>
+                </table>
+                <div class="report-footer">
+                  <div>Generated by SolTrend Pro | \${new Date().toLocaleString()}</div>
+                  <div>\${projects.length} project\${projects.length === 1 ? '' : 's'}</div>
                 </div>
               </body>
               </html>
