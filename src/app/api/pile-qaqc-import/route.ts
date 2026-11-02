@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { resolveTargetDepthIn, parsePileTypeSpecs } from '@/lib/targetDepth'
 
 // Bulk pile QA/QC import - takes the already-parsed, already-converted
 // records built client-side by parseQaqcCsvText() (see page.tsx) and writes
@@ -31,13 +32,15 @@ type QaqcRecord = {
   refusalNotes: string | null
 }
 
-// Default target embedment depth (inches) when a record doesn't carry one
-// of its own - matches the same fallback /api/refusals itself uses, and
-// the demo-data generator's own assumed value. A real per-project design
-// value isn't tracked anywhere yet (see Project model) - if one exists for
-// this project, re-run the import with overwriteExisting after fixing it
-// up some other way, rather than this route guessing per-project values.
-const DEFAULT_TARGET_DEPTH_IN = 72
+// Target embedment depth for an imported refusal now comes from
+// resolveTargetDepthIn() (see src/lib/targetDepth.ts) - the project's
+// racking profile, matched to the specific pile's assigned type where one
+// exists, falling back to 72in only when neither that nor a single-type
+// profile shortcut resolves anything. If a pile's target still comes back
+// wrong after this, fix its type assignment (or the racking profile's
+// embedment minimum) and re-run /api/refusals/recompute-target-depth
+// rather than re-importing - it doesn't touch anything else about the
+// refusal.
 
 export async function POST(request: NextRequest) {
   try {
@@ -64,6 +67,11 @@ export async function POST(request: NextRequest) {
     if (!project) {
       return NextResponse.json({ error: 'Unknown project' }, { status: 404 })
     }
+
+    const rackingProfile = project.rackingProfileId
+      ? await prisma.rackingProfile.findUnique({ where: { id: project.rackingProfileId } })
+      : null
+    const pileTypeSpecs = parsePileTypeSpecs(rackingProfile?.pileTypeSpecs ?? null)
 
     let pilesCreated = 0
     let inspectionsCreated = 0
@@ -141,11 +149,16 @@ export async function POST(request: NextRequest) {
           where: { projectId_pileId: { projectId, pileId: rec.pileId } },
         })
         if (!existingRefusal || overwriteExisting) {
+          // existingPile may be null (this import creates a bare Pile row
+          // above with no pileType - the QA/QC sheet this route parses
+          // doesn't carry a type column) or it may already exist from a
+          // separate Pile Layout CSV import that did set one.
+          const targetDepth = resolveTargetDepthIn(existingPile?.pileType ?? null, pileTypeSpecs)
           await prisma.refusal.upsert({
             where: { projectId_pileId: { projectId, pileId: rec.pileId } },
             update: {
               reason: rec.reason || 'other',
-              targetDepth: DEFAULT_TARGET_DEPTH_IN,
+              targetDepth,
               notes: rec.refusalNotes ?? undefined,
               userId: session.user.id,
             },
@@ -155,7 +168,7 @@ export async function POST(request: NextRequest) {
               row: rec.row,
               pile: rec.pile,
               reason: rec.reason || 'other',
-              targetDepth: DEFAULT_TARGET_DEPTH_IN,
+              targetDepth,
               notes: rec.refusalNotes ?? null,
               userId: session.user.id,
             },

@@ -271,6 +271,12 @@ export default async function SolTrendApp() {
             // since/until window that produced them, so the actual delete
             // targets exactly what was shown.
             qaqcRevertPreview: null,
+            // Manager+ "recalculate refusal target depths" action - see
+            // checkTargetDepthRecompute/confirmTargetDepthRecompute and
+            // /api/refusals/recompute-target-depth. null until a check has
+            // been run; then holds the server's preview counts/sample, or
+            // { error } if the check itself failed.
+            targetDepthRecomputePreview: null,
             // Photo Gallery tab - standalone photos added directly (not via
             // an inspection/refusal/production entry); see GalleryPhoto in
             // schema.prisma and renderGallery() near the other view
@@ -4463,6 +4469,44 @@ export default async function SolTrendApp() {
             } catch (e) { console.error('Confirm QA/QC revert error:', e); alert('Failed to undo. Please try again.'); }
           }
 
+          // Preview-then-apply for /api/refusals/recompute-target-depth -
+          // same two-step shape as the QA/QC revert above (no mutation
+          // until the user sees the counts and confirms), but this one
+          // corrects values toward the truth rather than deleting
+          // anything, so it's manager+ rather than admin-only.
+          async function checkTargetDepthRecompute() {
+            hapticFeedback();
+            const projectId = state.currentProject?.id;
+            if (!projectId) return;
+            try {
+              const res = await fetch('/api/refusals/recompute-target-depth?projectId=' + encodeURIComponent(projectId));
+              const data = await res.json().catch(function() { return {}; });
+              if (!res.ok) { state.targetDepthRecomputePreview = { error: data.error || 'Failed to check target depths.' }; render(); return; }
+              state.targetDepthRecomputePreview = data;
+              render();
+            } catch (e) { console.error('Check target depth recompute error:', e); state.targetDepthRecomputePreview = { error: 'Failed to check target depths.' }; render(); }
+          }
+          function cancelTargetDepthRecompute() { state.targetDepthRecomputePreview = null; render(); }
+          async function confirmTargetDepthRecompute() {
+            const preview = state.targetDepthRecomputePreview;
+            if (!preview || !preview.wouldChange) return;
+            hapticFeedback();
+            try {
+              const projectId = state.currentProject?.id;
+              const res = await fetch('/api/refusals/recompute-target-depth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId }),
+              });
+              const data = await res.json().catch(function() { return {}; });
+              if (!res.ok) { alert(data.error || 'Failed to apply.'); return; }
+              alert('Updated target depth on ' + data.updated + ' refusal(s).');
+              state.targetDepthRecomputePreview = null;
+              await loadRefusals();
+              render();
+            } catch (e) { console.error('Confirm target depth recompute error:', e); alert('Failed to apply. Please try again.'); }
+          }
+
           function openPileModal(pileId) {
             if (pileId) {
               const p = state.piles.find(function(x) { return x.pileId === pileId; });
@@ -4639,7 +4683,7 @@ export default async function SolTrendApp() {
             const importCard = !canEdit ? '<div class="card rounded-xl p-4"><p class="text-sm text-slate-400">Only managers and admins can run a QA/QC import.</p></div>' : '<div class="card rounded-xl p-4 space-y-3">' +
               '<div class="flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Import from CSV</h3>' +
               '<button onclick="downloadQaqcCsvTemplate()" class="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">' + icon('download', 'w-3.5 h-3.5') + ' Download template</button></div>' +
-              '<p class="text-xs text-slate-400">Columns: pileId, predrilledDepthFt, stickupHeightIn, postAngleNS, postAngleEW, driveTime, refusalYN, finalIntervalIn, comments. Only pileId is required (accepts "R12P5" or "12-5"). Post angle readings are the raw gauge value where 90&deg; = plumb - converted automatically to a plumb-deviation reading. A row with refusalYN=N creates an Inspection record (status: pass). A row with refusalYN=Y creates a Refusal record instead - not also a passing inspection, since a drive log doesn\\'t carry a real QC sign-off; its reason is inferred from the comments (bedrock/cobble/obstruction/other), its readings go in its notes, and its target depth defaults to 72in unless this is re-run after a correction.</p>' +
+              '<p class="text-xs text-slate-400">Columns: pileId, predrilledDepthFt, stickupHeightIn, postAngleNS, postAngleEW, driveTime, refusalYN, finalIntervalIn, comments. Only pileId is required (accepts "R12P5" or "12-5"). Post angle readings are the raw gauge value where 90&deg; = plumb - converted automatically to a plumb-deviation reading. A row with refusalYN=N creates an Inspection record (status: pass). A row with refusalYN=Y creates a Refusal record instead - not also a passing inspection, since a drive log doesn\\'t carry a real QC sign-off; its reason is inferred from the comments (bedrock/cobble/obstruction/other), its readings go in its notes, and its target depth is pulled from the pile\\'s assigned racking profile type where one\\'s on file, falling back to 72in only when it isn\\'t.</p>' +
               '<input type="file" id="qaqcCsvInput" accept=".csv,text/csv" class="hidden" onchange="handleQaqcCsvSelect(event)">' +
               '<button onclick="triggerQaqcCsvInput()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('upload', 'w-3.5 h-3.5') + ' Choose CSV file</button>' +
               (preview ? (
@@ -4652,6 +4696,22 @@ export default async function SolTrendApp() {
               ) : '') +
               (result ? '<div class="border-t border-slate-700/50 pt-3"><p class="text-xs text-emerald-400">Imported: ' + result.inspectionsCreated + ' inspection' + (result.inspectionsCreated === 1 ? '' : 's') + ', ' + result.refusalsCreated + ' refusal' + (result.refusalsCreated === 1 ? '' : 's') + (result.pilesCreated > 0 ? ', ' + result.pilesCreated + ' new pile layout row' + (result.pilesCreated === 1 ? '' : 's') : '') + '.' + ((result.inspectionsSkipped + result.refusalsSkipped) > 0 ? ' Skipped ' + result.inspectionsSkipped + ' inspection' + (result.inspectionsSkipped === 1 ? '' : 's') + ' and ' + result.refusalsSkipped + ' refusal' + (result.refusalsSkipped === 1 ? '' : 's') + ' that already had a record (check "overwrite" to replace them instead).' : '') + '</p></div>' : '') +
               '</div>';
+
+            const depthPreview = state.targetDepthRecomputePreview;
+            const depthCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
+              '<h3 class="font-display font-semibold text-white text-sm">Recalculate refusal target depths</h3>' +
+              '<p class="text-xs text-slate-400">Every refusal on this project - imported or hand-logged, old or new - has its target embedment depth checked against the project\\'s active racking profile and each pile\\'s assigned type. Fixes it where a real number is on file; piles with no type assigned (or a profile with more than one type and nothing to match against) are left as-is. Safe to re-run any time pile types or racking profile tolerances change.</p>' +
+              '<button onclick="checkTargetDepthRecompute()" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium">Check</button>' +
+              (depthPreview ? (
+                '<div class="border-t border-slate-700/50 pt-3 space-y-2">' +
+                (depthPreview.error ? '<p class="text-xs text-red-400">' + depthPreview.error + '</p>' :
+                  depthPreview.wouldChange === 0 ? '<p class="text-xs text-slate-400">All ' + depthPreview.totalRefusals + ' refusal(s) on this project already match the active racking profile.' + (depthPreview.pileTypeCount === 0 ? ' (No pile types are configured on ' + (depthPreview.rackingProfileName || 'this project\\'s racking profile') + ' yet, so nothing can be matched.)' : '') + '</p>' :
+                  '<p class="text-xs text-amber-400">' + depthPreview.wouldChange + ' of ' + depthPreview.totalRefusals + ' refusal(s) would change: ' + depthPreview.matchedByPileType + ' matched by the pile\\'s own type, ' + depthPreview.matchedBySingleType + ' by ' + (depthPreview.rackingProfileName || 'the racking profile') + ' having a single pile type, ' + depthPreview.stillFallback + ' falling back to the 72in default (no type data to match).</p>' +
+                  '<div class="max-h-28 overflow-y-auto space-y-1">' + depthPreview.sample.map(function(c) { return '<p class="text-xs text-slate-400">' + c.pileId + ': ' + c.from + '" &rarr; ' + c.to + '"</p>'; }).join('') + (depthPreview.wouldChange > depthPreview.sample.length ? '<p class="text-xs text-slate-500">+ ' + (depthPreview.wouldChange - depthPreview.sample.length) + ' more</p>' : '') + '</div>' +
+                  '<div class="flex gap-2 pt-1"><button onclick="confirmTargetDepthRecompute()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold">Apply to ' + depthPreview.wouldChange + ' refusal' + (depthPreview.wouldChange === 1 ? '' : 's') + '</button><button onclick="cancelTargetDepthRecompute()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium">Cancel</button></div>') +
+                '</div>'
+              ) : '') +
+            '</div>';
 
             const revertPreview = state.qaqcRevertPreview;
             const revertTotal = revertPreview ? (revertPreview.inspectionsToDelete + revertPreview.refusalsToDelete + revertPreview.pilesToDelete) : 0;
@@ -4671,6 +4731,7 @@ export default async function SolTrendApp() {
             return '<div class="space-y-4 max-w-3xl">' +
               '<p class="text-sm text-slate-400">Bulk-load a field QA/QC master sheet into this project\\'s Inspection and Refusal logs - no per-pile hand entry.</p>' +
               importCard +
+              depthCard +
               dangerCard +
             '</div>';
           }
@@ -6001,9 +6062,45 @@ export default async function SolTrendApp() {
             } catch (e) { console.error('Save refusal error:', e); showToast('Failed to save this refusal - check your connection.', 'error'); }
           }
 
+          // Target embedment depth for a given pile, pulled from the
+          // project's active racking profile instead of a flat guess.
+          // Mirrors resolveTargetDepthIn() server-side (src/lib/targetDepth.ts) -
+          // keep the two in sync if this logic ever changes. If the pile has
+          // a type assigned (Settings -> Pile Layout) and that type has a
+          // real embedment minimum on file, use it. Pile-type assignment is
+          // inconsistent across projects, so as a second-best guess, a
+          // racking profile with exactly one pile type is assumed to apply
+          // to every pile on the project. Only when neither resolves
+          // anything does this fall back to the old flat 72in default.
+          function resolveRefusalTargetDepth(pileId) {
+            const DEFAULT_TARGET_DEPTH_IN = 72;
+            const activeProfile = state.rackingProfiles.find(function(r) { return r.id === state.currentProject?.rackingProfileId; });
+            const specs = (activeProfile && Array.isArray(activeProfile.pileTypeSpecs)) ? activeProfile.pileTypeSpecs : [];
+            const pile = (state.piles || []).find(function(p) { return p.pileId === pileId; });
+            if (pile && pile.pileType) {
+              const match = specs.find(function(t) { return t.id === pile.pileType; });
+              const minIn = match && match.tolerances ? match.tolerances.embedmentMinIn : null;
+              if (typeof minIn === 'number' && minIn > 0) return minIn;
+            }
+            if (specs.length === 1) {
+              const minIn = specs[0].tolerances ? specs[0].tolerances.embedmentMinIn : null;
+              if (typeof minIn === 'number' && minIn > 0) return minIn;
+            }
+            return DEFAULT_TARGET_DEPTH_IN;
+          }
+
           // REFUSAL - WITH PHOTO CAPTURE
           function renderRefusal() {
             const pid = getPileId(state.refusalRow, state.refusalPile);
+            // Re-derived on every render of this view (pile/row nav, a
+            // just-submitted refusal advancing to the next pile, a project
+            // switch, or restoring straight into this tab on app boot) so
+            // the Target field's default always matches whichever pile is
+            // showing, instead of carrying over the last pile's number.
+            // render() isn't called on every keystroke in this field (see
+            // updateRefusalShortfall below), so this can't clobber a value
+            // mid-edit.
+            state.targetDepth = resolveRefusalTargetDepth(pid);
             const sh = state.achievedDepth ? state.targetDepth - state.achievedDepth : null;
             // Thresholds were calibrated for millimeters (500/200mm); now
             // that depth is in inches, the equivalent cutoffs are ~20/8in.
