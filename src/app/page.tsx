@@ -2064,6 +2064,20 @@ export default async function SolTrendApp() {
           //      whatever edge case still manages to reuse the same tab.
           function openReportWindow(html) {
             const printHideStyle = '<style>@media print { .no-print { display: none !important; } }</style>';
+            // Every colored visual these reports draw - the pile map
+            // (reportPileGrid), bar charts (reportMiniBar/reportStackedBar/
+            // reportBarList), and legend swatches - is pure background-color
+            // on a plain span/div with no border or text to hold the ink.
+            // Browsers strip background colors/images when printing or
+            // "Save as PDF" by default (to save ink) unless the person
+            // manually ticks "Background graphics" in the print dialog - an
+            // easy-to-miss option most people never see. That's what Glen
+            // hit: the Pile Status/Refusal map rendered fine on screen, then
+            // came out blank once saved/printed, because every cell in it is
+            // nothing but a background color. Forcing print-color-adjust on
+            // everything makes the browser print backgrounds regardless of
+            // that checkbox, matching what's actually on screen.
+            const printColorStyle = '<style>* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }</style>';
             // None of the report templates declare a charset, which never
             // mattered under the old document.write() approach - that
             // inherited the already-open window's encoding. A blob: URL is
@@ -2077,7 +2091,7 @@ export default async function SolTrendApp() {
             // the browser is sniffing before it reaches that tag.
             const withToolbar = html
               .replace('<head>', '<head><meta charset="utf-8">')
-              .replace('</head>', printHideStyle + '</head>')
+              .replace('</head>', printHideStyle + printColorStyle + '</head>')
               .replace('<body>', '<body>' + reportToolbarHtml());
             // Third approach here, after two real bugs in the first two:
             //   1. blob: URL, revoked on a timer - broke in Safari outright
