@@ -241,6 +241,11 @@ export default async function SolTrendApp() {
               refusalStart: localDateStr(Date.now() - 30 * 24 * 60 * 60 * 1000),
               refusalEnd: localDateStr(Date.now())
             },
+            // Opt-in "include photos" checkboxes for Weekly/Monthly (QC and
+            // Refusal always include their own scoped photos automatically -
+            // see generateQCReport/generateRefusalReport - so there's
+            // nothing to toggle there).
+            reportOptions: { weeklyPhotos: false, monthlyPhotos: false },
             companyId: null,
             company: null,
             projects: [],
@@ -1625,11 +1630,13 @@ export default async function SolTrendApp() {
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('calendar', 'w-8 h-8 text-blue-400') + '<div><h3 class="font-display font-semibold text-white">Weekly Report</h3><p class="text-xs text-slate-400">7-day analysis</p></div></div>' +
                   '<div class="mb-3">' + calendarField('reportDates.weekly') + '</div>' +
+                  '<label class="flex items-center gap-2 mb-3 text-xs text-slate-300"><input type="checkbox" ' + (state.reportOptions.weeklyPhotos ? 'checked' : '') + ' onchange="state.reportOptions.weeklyPhotos=this.checked" class="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500"> Include photos from this week</label>' +
                   '<button onclick="generateWeeklyReport()" class="w-full py-2.5 bg-blue-500 hover:bg-blue-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('bar-chart', 'w-8 h-8 text-green-400') + '<div><h3 class="font-display font-semibold text-white">Monthly Report</h3><p class="text-xs text-slate-400">Full month analysis</p></div></div>' +
-                  '<input type="month" id="monthlyReportMonth" value="' + state.reportDates.monthly + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm mb-3">' +
+                  '<div class="mb-3">' + calendarField('reportDates.monthly') + '</div>' +
+                  '<label class="flex items-center gap-2 mb-3 text-xs text-slate-300"><input type="checkbox" ' + (state.reportOptions.monthlyPhotos ? 'checked' : '') + ' onchange="state.reportOptions.monthlyPhotos=this.checked" class="rounded border-slate-600 bg-slate-800 text-green-500 focus:ring-green-500"> Include photos from this month</label>' +
                   '<button onclick="generateMonthlyReport()" class="w-full py-2.5 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
               '</div>' +
@@ -2208,6 +2215,19 @@ export default async function SolTrendApp() {
           }
 
           // PDF GENERATION FUNCTIONS
+          // Reports render in a blob: document (see openReportWindow) so that
+          // mobile Safari doesn't tear down the live app when opening one -
+          // but blob: is a non-special URL scheme, so a root-relative path
+          // like "/api/photos/xyz.jpg" can't resolve against it the way it
+          // would on a normal page. Absolutize against the real app origin
+          // so a photo's <img>/background-image actually finds it. Shared by
+          // every report that embeds photos (Daily, and now Weekly, Monthly,
+          // QC, Refusal) - was local to generateDailyReport only.
+          const toAbsolutePhotoUrl = function(url) {
+            if (!url) return url;
+            if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+            return window.location.origin + (url.startsWith('/') ? url : '/' + url);
+          };
           async function generateDailyReport() {
             const date = state.reportDates.daily || localDateStr(Date.now());
             const project = state.currentProject;
@@ -2279,18 +2299,9 @@ export default async function SolTrendApp() {
             // refusals, and production entries (see uploadPendingPhotos) -
             // this report previously never showed any of them, just four
             // hardcoded "No photos captured" tiles regardless of what was
-            // actually on file for the date.
-            // Reports render in a blob: document (see openReportWindow) so
-            // that mobile Safari doesn't tear down the live app when opening
-            // one - but blob: is a non-special URL scheme, so a root-relative
-            // path like "/api/photos/xyz.jpg" can't resolve against it the
-            // way it would on a normal page. Absolutize against the real app
-            // origin so the <img>/background-image actually finds the photo.
-            const toAbsolutePhotoUrl = function(url) {
-              if (!url) return url;
-              if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
-              return window.location.origin + (url.startsWith('/') ? url : '/' + url);
-            };
+            // actually on file for the date. toAbsolutePhotoUrl is now a
+            // shared top-level function (see just above generateDailyReport)
+            // so Weekly/Monthly/QC/Refusal can reuse it too.
             // Pull from buildGalleryPhotos() - the one list already shared by
             // the Gallery tab - instead of hand-rolling inspection/refusal/
             // production photos here. Hand-rolling missed photos added
@@ -2510,6 +2521,15 @@ export default async function SolTrendApp() {
             // threshold with no real average behind it. Now the real rate:
             // refusals as a share of piles actually installed this week.
             const weekRefusalPct = weekProd > 0 ? ((weekRefusals / weekProd) * 100).toFixed(1) : (weekRefusals > 0 ? 'N/A' : '0.0');
+            // Opt-in via the "Include photos from this week" checkbox on the
+            // Reports tab (state.reportOptions.weeklyPhotos) - unlike QC/
+            // Refusal below, there's no single record type a week's photos
+            // naturally belong to, so this pulls every photo in the date
+            // range regardless of source (production, inspection, refusal,
+            // daily log, or added straight to the Gallery).
+            const weekPhotos = state.reportOptions.weeklyPhotos
+              ? buildGalleryPhotos().filter(function(p) { return p.date >= startStr && p.date <= endStr; }).map(function(p) { return { url: toAbsolutePhotoUrl(p.url), label: p.label }; })
+              : [];
 
             const reportContent = \`
               <!DOCTYPE html>
@@ -2578,6 +2598,8 @@ export default async function SolTrendApp() {
                   .notes-section { background: #eff6ff; border: 2px dashed #3b82f6; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
                   .notes-section h3 { font-size: 14px; font-weight: 700; color: #1e40af; margin-bottom: 10px; }
                   .notes-content { font-size: 13px; color: #1e3a8a; line-height: 1.6; }
+                  .photo-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
                   .report-footer { border-top: 2px solid #e2e8f0; padding-top: 15px; margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
                 </style>
               </head>
@@ -2668,6 +2690,7 @@ export default async function SolTrendApp() {
                   <h3>Weekly Summary Notes</h3>
                   <div class="notes-content">Strong production week with crews operating at \${avgDaily >= dailyTarget ? 'full' : 'near'} capacity. Daily average of \${avgDaily} piles \${avgDaily >= dailyTarget ? 'exceeds' : 'approaches'} the target of \${dailyTarget} piles/day. QC pass rate for the week was \${passRate}%. Refusal rate was \${weekRefusalPct}% of piles installed. \${weekRefusals > 0 ? weekRefusals + ' refusal(s) logged this week, engineering notified for review.' : 'No refusals encountered this week.'}</div>
                 </div>
+                \${state.reportOptions.weeklyPhotos ? '<div class="section-title">Photo Documentation</div><div class="photo-gallery">' + (weekPhotos.length > 0 ? weekPhotos.map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured this week</div>') + '</div>' : ''}
                 <div class="report-footer">
                   <div>Report prepared by: Project Management Team | Next report: \${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
                   <div>\${state.company?.name || 'Apex Solar Construction'} • Confidential</div>
@@ -2685,7 +2708,7 @@ export default async function SolTrendApp() {
             // were state.inspections.length et al with NO filtering at all -
             // company-lifetime totals labeled as if they were that month's.
             // Now derives the actual selected calendar month's boundaries.
-            const monthStr = document.getElementById('monthlyReportMonth')?.value || state.reportDates.monthly;
+            const monthStr = state.reportDates.monthly;
             const monthParts = monthStr.split('-').map(Number);
             const my = monthParts[0], mm = monthParts[1];
             const monthStartStr = my + '-' + pad2(mm) + '-01';
@@ -2752,6 +2775,12 @@ export default async function SolTrendApp() {
               if (b.rate === null) return -1;
               return b.rate - a.rate;
             }).slice(0, 3);
+            // Opt-in via the "Include photos from this month" checkbox on
+            // the Reports tab (state.reportOptions.monthlyPhotos) - every
+            // source, same reasoning as Weekly's weekPhotos above.
+            const monthPhotos = state.reportOptions.monthlyPhotos
+              ? buildGalleryPhotos().filter(function(p) { return p.date >= monthStartStr && p.date <= monthEndStr; }).map(function(p) { return { url: toAbsolutePhotoUrl(p.url), label: p.label }; })
+              : [];
 
             const reportContent = \`
               <!DOCTYPE html>
@@ -2811,6 +2840,8 @@ export default async function SolTrendApp() {
                   .notes-section { background: #f0fdf4; border: 2px dashed #22c55e; border-radius: 10px; padding: 20px; margin-top: 25px; }
                   .notes-section h3 { font-size: 14px; font-weight: 700; color: #166534; margin-bottom: 10px; }
                   .notes-content { font-size: 13px; color: #166534; line-height: 1.6; }
+                  .photo-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
                   .report-footer { border-top: 2px solid #e2e8f0; padding-top: 15px; margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
                 </style>
               </head>
@@ -2901,6 +2932,7 @@ export default async function SolTrendApp() {
                     return '<div class="notes-content">Performance: ' + monthLabel.split(' ')[0] + ' production ' + paceText + crewText + '. QC pass rate for the month was ' + passRate + '%. Month-over-Month: <span class="comparison-badge ' + (monthChange >= 0 ? 'positive' : 'negative') + '">' + (monthChange >= 0 ? '+' : '') + monthChange + '%</span> compared to previous month.</div>';
                   })()}
                 </div>
+                \${state.reportOptions.monthlyPhotos ? '<div class="section-title">Photo Documentation</div><div class="photo-gallery">' + (monthPhotos.length > 0 ? monthPhotos.map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured this month</div>') + '</div>' : ''}
                 <div class="report-footer">
                   <div>Report prepared for: \${project?.client || 'NextEra Energy'} | Submitted by: \${state.company?.name || 'Apex Solar'} Project Management</div>
                   <div>Distribution: Client, PM, Field Supervisors</div>
@@ -3004,6 +3036,15 @@ export default async function SolTrendApp() {
               const inspectorText = topInspector ? ('. ' + topInspector.name + ' logged the most inspections (' + topInspector.total + ', ' + Math.round((topInspector.passed / topInspector.total) * 100) + '% pass rate)') : '';
               return 'Of ' + total + ' inspections in this range, ' + passed + ' passed and ' + failed + ' failed (' + passRate + '% pass rate)' + reasonText + inspectorText + '.';
             })();
+            // Always included, no opt-in checkbox - unlike Weekly/Monthly,
+            // this report has one clear, unambiguous source to scope to:
+            // photos actually taken during a QC inspection (buildGalleryPhotos'
+            // source==='inspection'), not every photo on the project in this
+            // window. Production/gallery/refusal photos are deliberately
+            // excluded even if they fall in the date range.
+            const qcPhotos = buildGalleryPhotos()
+              .filter(function(p) { return p.source === 'inspection' && p.date >= startDate && p.date <= endDate; })
+              .map(function(p) { return { url: toAbsolutePhotoUrl(p.url), label: p.label }; });
             const reportContent = \`
               <!DOCTYPE html>
               <html>
@@ -3030,6 +3071,8 @@ export default async function SolTrendApp() {
                   .notes-section { background: #faf5ff; border: 2px dashed #a855f7; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
                   .notes-section h3 { font-size: 14px; font-weight: 700; color: #6b21a8; margin-bottom: 10px; }
                   .notes-content { font-size: 13px; color: #581c87; line-height: 1.6; }
+                  .photo-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
                 </style>
               </head>
               <body>
@@ -3103,6 +3146,11 @@ export default async function SolTrendApp() {
                     </tbody>
                   </table>
                   \${failedInRange.length > 20 ? '<p class="note">+ ' + (failedInRange.length - 20) + ' more not shown - see the Inspections CSV export for the full list.</p>' : ''}
+                </div>
+                <div class="section">
+                  <h2>Photo Documentation</h2>
+                  <div class="photo-gallery">\${qcPhotos.length > 0 ? qcPhotos.map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No inspection photos in this range</div>'}</div>
+                  <p class="note">Photos taken during a QC inspection only, in the date range above - not production or Gallery photos.</p>
                 </div>
                 <div class="footer">
                   <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
@@ -3345,6 +3393,13 @@ export default async function SolTrendApp() {
               const bigText = (bigBucket && bigBucket.value > 0) ? ('. ' + bigBucket.value + ' refusal' + (bigBucket.value === 1 ? '' : 's') + ' came in 48"+ short of target depth') : '';
               return rangeRefusals.length + ' refusal' + (rangeRefusals.length === 1 ? '' : 's') + ' logged in this range, averaging ' + avgShortfallReport + '" short of target depth' + reasonText + bigText + '.';
             })();
+            // Always included, no opt-in checkbox - same reasoning as QC's
+            // qcPhotos above: scoped to buildGalleryPhotos' source==='refusal'
+            // (photos actually attached to a refusal record), not every
+            // photo on the project in this window.
+            const refusalPhotos = buildGalleryPhotos()
+              .filter(function(p) { return p.source === 'refusal' && p.date >= startDate && p.date <= endDate; })
+              .map(function(p) { return { url: toAbsolutePhotoUrl(p.url), label: p.label }; });
 
             const reportContent = \`
               <!DOCTYPE html>
@@ -3370,6 +3425,8 @@ export default async function SolTrendApp() {
                   .notes-section { background: #fff7ed; border: 2px dashed #f97316; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
                   .notes-section h3 { font-size: 14px; font-weight: 700; color: #9a3412; margin-bottom: 10px; }
                   .notes-content { font-size: 13px; color: #7c2d12; line-height: 1.6; }
+                  .photo-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
                 </style>
               </head>
               <body>
@@ -3422,6 +3479,11 @@ export default async function SolTrendApp() {
                     </tbody>
                   </table>
                   \${rangeRefusals.length > 25 ? '<p class="note">+ ' + (rangeRefusals.length - 25) + ' more not shown - see the Refusals CSV export for the full list.</p>' : ''}
+                </div>
+                <div class="section">
+                  <h2>Photo Documentation</h2>
+                  <div class="photo-gallery">\${refusalPhotos.length > 0 ? refusalPhotos.map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No refusal photos in this range</div>'}</div>
+                  <p class="note">Photos attached to a refusal only, in the date range above - not inspection, production, or Gallery photos.</p>
                 </div>
                 <div class="footer">
                   <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
@@ -6559,6 +6621,13 @@ export default async function SolTrendApp() {
             'delayDate': { maxToday: true },
             'reportDates.daily': { maxToday: true, compact: true },
             'reportDates.weekly': { maxToday: true, compact: true },
+            // monthOnly swaps the day-grid dropdown for a 12-month grid and
+            // steps calendarCursor by year instead of by month - see
+            // toggleCalendar/navCalendar/renderCalendarDropdown below. The
+            // stored value is 'YYYY-MM', same format reportDates.monthly
+            // always used (generateMonthlyReport derives month start/end
+            // from it the same way regardless of how it was picked).
+            'reportDates.monthly': { maxToday: true, compact: true, monthOnly: true },
             'reportDates.qcStart': { maxToday: true, compact: true },
             'reportDates.qcEnd': { maxToday: true, compact: true },
             'reportDates.refusalStart': { maxToday: true, compact: true },
@@ -6587,6 +6656,11 @@ export default async function SolTrendApp() {
             obj[parts[parts.length - 1]] = value;
           }
           function formatCalendarDateLabel(dateStr, compact) {
+            // A month-only value is 'YYYY-MM' (no day) - detect by shape
+            // rather than threading opts through every call site.
+            if (/^\\d{4}-\\d{2}$/.test(dateStr)) {
+              return new Date(dateStr + '-01T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            }
             return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', compact ? { month: 'short', day: 'numeric', year: 'numeric' } : { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
           }
           // fieldPath can contain dots ('reportDates.qcStart') which aren't
@@ -6597,13 +6671,25 @@ export default async function SolTrendApp() {
             if (state.calendarOpenField === fieldPath) {
               state.calendarOpenField = null;
             } else {
+              const opts = CALENDAR_CONFIG[fieldPath] || {};
               const current = getStateByPath(fieldPath);
-              state.calendarCursor = (current || localDateStr(Date.now())).slice(0, 7);
+              // monthOnly: calendarCursor tracks just the year being
+              // browsed (a 4-digit string), not a 'YYYY-MM' month cursor -
+              // see navCalendar/renderCalendarDropdown below.
+              state.calendarCursor = opts.monthOnly
+                ? (current || localDateStr(Date.now()).slice(0, 7)).slice(0, 4)
+                : (current || localDateStr(Date.now())).slice(0, 7);
               state.calendarOpenField = fieldPath;
             }
             render();
           }
           function navCalendar(delta) {
+            const opts = CALENDAR_CONFIG[state.calendarOpenField] || {};
+            if (opts.monthOnly) {
+              state.calendarCursor = String(Number(state.calendarCursor) + delta);
+              render();
+              return;
+            }
             const parts = state.calendarCursor.split('-').map(Number);
             let y = parts[0], m = parts[1] + delta;
             if (m < 1) { m = 12; y -= 1; } else if (m > 12) { m = 1; y += 1; }
@@ -6620,6 +6706,7 @@ export default async function SolTrendApp() {
           // Portal() below is what decides where this lands on screen.
           function renderCalendarDropdown(fieldPath) {
             const opts = CALENDAR_CONFIG[fieldPath] || {};
+            if (opts.monthOnly) return renderMonthOnlyCalendarDropdown(fieldPath, opts);
             const todayStr = localDateStr(Date.now());
             const cursor = state.calendarCursor || todayStr.slice(0, 7);
             const parts = cursor.split('-').map(Number);
@@ -6648,6 +6735,36 @@ export default async function SolTrendApp() {
                 '<div class="grid grid-cols-7 gap-1 mb-1 justify-items-center">' + weekdays + '</div>' +
                 '<div class="grid grid-cols-7 gap-1 justify-items-center">' + cells + '</div>' +
                 '<button type="button" onclick="selectCalendarDate(\\'' + todayStr + '\\')" class="w-full mt-2 py-2 text-xs text-amber-400 hover:text-amber-300 font-medium">Jump to Today</button>' +
+              '</div>';
+          }
+          // Month-granularity variant for monthOnly fields (currently just
+          // reportDates.monthly) - a 12-month grid for one year at a time,
+          // with the year stepped by navCalendar instead of the month.
+          // Selected/stored value stays 'YYYY-MM', same shape every other
+          // caller of this field already expects.
+          const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          function renderMonthOnlyCalendarDropdown(fieldPath, opts) {
+            const todayStr = localDateStr(Date.now());
+            const currentMonthStr = todayStr.slice(0, 7);
+            const year = Number(state.calendarCursor) || Number(currentMonthStr.slice(0, 4));
+            const selected = getStateByPath(fieldPath) || (opts.maxToday ? currentMonthStr : '');
+            let cells = '';
+            for (let m = 1; m <= 12; m++) {
+              const ms = year + '-' + pad2(m);
+              const isDisabled = !!(opts.maxToday && ms > currentMonthStr);
+              const isSelected = ms === selected;
+              const isCurrent = ms === currentMonthStr;
+              const cls = isSelected ? 'bg-amber-500 text-black font-bold' : isDisabled ? 'text-slate-600 cursor-not-allowed' : isCurrent ? 'border border-amber-500 text-amber-400' : 'text-slate-200 hover:bg-slate-700';
+              cells += '<button type="button" ' + (isDisabled ? 'disabled' : 'onclick="selectCalendarDate(\\'' + ms + '\\')"') + ' class="h-12 rounded-lg text-sm font-medium flex items-center justify-center ' + cls + '">' + MONTH_ABBR[m - 1] + '</button>';
+            }
+            return '<div class="p-3 bg-slate-900 border border-slate-600 rounded-xl shadow-xl" style="width:272px;" onclick="event.stopPropagation()">' +
+                '<div class="flex items-center justify-between mb-2">' +
+                  '<button type="button" onclick="navCalendar(-1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-left', 'w-4 h-4') + '</button>' +
+                  '<span class="text-sm font-semibold text-white">' + year + '</span>' +
+                  '<button type="button" onclick="navCalendar(1)" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 text-slate-300">' + icon('chevron-right', 'w-4 h-4') + '</button>' +
+                '</div>' +
+                '<div class="grid grid-cols-3 gap-1.5">' + cells + '</div>' +
+                '<button type="button" onclick="selectCalendarDate(\\'' + currentMonthStr + '\\')" class="w-full mt-2 py-2 text-xs text-amber-400 hover:text-amber-300 font-medium">Jump to This Month</button>' +
               '</div>';
           }
           // Positions and fills #calendarPortal - the dedicated element
