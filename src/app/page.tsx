@@ -4971,12 +4971,34 @@ export default async function SolTrendApp() {
             state.piles = [];
             state.gallery = [];
             state.dailyLogs = [];
-            await Promise.all([
-              loadInspections(), loadRefusals(), loadProduction(), loadDelays(), loadPunchItems(),
-              loadToolboxTalks(), loadSafetyObservations(), loadSafetyIncidents(),
-              loadMilestones(), loadDocuments(), loadCois(), loadMaterials(), loadDeliveries(),
-              loadRfis(), loadSubmittals(), loadPiles(), loadGalleryPhotos(), loadDailyLogs()
-            ]);
+            // Every one of these 18 loaders calls render() on its own as
+            // soon as its own fetch resolves (see loadInspections etc.
+            // below) - each independently useful when a loader runs on its
+            // own elsewhere in the app. Run together here via Promise.all,
+            // their resolutions land in a burst over however long the
+            // slowest request takes, so #app's entire innerHTML got
+            // rebuilt - and Tailwind's CDN build re-scanned the whole page
+            // - up to 18 times in quick succession. That's the "blinks
+            // several times rapidly" reported switching back to a tab
+            // (refreshAllData calls this on visibilitychange) - also hit
+            // switching projects, just less noticed. renderSuppressCount
+            // makes every render() inside this batch a no-op; the single
+            // real render() after Promise.all settles catches up all of
+            // them at once. A counter rather than a boolean so an
+            // overlapping second loadProjectData() call (e.g. switching
+            // projects twice in quick succession) can't have its finally
+            // clear the first call's suppression early.
+            renderSuppressCount++;
+            try {
+              await Promise.all([
+                loadInspections(), loadRefusals(), loadProduction(), loadDelays(), loadPunchItems(),
+                loadToolboxTalks(), loadSafetyObservations(), loadSafetyIncidents(),
+                loadMilestones(), loadDocuments(), loadCois(), loadMaterials(), loadDeliveries(),
+                loadRfis(), loadSubmittals(), loadPiles(), loadGalleryPhotos(), loadDailyLogs()
+              ]);
+            } finally {
+              renderSuppressCount--;
+            }
             render();
           }
           async function loadDailyLogs() {
@@ -6667,6 +6689,21 @@ export default async function SolTrendApp() {
           // legal in a bare id selector, hence the swap below wherever a
           // field path is used as a DOM id.
           function calendarTriggerId(fieldPath) { return 'calendar-trigger-' + fieldPath.replace(/\\./g, '-'); }
+          // toggleCalendar/navCalendar/selectCalendarDate previously all
+          // called the full render() - which rebuilds #app's ENTIRE
+          // innerHTML - for what's really just a small fixed-position
+          // dropdown opening, paging, or closing. Since the app's CSS comes
+          // from Tailwind's CDN build (scans the DOM and injects rules
+          // after each change - see the revealApp() comment above
+          // initializeApp), every one of those full rebuilds produced a
+          // visible flash as Tailwind re-scanned the whole app. Clicking
+          // through a few months/years to find a date meant a flash per
+          // click - reported as the app "blinking" while picking dates.
+          // These three now only touch #calendarPortal (a dedicated node
+          // outside #app - see renderCalendarPortal) and, once a date is
+          // actually picked, the one trigger button whose label changed -
+          // never the rest of the page. Same pattern updateNotifUI() above
+          // already uses for the notification bell, for the same reason.
           function toggleCalendar(fieldPath) {
             if (state.calendarOpenField === fieldPath) {
               state.calendarOpenField = null;
@@ -6681,25 +6718,36 @@ export default async function SolTrendApp() {
                 : (current || localDateStr(Date.now())).slice(0, 7);
               state.calendarOpenField = fieldPath;
             }
-            render();
+            renderCalendarPortal();
           }
           function navCalendar(delta) {
             const opts = CALENDAR_CONFIG[state.calendarOpenField] || {};
             if (opts.monthOnly) {
               state.calendarCursor = String(Number(state.calendarCursor) + delta);
-              render();
+              renderCalendarPortal();
               return;
             }
             const parts = state.calendarCursor.split('-').map(Number);
             let y = parts[0], m = parts[1] + delta;
             if (m < 1) { m = 12; y -= 1; } else if (m > 12) { m = 1; y += 1; }
             state.calendarCursor = y + '-' + pad2(m);
-            render();
+            renderCalendarPortal();
           }
           function selectCalendarDate(dateStr) {
-            setStateByPath(state.calendarOpenField, dateStr);
+            const fieldPath = state.calendarOpenField;
+            setStateByPath(fieldPath, dateStr);
             state.calendarOpenField = null;
-            render();
+            renderCalendarPortal();
+            const trigger = fieldPath ? document.getElementById(calendarTriggerId(fieldPath)) : null;
+            if (trigger) {
+              trigger.outerHTML = calendarTriggerHtml(fieldPath);
+              if (window.lucide) lucide.createIcons();
+            } else {
+              // Trigger button isn't on screen (e.g. the view changed out
+              // from under an open picker) - fall back to a full render()
+              // rather than leaving the rest of the page stale.
+              render();
+            }
           }
           // Just the calendar's own content box (header/weekdays/day grid/
           // Jump to Today) with no positioning of its own - renderCalendar
@@ -6814,7 +6862,11 @@ export default async function SolTrendApp() {
           // unset; CALENDAR_CONFIG controls size and the max-today rule.
           // The dropdown itself no longer renders inline here - see
           // renderCalendarPortal() above.
-          function calendarField(fieldPath, placeholder) {
+          // Split out from calendarField() so selectCalendarDate() can
+          // refresh just the trigger button's own markup (new label, same
+          // id) after a pick, via outerHTML, instead of going through the
+          // full render() - see selectCalendarDate below for why.
+          function calendarTriggerHtml(fieldPath, placeholder) {
             const opts = CALENDAR_CONFIG[fieldPath] || {};
             const val = getStateByPath(fieldPath);
             const compact = !!opts.compact;
@@ -6823,7 +6875,10 @@ export default async function SolTrendApp() {
               ? 'w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm flex items-center justify-between'
               : 'w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white flex items-center justify-between';
             const iconClass = compact ? 'w-3.5 h-3.5 text-slate-400 flex-shrink-0' : 'w-4 h-4 text-slate-400 flex-shrink-0';
-            return '<div class="relative"><button type="button" id="' + calendarTriggerId(fieldPath) + '" onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="' + btnClass + '"><span' + (val ? '' : ' class="text-slate-400"') + '>' + label + '</span>' + icon('calendar', iconClass) + '</button></div>';
+            return '<button type="button" id="' + calendarTriggerId(fieldPath) + '" onclick="toggleCalendar(\\'' + fieldPath + '\\')" class="' + btnClass + '"><span' + (val ? '' : ' class="text-slate-400"') + '>' + label + '</span>' + icon('calendar', iconClass) + '</button>';
+          }
+          function calendarField(fieldPath, placeholder) {
+            return '<div class="relative">' + calendarTriggerHtml(fieldPath, placeholder) + '</div>';
           }
 
           // PRODUCTION - WITH PHOTO CAPTURE
@@ -7743,7 +7798,14 @@ export default async function SolTrendApp() {
           }
 
           // MAIN RENDER
+          // Incremented/decremented around a batch of parallel loads whose
+          // individual render() calls would otherwise land in a visible
+          // burst (see loadProjectData) - while > 0, render() is a no-op.
+          // A counter, not a boolean, so overlapping batches can't have one
+          // finishing early clear suppression the other still needs.
+          let renderSuppressCount = 0;
           function render() {
+            if (renderSuppressCount > 0) return;
             const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, dailylog: renderDailyLog, punchlist: renderPunchList, heatmap: renderHeatMap, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button>' + mobileHeaderBrand() + '<span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
@@ -7762,8 +7824,8 @@ export default async function SolTrendApp() {
           // than re-measuring on every scroll tick, just close it, the
           // same way clicking the backdrop does; same behavior most native
           // date pickers and dropdowns use.
-          window.addEventListener('scroll', function() { if (state.calendarOpenField) { state.calendarOpenField = null; render(); } }, { passive: true, capture: true });
-          window.addEventListener('resize', function() { if (state.calendarOpenField) { state.calendarOpenField = null; render(); } });
+          window.addEventListener('scroll', function() { if (state.calendarOpenField) { state.calendarOpenField = null; renderCalendarPortal(); } }, { passive: true, capture: true });
+          window.addEventListener('resize', function() { if (state.calendarOpenField) { state.calendarOpenField = null; renderCalendarPortal(); } });
 
           // Notifications poll every 60s (see initializeApp below) and can
           // also be marked read/opened at any time - none of that should
