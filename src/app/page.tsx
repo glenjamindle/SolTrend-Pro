@@ -8003,18 +8003,32 @@ export default async function SolTrendApp() {
           // loadProjectData()/loadNotifications() read that pointer.
           // Guarded against overlapping calls since both triggers below
           // (focus + the pull gesture) can otherwise fire close together.
+          //
+          // loadSettings() ends with its own render(), and loadProjectData()
+          // already collapses its own 18-loader burst into one render() via
+          // renderSuppressCount - but those are two separate renders back to
+          // back, each with its own Tailwind-CDN flash, which is why this
+          // still blinked twice after that fix. render() itself honors
+          // renderSuppressCount, so wrapping the whole refresh in it
+          // (instead of just loadProjectData's slice of it) suppresses
+          // loadSettings's render() too, and the explicit render() at the
+          // end catches everything up in one rebuild. The counter nests
+          // fine with loadProjectData's own increment/decrement.
           let isRefreshing = false;
           async function refreshAllData() {
             if (isRefreshing) return;
             isRefreshing = true;
+            renderSuppressCount++;
             try {
               await loadSettings();
               await Promise.all([loadProjectData(), loadNotifications()]);
             } catch (e) {
               console.error('Refresh error:', e);
             } finally {
+              renderSuppressCount--;
               isRefreshing = false;
             }
+            render();
           }
 
           // Pull-to-refresh. Deliberately NOT routed through render() on
