@@ -239,34 +239,44 @@ export async function POST(request: NextRequest) {
       case 'project': {
         if (data.id) {
           // totalPiles used to be recomputed from totalRows*pilesPerRow on
-          // EVERY save of this form, even when those two fields hadn't
-          // changed - so saving just the project name, status, or planned
-          // Tables/Modules could silently overwrite a totalPiles value that
-          // had been corrected by hand to not match rows*pilesPerRow (the
-          // grid shape and the real pile count aren't always the same
-          // thing - a project can be re-scoped without its row layout
-          // changing). Only recompute it when the grid shape itself is
-          // actually part of this save.
-          const existing = await prisma.project.findUnique({ where: { id: data.id }, select: { totalRows: true, pilesPerRow: true } })
-          const gridShapeChanged = !existing || existing.totalRows !== data.totalRows || existing.pilesPerRow !== data.pilesPerRow
+          // EVERY save of this form - so saving just the project name,
+          // status, or planned Tables/Modules could silently overwrite a
+          // totalPiles value that had nothing to do with rows*pilesPerRow
+          // (a custom per-pile layout's real count, for instance). That's
+          // exactly how one project ended up with a dashboard showing
+          // 5120/721 instead of its real 1484 piles. totalPiles is now a
+          // plain directly-edited field, same tier as totalTables/
+          // totalModules below - whatever the Edit Project modal's Total
+          // Piles box says is what gets saved, no derived recompute.
+          //
+          // totalRows/pilesPerRow (the grid SHAPE, as opposed to the pile
+          // COUNT) moved out of this general-purpose save entirely - they
+          // only come from applyStandardGridLayout() in the Pile Layout
+          // settings tab, which sends them explicitly alongside
+          // pileLayoutMode. An ordinary project-details save never
+          // includes them, so they're only written here when it does.
+          const projectUpdateData: Record<string, unknown> = {
+            name: data.name,
+            location: data.location,
+            client: data.client,
+            projectManager: data.projectManager,
+            dailyTarget: data.dailyTarget,
+            totalTables: data.totalTables || 0,
+            totalModules: data.totalModules || 0,
+            rackingProfileId: data.rackingProfileId,
+            status: data.status,
+            latitude: data.latitude ?? null,
+            longitude: data.longitude ?? null,
+          }
+          if (data.totalPiles !== undefined) projectUpdateData.totalPiles = data.totalPiles
+          if (data.totalRows !== undefined && data.pilesPerRow !== undefined) {
+            projectUpdateData.totalRows = data.totalRows
+            projectUpdateData.pilesPerRow = data.pilesPerRow
+            projectUpdateData.pileLayoutMode = data.pileLayoutMode || 'grid'
+          }
           const project = await prisma.project.update({
             where: { id: data.id },
-            data: {
-              name: data.name,
-              location: data.location,
-              client: data.client,
-              projectManager: data.projectManager,
-              dailyTarget: data.dailyTarget,
-              totalRows: data.totalRows,
-              pilesPerRow: data.pilesPerRow,
-              ...(gridShapeChanged ? { totalPiles: data.totalRows * data.pilesPerRow } : {}),
-              totalTables: data.totalTables || 0,
-              totalModules: data.totalModules || 0,
-              rackingProfileId: data.rackingProfileId,
-              status: data.status,
-              latitude: data.latitude ?? null,
-              longitude: data.longitude ?? null,
-            }
+            data: projectUpdateData
           })
           return NextResponse.json(project)
         } else {
@@ -282,9 +292,15 @@ export async function POST(request: NextRequest) {
               client: data.client,
               projectManager: data.projectManager,
               dailyTarget: data.dailyTarget || 35,
+              // New projects still start in 'grid' mode with a placeholder
+              // 50x30 shape (nothing else assumes a project has zero rows),
+              // but totalPiles now comes straight from the modal's Total
+              // Piles box rather than being derived from that placeholder -
+              // the real shape, if it matters, gets set via Standard Grid
+              // or a real layout import once the project exists.
               totalRows: data.totalRows || 50,
               pilesPerRow: data.pilesPerRow || 30,
-              totalPiles: (data.totalRows || 50) * (data.pilesPerRow || 30),
+              totalPiles: data.totalPiles || (data.totalRows || 50) * (data.pilesPerRow || 30),
               totalTables: data.totalTables || 0,
               totalModules: data.totalModules || 0,
               rackingProfileId: data.rackingProfileId,

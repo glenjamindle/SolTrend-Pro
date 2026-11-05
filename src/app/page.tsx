@@ -4678,6 +4678,36 @@ export default async function SolTrendApp() {
               '<p class="text-xs text-slate-400">' + (isCustom ? state.piles.filter(function(p) { return !p.skip; }).length + ' piles across ' + (project.totalRows || 0) + ' rows, imported or entered manually.' : 'Procedural ' + (project?.totalRows || 0) + ' x ' + (project?.pilesPerRow || 0) + ' rectangle - the default until a CSV is imported or a pile is added below.') + '</p></div>' +
               '</div>';
 
+            // Standard Grid - the other half of the "custom layout OR a
+            // generic rectangle" choice this tab now owns outright. Rows x
+            // Piles/Row used to live in the Edit Project modal, where
+            // saving ANY project field could silently recompute totalPiles
+            // from whatever was sitting in those two boxes (how Hogan's
+            // dashboard ended up at 5120/721 - see the Edit Project modal's
+            // comment). Moving it here means it only ever changes when
+            // someone's deliberately choosing a grid shape, not as a side
+            // effect of renaming a project. Gated off while isCustom - this
+            // builds a project's whole pile set procedurally, which makes
+            // no sense once there's a real per-pile layout on file; Clear
+            // Custom Layout in the Danger Zone below is the deliberate way
+            // back out of custom mode first.
+            const gridCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
+              '<h3 class="font-display font-semibold text-white text-sm">Standard Grid</h3>' +
+              (isCustom ?
+                '<p class="text-xs text-slate-400">This project has a real per-pile layout on file, so it isn\\'t built from a generic rows x piles/row rectangle. Use Clear Custom Layout below first if you want to switch it back to a procedural grid.</p>' +
+                '<button onclick="recomputePileStats()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('refresh-cw', 'w-3.5 h-3.5') + ' Resync Total Piles/Rows from layout</button>' +
+                '<p class="text-xs text-slate-500">Recomputes Total Piles and Rows from the ' + state.piles.filter(function(p) { return !p.skip; }).length + ' real piles below - use this if those numbers ever look wrong for this project.</p>' :
+                '<p class="text-xs text-slate-400">No real per-pile layout yet - the Pile Map is a procedural rectangle of this shape. Changing it here updates Total Piles to match (rows x piles/row).</p>' +
+                '<div class="grid grid-cols-2 gap-3">' +
+                  '<div><label class="text-xs text-slate-400 mb-1.5 block">Rows</label>' +
+                  '<input type="number" id="gridRows" value="' + (project?.totalRows || 50) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                  '<div><label class="text-xs text-slate-400 mb-1.5 block">Piles/Row</label>' +
+                  '<input type="number" id="gridPilesPerRow" value="' + (project?.pilesPerRow || 30) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '</div>' +
+                '<button onclick="applyStandardGridLayout()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('grid-3x3', 'w-3.5 h-3.5') + ' Apply Grid Layout</button>'
+              ) +
+              '</div>';
+
             const preview = state.pileCsvPreview;
             const importCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
               '<div class="flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Import from CSV</h3>' +
@@ -4723,10 +4753,89 @@ export default async function SolTrendApp() {
               '</div>' : '';
 
             return '<div class="space-y-4 max-w-3xl">' +
-              '<p class="text-sm text-slate-400">Import or edit the real pile-by-pile layout so the Pile Map and QC tolerances follow the actual site, gaps included.</p>' +
-              statusBanner + importCard + manualCard + dangerCard +
+              '<p class="text-sm text-slate-400">Import or edit the real pile-by-pile layout so the Pile Map and QC tolerances follow the actual site, gaps included - or use Standard Grid below for a project with no real layout yet.</p>' +
+              statusBanner + gridCard + importCard + manualCard + dangerCard +
               renderPileEditModal(typeOptions) +
             '</div>';
+          }
+
+          // Applies a procedural Rows x Piles/Row rectangle to a project
+          // that doesn't have a real per-pile layout on file. Sends the
+          // full current project back (not just the two changed fields) -
+          // /api/settings's project-update path has no "leave everything
+          // else alone" fallback for a partial payload (totalTables/
+          // totalModules in particular default to 0 when absent), the same
+          // reason the Edit Project modal always sends every field it owns.
+          async function applyStandardGridLayout() {
+            const project = state.currentProject;
+            if (!project) return;
+            const totalRows = parseInt(document.getElementById('gridRows')?.value) || 50;
+            const pilesPerRow = parseInt(document.getElementById('gridPilesPerRow')?.value) || 30;
+            if (!confirm('Set this project to a ' + totalRows + ' x ' + pilesPerRow + ' grid (' + (totalRows * pilesPerRow) + ' piles)? This replaces the current Total Piles value.')) return;
+            try {
+              const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'project',
+                  companyId: state.companyId,
+                  data: {
+                    id: project.id,
+                    name: project.name,
+                    location: project.location,
+                    client: project.client,
+                    projectManager: project.projectManager,
+                    dailyTarget: project.dailyTarget,
+                    totalTables: project.totalTables || 0,
+                    totalModules: project.totalModules || 0,
+                    rackingProfileId: project.rackingProfileId || null,
+                    status: project.status,
+                    latitude: project.latitude ?? null,
+                    longitude: project.longitude ?? null,
+                    totalRows: totalRows,
+                    pilesPerRow: pilesPerRow,
+                    pileLayoutMode: 'grid',
+                  }
+                })
+              });
+              if (response.ok) {
+                await loadSettings();
+                showToast('Grid layout applied - ' + (totalRows * pilesPerRow) + ' piles.', 'success');
+              } else {
+                const err = await response.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to apply grid layout. Please try again.');
+              }
+            } catch (e) {
+              console.error('Apply grid layout error:', e);
+              alert('Failed to apply grid layout. Please try again.');
+            }
+          }
+
+          // Re-syncs totalPiles/totalRows on a custom-layout project from
+          // the real Pile table - see /api/piles/recompute/route.ts. The
+          // one recovery path left for a custom project whose cached
+          // totals have drifted from its actual layout.
+          async function recomputePileStats() {
+            const project = state.currentProject;
+            if (!project) return;
+            try {
+              const response = await fetch('/api/piles/recompute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: project.id })
+              });
+              if (response.ok) {
+                const result = await response.json();
+                await loadSettings();
+                showToast('Resynced - ' + result.totalPiles + ' piles across ' + result.totalRows + ' rows.', 'success');
+              } else {
+                const err = await response.json().catch(function() { return {}; });
+                alert(err.error || 'Failed to resync. Please try again.');
+              }
+            } catch (e) {
+              console.error('Resync pile stats error:', e);
+              alert('Failed to resync. Please try again.');
+            }
           }
 
           // PILE QA/QC IMPORT SETTINGS - uploads a field QA/QC master sheet
@@ -7293,14 +7402,27 @@ export default async function SolTrendApp() {
                 '<input type="text" id="modalClient" value="' + (p.client || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Project Manager</label>' +
                 '<input type="text" id="modalPM" value="' + (p.projectManager || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                '<div class="grid grid-cols-3 gap-3">' +
-                  '<div><label class="text-xs text-slate-400 mb-2 block">Rows</label>' +
-                  '<input type="number" id="modalRows" value="' + (p.totalRows || 50) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
-                  '<div><label class="text-xs text-slate-400 mb-2 block">Piles/Row</label>' +
-                  '<input type="number" id="modalPilesPerRow" value="' + (p.pilesPerRow || 30) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<div class="grid grid-cols-2 gap-3">' +
+                  '<div><label class="text-xs text-slate-400 mb-2 block">Total Piles</label>' +
+                  '<input type="number" id="modalTotalPiles" value="' + (p.totalPiles || 0) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                   '<div><label class="text-xs text-slate-400 mb-2 block">Daily Target</label>' +
                   '<input type="number" id="modalTarget" value="' + (p.dailyTarget || 35) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '</div>' +
+                // Rows/Piles-per-row used to live here too, and saving this
+                // form at all - even just the name or daily target - would
+                // silently recompute totalPiles from whatever was in those
+                // two boxes. That's how Hogan's dashboard ended up showing
+                // 5120/721: a save here with stale Rows/Piles-per-row values
+                // overwrote the real 1484-pile count derived from the actual
+                // imported layout. Total Piles is now a single, plainly
+                // editable number here, same tier as Planned Tables/Modules
+                // below - it always means exactly what you type. The grid
+                // shape (Rows x Piles/Row, for a project with no real
+                // per-pile layout yet) and the real per-pile layout both
+                // moved to the Pile Layout tab in Settings instead, reached
+                // from the Pile Map's "Edit Layout" button - the one place
+                // that should be deciding the project's pile count/shape,
+                // not a side effect of editing the project's name.
                 '<div class="grid grid-cols-2 gap-3">' +
                   '<div><label class="text-xs text-slate-400 mb-2 block">Planned Tables</label>' +
                   '<input type="number" id="modalTotalTables" value="' + (p.totalTables || 0) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
@@ -7479,8 +7601,7 @@ export default async function SolTrendApp() {
                 location: document.getElementById('modalLocation')?.value || '',
                 client: document.getElementById('modalClient')?.value || '',
                 projectManager: document.getElementById('modalPM')?.value || '',
-                totalRows: parseInt(document.getElementById('modalRows')?.value) || 50,
-                pilesPerRow: parseInt(document.getElementById('modalPilesPerRow')?.value) || 30,
+                totalPiles: parseInt(document.getElementById('modalTotalPiles')?.value) || 0,
                 dailyTarget: parseInt(document.getElementById('modalTarget')?.value) || 35,
                 totalTables: parseInt(document.getElementById('modalTotalTables')?.value) || 0,
                 totalModules: parseInt(document.getElementById('modalTotalModules')?.value) || 0,
@@ -7491,10 +7612,10 @@ export default async function SolTrendApp() {
               data.latitude = latVal ? parseFloat(latVal) : null;
               data.longitude = lngVal ? parseFloat(lngVal) : null;
               data.rackingProfileId = document.getElementById('modalRackingProfileId')?.value || null;
-              // totalPiles is NOT sent here - the API recomputes it from
-              // totalRows/pilesPerRow itself, but only when those actually
-              // changed, so it can't silently clobber a totalPiles value
-              // that doesn't match rows*pilesPerRow (see settings route).
+              // totalRows/pilesPerRow are deliberately NOT sent from this
+              // form - see the comment above the modal's Total Piles field.
+              // They're only ever set via applyStandardGridLayout() in the
+              // Pile Layout settings tab, which sends them explicitly.
             } else if (item.type === 'crew') {
               data = {
                 name: document.getElementById('modalName')?.value || '',
