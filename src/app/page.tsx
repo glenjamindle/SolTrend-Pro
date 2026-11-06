@@ -3645,6 +3645,15 @@ export default async function SolTrendApp() {
           function renderHeatMap() {
             const { zoom, totalRows, pilesPerRow, search } = state.heatmap;
             const cellSize = Math.round(20 * zoom);
+            // The row-number label's font has its own ~15px line-height
+            // (Tailwind's text-[10px] default leading). Below cellSize 15
+            // (zoom < 0.75) that line-height - not the shrinking cells -
+            // is what was setting each row's height, so zooming out below
+            // 50% barely shrank the map at all. Tying the label's
+            // font-size/line-height to cellSize (capped at the original
+            // 10px/15px so normal zoom levels render unchanged) lets rows
+            // actually shrink to the cell size at low zoom.
+            const labelStyle = 'font-size:' + Math.min(10, cellSize) + 'px; line-height:' + Math.min(15, cellSize) + 'px';
             const term = (search || '').trim().toLowerCase();
             const isCustom = state.currentProject?.pileLayoutMode === 'custom' && state.piles && state.piles.length > 0;
             let matchCount = 0;
@@ -3685,7 +3694,7 @@ export default async function SolTrendApp() {
                   const borderColor = p.color ? p.color.toLowerCase().replace(/\s+/g, '') : '';
                   cells += '<button onclick="showPileDetails(\\'' + p.pileId + '\\')" class="heat-cell status-' + getInspectionStatus(p.pileId) + (term && !isMatch ? ' dimmed' : '') + '" style="width: ' + cellSize + 'px; height: ' + cellSize + 'px' + (borderColor && borderColor !== 'nocolor' ? '; border-bottom: 3px solid ' + borderColor : '') + '" title="' + p.pileId + (typeLabel ? ' · ' + typeLabel : '') + '"></button>';
                 });
-                rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-400 font-mono text-right pr-1">' + rowNum + '</span>' + cells + '</div>';
+                rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-slate-400 font-mono text-right pr-1" style="' + labelStyle + '">' + rowNum + '</span>' + cells + '</div>';
               });
               headerNote = 'Custom layout · ' + realPileCount + ' piles across ' + rowNums.length + ' rows';
             } else {
@@ -3697,7 +3706,7 @@ export default async function SolTrendApp() {
                   if (term && isMatch) matchCount++;
                   cells += '<button onclick="showPileDetails(\\'' + pileId + '\\')" class="heat-cell status-' + getInspectionStatus(pileId) + (term && !isMatch ? ' dimmed' : '') + '" style="width: ' + cellSize + 'px; height: ' + cellSize + 'px" title="' + pileId + '"></button>';
                 }
-                rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-[10px] text-slate-400 font-mono text-right pr-1">' + row + '</span>' + cells + '</div>';
+                rows += '<div class="flex items-center gap-0.5 mb-0.5"><span class="row-label w-8 text-slate-400 font-mono text-right pr-1" style="' + labelStyle + '">' + row + '</span>' + cells + '</div>';
               }
             }
             const editLayoutBtn = hasRole('manager') ? '<button onclick="state.settingsTab=\\'pileLayout\\'; navigateTo(\\'settings\\')" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('layout-grid', 'w-3.5 h-3.5') + ' Edit Layout</button>' : '';
@@ -3783,8 +3792,15 @@ export default async function SolTrendApp() {
               alert('Failed to delete. Please try again.');
             }
           }
+          // Min zoom used to be 0.5 (10px cells), which on a big custom
+          // layout - Hogan's is 70 display rows, up to 56 piles wide - is
+          // still taller than most screens (70 rows * 12px ~= 840px), so
+          // there was no zoom level that showed the whole site at once.
+          // 0.15 (3px cells, ~5px per row) gets a 70-row layout under
+          // 350px tall, comfortably fitting on screen for a full-site
+          // overview; zoom back in to click individual piles.
           function zoomIn() { state.heatmap.zoom = Math.min(2, state.heatmap.zoom + 0.25); render(); }
-          function zoomOut() { state.heatmap.zoom = Math.max(0.5, state.heatmap.zoom - 0.25); render(); }
+          function zoomOut() { state.heatmap.zoom = Math.max(0.15, state.heatmap.zoom - 0.25); render(); }
 
           // PHOTO GALLERY - one place to browse every photo on this project,
           // grouped by month, whether it came from a Production Entry, a QC
