@@ -7169,10 +7169,9 @@ export default async function SolTrendApp() {
                         '<p class="text-sm text-slate-400">' + p.location + '</p></div>' +
                         '<span class="px-2 py-1 text-xs rounded ' + (p.status === 'active' ? 'bg-green-500/20 text-green-400' : p.status === 'completed' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-500/20 text-slate-400') + '">' + p.status + '</span>' +
                       '</div>' +
-                      '<div class="grid grid-cols-3 gap-2 text-xs text-slate-400 mb-3">' +
+                      '<div class="grid grid-cols-2 gap-2 text-xs text-slate-400 mb-3">' +
                         '<div><span class="block text-slate-400">Total Piles</span><span class="text-white font-medium">' + p.totalPiles + '</span></div>' +
-                        '<div><span class="block text-slate-400">Rows</span><span class="text-white font-medium">' + p.totalRows + '</span></div>' +
-                        '<div><span class="block text-slate-400">Piles/Row</span><span class="text-white font-medium">' + p.pilesPerRow + '</span></div>' +
+                        '<div><span class="block text-slate-400">Daily Target</span><span class="text-white font-medium">' + (p.dailyTarget || 35) + '</span></div>' +
                       '</div>' +
                       (canEdit || canDelete ? '<div class="flex gap-2">' +
                         (canEdit ? '<button onclick="openEditModal(\\'project\\', ' + (p.id ? '\\'' + p.id + '\\'' : 'null') + ')" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Edit</button>' : '') +
