@@ -17,7 +17,10 @@ export async function GET(request: NextRequest) {
 
     const refusals = await prisma.refusal.findMany({
       where: { projectId },
-      include: { user: { select: { name: true } } },
+      include: {
+        user: { select: { name: true } },
+        resolvedBy: { select: { name: true } },
+      },
       orderBy: { createdAt: 'desc' },
     })
 
@@ -30,6 +33,9 @@ export async function GET(request: NextRequest) {
       achievedDepth: r.achievedDepth,
       notes: r.notes,
       status: r.status,
+      resolutionNotes: r.resolutionNotes,
+      resolvedBy: r.resolvedBy,
+      resolvedAt: r.resolvedAt,
       photos: r.photos ? JSON.parse(r.photos) : [],
       gps: r.gps ? JSON.parse(r.gps) : null,
     }))
@@ -126,6 +132,62 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error saving refusal:', error)
     return NextResponse.json({ error: 'Failed to save refusal' }, { status: 500 })
+  }
+}
+
+// PATCH /api/refusals
+// body: { projectId, pileId, status, resolutionNotes?, resolvedBy }
+// Updates a refusal's remediation status (open / resolved / redesign_required)
+// without touching the original field-logged data (reason, targetDepth,
+// achievedDepth, notes, photos, gps) - resolutionNotes is a separate field
+// for what was done to close it out, not a replacement of what was logged
+// at the time of the refusal. Reopening (status: 'open') clears
+// resolvedBy/resolvedAt so a reopened refusal doesn't carry a stale
+// "resolved by / at" from a previous resolution.
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { projectId, pileId, status, resolutionNotes, resolvedBy } = body
+
+    if (!projectId || !pileId || !status) {
+      return NextResponse.json({ error: 'projectId, pileId and status are required' }, { status: 400 })
+    }
+    if (!['open', 'resolved', 'redesign_required'].includes(status)) {
+      return NextResponse.json({ error: 'status must be open, resolved, or redesign_required' }, { status: 400 })
+    }
+
+    const existing = await prisma.refusal.findUnique({
+      where: { projectId_pileId: { projectId, pileId } },
+    })
+    if (!existing) {
+      return NextResponse.json({ error: 'Refusal not found' }, { status: 404 })
+    }
+
+    const isReopen = status === 'open'
+    let resolvedById: string | null = null
+    if (!isReopen) {
+      const userExists = resolvedBy ? await prisma.user.findUnique({ where: { id: resolvedBy } }) : null
+      resolvedById = userExists ? userExists.id : null
+    }
+
+    const refusal = await prisma.refusal.update({
+      where: { projectId_pileId: { projectId, pileId } },
+      data: {
+        status,
+        resolutionNotes: isReopen ? null : (resolutionNotes ?? existing.resolutionNotes),
+        resolvedById: isReopen ? null : resolvedById,
+        resolvedAt: isReopen ? null : new Date(),
+      },
+      include: {
+        user: { select: { name: true } },
+        resolvedBy: { select: { name: true } },
+      },
+    })
+
+    return NextResponse.json(refusal)
+  } catch (error) {
+    console.error('Error updating refusal:', error)
+    return NextResponse.json({ error: 'Failed to update refusal' }, { status: 500 })
   }
 }
 

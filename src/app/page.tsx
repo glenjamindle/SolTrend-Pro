@@ -317,6 +317,19 @@ export default async function SolTrendApp() {
             refusalRow: 1, refusalPile: 1,
             targetDepth: 72, achievedDepth: null, refusalReason: null, refusalNotes: '', refusalPhotos: [],
             openRefusals: 8,
+            // Refusal List (see renderRefusalList) - the "X Open" pill on
+            // the field logging screen above navigates here. Separate from
+            // the one-at-a-time logging screen on purpose (see
+            // claude/session-handoff notes): that screen stays a fast
+            // field-entry flow, this is where refusals get reviewed and
+            // closed out. refusalListFilter picks which status pill is
+            // active; refusalListExpanded holds the pileId of the one card
+            // (if any) with its inline resolve panel open; the two below
+            // hold that panel's in-progress edits until Save/Cancel.
+            refusalListFilter: 'open',
+            refusalListExpanded: null,
+            refusalResolveStatus: null,
+            refusalResolveNotes: '',
             // date/piles/tables/modules were previously read straight off
             // the uncontrolled DOM inputs instead of being tracked here -
             // harmless on its own, but render() replaces the whole #app DOM
@@ -1305,7 +1318,18 @@ export default async function SolTrendApp() {
             // refusal records). The typo made this NaN on every real
             // project, which then propagated into the Needs Attention badge
             // below since it reuses this same value.
-            const openIssues = project.failedInspections + (project.refusalCount || 0);
+            // refusalCount is an all-time cumulative counter (see POST
+            // /api/refusals) - it never goes back down once a refusal is
+            // resolved, so this badge kept counting resolved refusals as
+            // still "needing attention" forever. Now that loadRefusals()
+            // actually carries status through, count only the ones that
+            // are genuinely still open.
+            const openRefusalsCount = state.refusals.filter(function(r) { return r.status === 'open'; }).length;
+            const resolvedRefusalsCount = state.refusals.filter(function(r) { return r.status === 'resolved'; }).length;
+            const redesignRefusalsCount = state.refusals.filter(function(r) { return r.status === 'redesign_required'; }).length;
+            const totalRefusalsCount = state.refusals.length;
+            const resolvedRefusalsPct = totalRefusalsCount > 0 ? Math.round((resolvedRefusalsCount / totalRefusalsCount) * 100) : 0;
+            const openIssues = project.failedInspections + openRefusalsCount;
             // Tables/Modules progress for this one project - same shape as
             // the Company Dashboard rollup, just not summed across projects.
             const tablesPct = project.totalTables > 0 ? Math.round(((project.tablesInstalled || 0) / project.totalTables) * 100) : 0;
@@ -1354,13 +1378,28 @@ export default async function SolTrendApp() {
                 (!project.totalTables && !project.totalModules ? '<p class="text-xs text-slate-400 pt-1">Set planned Tables/Modules totals for this project in Settings to see progress here.</p>' : '') +
                 '</div>' +
               '</div>' +
+              // Refusal Remediation - tracks refusals from logged to
+              // resolved. Deliberately separate from the Piles/Tables/
+              // Modules progress above: this is rework on piles already
+              // installed, not a new construction phase, so it doesn't
+              // belong blended into that completion math.
+              (totalRefusalsCount > 0 ? '<div class="card rounded-xl p-5">' +
+                '<div class="flex items-center justify-between mb-1"><h3 class="font-display font-semibold text-white">Refusal Remediation</h3><button onclick="navigateTo(\\'refusalList\\')" class="text-xs text-amber-400 hover:text-amber-300 font-medium">View List →</button></div>' +
+                '<div class="flex justify-between text-sm mb-1.5 mt-3"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-green-400">●</span> Resolved</span><span class="text-white font-medium">' + resolvedRefusalsCount + ' / ' + totalRefusalsCount + ' <span class="text-slate-400 font-normal">· ' + resolvedRefusalsPct + '%</span></span></div>' +
+                '<div class="h-2 bg-slate-700 rounded-full overflow-hidden mb-4"><div class="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full" style="width: ' + resolvedRefusalsPct + '%"></div></div>' +
+                '<div class="grid grid-cols-3 gap-2 text-center">' +
+                  '<div class="bg-slate-800/50 rounded-lg p-2"><p class="text-lg font-bold text-red-400">' + openRefusalsCount + '</p><p class="text-[10px] text-slate-400 uppercase">Open</p></div>' +
+                  '<div class="bg-slate-800/50 rounded-lg p-2"><p class="text-lg font-bold text-green-400">' + resolvedRefusalsCount + '</p><p class="text-[10px] text-slate-400 uppercase">Resolved</p></div>' +
+                  '<div class="bg-slate-800/50 rounded-lg p-2"><p class="text-lg font-bold text-purple-400">' + redesignRefusalsCount + '</p><p class="text-[10px] text-slate-400 uppercase">Redesign</p></div>' +
+                '</div>' +
+              '</div>' : '') +
               '<div class="grid lg:grid-cols-3 gap-4">' +
                 '<div class="space-y-3">' +
                   '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-400">Pass Rate</p><p class="font-display text-xl font-bold text-white">' + passRate + '%</p><p class="text-[11px] text-slate-400 mt-0.5"><span class="text-green-400">' + (project.passedInspections || 0) + ' pass</span> · <span class="text-red-400">' + (project.failedInspections || 0) + ' fail</span></p></div><div class="w-12 h-12 rounded-full border-4 border-green-500 flex items-center justify-center text-green-400 font-bold">' + passRate + '</div></div>' +
                   '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-400">Open Issues</p><p class="font-display text-xl font-bold text-white">' + openIssues + '</p></div><div class="w-12 h-12 rounded-full border-4 border-red-500 flex items-center justify-center text-red-400 font-bold">' + openIssues + '</div></div>' +
                   '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 mb-2">Active Profile</p><p class="text-sm font-medium text-white">' + (state.rackingProfiles.find(r => r.id === project.rackingProfileId)?.name || 'N/A') + '</p></div>' +
                 '</div>' +
-                '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3 flex items-center justify-between">Needs Attention <span class="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400">' + openIssues + '</span></h3><div class="space-y-2 max-h-48 overflow-y-auto">' + state.inspections.filter(i => i.status === 'fail').slice(0, 3).map(i => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + i.pileId + '</span><span class="text-red-400">Failed</span></div>').join('') + state.refusals.slice(0, 2).map(r => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + r.pileId + '</span><span class="text-orange-400">Refusal</span></div>').join('') + '</div></div>' +
+                '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3 flex items-center justify-between">Needs Attention <span class="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400">' + openIssues + '</span></h3><div class="space-y-2 max-h-48 overflow-y-auto">' + state.inspections.filter(i => i.status === 'fail').slice(0, 3).map(i => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + i.pileId + '</span><span class="text-red-400">Failed</span></div>').join('') + state.refusals.filter(function(r) { return r.status === 'open'; }).slice(0, 2).map(r => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + r.pileId + '</span><span class="text-orange-400">Refusal</span></div>').join('') + '</div></div>' +
                 '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3">Recent Activity</h3><div class="space-y-3 max-h-48 overflow-y-auto">' + (function() { const feed = computeRecentActivity(); return feed.length > 0 ? feed.map(a => '<div class="activity-item ' + a.type + ' pl-4 py-1"><p class="text-sm text-slate-300">' + a.message + '</p><p class="text-xs text-slate-400">' + a.user + ' · ' + a.time + '</p></div>').join('') : '<p class="text-sm text-slate-400">No activity logged yet.</p>'; })() + '</div></div>' +
               '</div>' +
             '</div>';
@@ -3532,12 +3571,13 @@ export default async function SolTrendApp() {
                 <div class="section">
                   <h2>Refusals in Range</h2>
                   <table>
-                    <thead><tr><th>Pile ID</th><th>Reason</th><th>Target Depth</th><th>Achieved</th><th>Shortfall</th></tr></thead>
+                    <thead><tr><th>Pile ID</th><th>Reason</th><th>Target Depth</th><th>Achieved</th><th>Shortfall</th><th>Status</th><th>Resolution</th></tr></thead>
                     <tbody>
-                      \${rangeRefusals.slice(0, 25).map(r =>
-                        '<tr><td>' + r.pileId + '</td><td class="capitalize">' + r.reason + '</td><td>' + r.targetDepth + '"</td><td>' + (r.achievedDepth || 'N/A') + '"</td><td>' + (r.achievedDepth ? (r.targetDepth - r.achievedDepth) + '"' : '-') + '</td></tr>'
-                      ).join('')}
-                      \${rangeRefusals.length === 0 ? '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">No refusals in this range</td></tr>' : ''}
+                      \${rangeRefusals.slice(0, 25).map(r => {
+                        const statusLabel = r.status === 'resolved' ? 'Resolved' : r.status === 'redesign_required' ? 'Redesign Required' : 'Open';
+                        return '<tr><td>' + r.pileId + '</td><td class="capitalize">' + r.reason + '</td><td>' + r.targetDepth + '"</td><td>' + (r.achievedDepth || 'N/A') + '"</td><td>' + (r.achievedDepth ? (r.targetDepth - r.achievedDepth) + '"' : '-') + '</td><td>' + statusLabel + '</td><td>' + (r.resolutionNotes || '-') + '</td></tr>';
+                      }).join('')}
+                      \${rangeRefusals.length === 0 ? '<tr><td colspan="7" style="text-align:center;color:#94a3b8;">No refusals in this range</td></tr>' : ''}
                     </tbody>
                   </table>
                   \${rangeRefusals.length > 25 ? '<p class="note">+ ' + (rangeRefusals.length - 25) + ' more not shown - see the Refusals CSV export for the full list.</p>' : ''}
@@ -6190,21 +6230,35 @@ export default async function SolTrendApp() {
               const data = await res.json();
               if (Array.isArray(data)) {
                 data.forEach(dbRef => {
-                  const exists = state.refusals.find(r => r.pileId === dbRef.pileId);
-                  if (!exists) {
-                    state.refusals.push({
-                      pileId: dbRef.pileId,
-                      reason: dbRef.reason,
-                      timestamp: new Date(dbRef.reportedAt).getTime(),
-                      user: dbRef.user?.name || 'Unknown',
-                      targetDepth: dbRef.targetDepth,
-                      achievedDepth: dbRef.achievedDepth,
-                      notes: dbRef.notes || '',
-                      photos: dbRef.photos || []
-                    });
-                  }
+                  // Previously this only pushed a refusal the FIRST time it
+                  // was seen (if (!exists) push), so a status/resolution
+                  // change made elsewhere (another device, the Refusal List,
+                  // a direct DB edit) never synced into an already-loaded
+                  // local entry without a full page reload. Also previously
+                  // dropped status/resolutionNotes/resolvedBy/resolvedAt
+                  // entirely even though the API already returns them, so
+                  // every loaded refusal looked permanently "open" to the
+                  // rest of the app. Now always refresh the local entry
+                  // with the latest server fields, replacing in place like
+                  // submitRefusal() does for a fresh local log.
+                  const shaped = {
+                    pileId: dbRef.pileId,
+                    reason: dbRef.reason,
+                    timestamp: new Date(dbRef.reportedAt).getTime(),
+                    user: dbRef.user?.name || 'Unknown',
+                    targetDepth: dbRef.targetDepth,
+                    achievedDepth: dbRef.achievedDepth,
+                    notes: dbRef.notes || '',
+                    photos: dbRef.photos || [],
+                    status: dbRef.status || 'open',
+                    resolutionNotes: dbRef.resolutionNotes || '',
+                    resolvedBy: dbRef.resolvedBy?.name || null,
+                    resolvedAt: dbRef.resolvedAt ? new Date(dbRef.resolvedAt).getTime() : null
+                  };
+                  const existingIdx = state.refusals.findIndex(r => r.pileId === dbRef.pileId);
+                  if (existingIdx >= 0) state.refusals[existingIdx] = shaped; else state.refusals.push(shaped);
                 });
-                state.openRefusals = data.filter(r => r.status === 'open').length || data.length;
+                state.openRefusals = data.filter(r => r.status === 'open').length;
                 render();
               }
             } catch (e) { console.error('Load refusals error:', e); }
@@ -6382,7 +6436,7 @@ export default async function SolTrendApp() {
             // between the two modes.
             const notesPanel = '<div class="card rounded-xl p-4 mb-3"><h3 class="font-display font-semibold text-white text-sm mb-3">Notes</h3>' +
               '<textarea id="refusalNotesInput" rows="3" placeholder="What was encountered, crew observations, anything relevant to follow-up..." oninput="state.refusalNotes=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.refusalNotes || '') + '</textarea></div>';
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Pile Refusals</h1><span class="badge-open px-3 py-1.5 rounded-full text-sm">' + state.openRefusals + ' Open</span></div><div class="pile-display p-6"><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.refusalRow + '</span><button onclick="incRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-400 mb-1 block">Target (in)</label><input type="number" id="refusalTarget" value="' + state.targetDepth + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div><div><label class="text-xs text-slate-400 mb-1 block">Achieved (in)</label><input type="number" id="refusalDepth" value="' + (state.achievedDepth||'') + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div></div><div id="refusalShortfallBox" class="' + sc + ' rounded-xl p-4 text-center"><span class="text-sm text-slate-400">Shortfall: <span id="refusalShortfallValue">' + shortfallText + '</span></span></div><div><label class="text-xs text-slate-400 mb-2 block">Reason</label><div class="grid grid-cols-4 gap-2">' + ['bedrock', 'cobble', 'obstruction', 'other'].map(r => '<button onclick="setRefusalReason(\\'' + r + '\\')" class="reason-btn ' + (state.refusalReason===r?'reason-btn-selected':'') + '"><span class="text-xs text-white capitalize">' + r + '</span></button>').join('') + '</div></div>' + notesPanel + '<div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('refusal') + '</div><button onclick="submitRefusal()" class="w-full py-4 bg-red-600 text-white rounded-xl font-bold mt-4">LOG REFUSAL</button></div>';
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Pile Refusals</h1><button onclick="navigateTo(\\'refusalList\\')" class="badge-open px-3 py-1.5 rounded-full text-sm hover:brightness-110 transition" title="View and resolve logged refusals">' + state.openRefusals + ' Open</button></div><div class="pile-display p-6"><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.refusalRow + '</span><button onclick="incRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-400 mb-1 block">Target (in)</label><input type="number" id="refusalTarget" value="' + state.targetDepth + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div><div><label class="text-xs text-slate-400 mb-1 block">Achieved (in)</label><input type="number" id="refusalDepth" value="' + (state.achievedDepth||'') + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div></div><div id="refusalShortfallBox" class="' + sc + ' rounded-xl p-4 text-center"><span class="text-sm text-slate-400">Shortfall: <span id="refusalShortfallValue">' + shortfallText + '</span></span></div><div><label class="text-xs text-slate-400 mb-2 block">Reason</label><div class="grid grid-cols-4 gap-2">' + ['bedrock', 'cobble', 'obstruction', 'other'].map(r => '<button onclick="setRefusalReason(\\'' + r + '\\')" class="reason-btn ' + (state.refusalReason===r?'reason-btn-selected':'') + '"><span class="text-xs text-white capitalize">' + r + '</span></button>').join('') + '</div></div>' + notesPanel + '<div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('refusal') + '</div><button onclick="submitRefusal()" class="w-full py-4 bg-red-600 text-white rounded-xl font-bold mt-4">LOG REFUSAL</button></div>';
           }
           // Updates the Shortfall box live as the Target/Achieved inputs
           // are typed into, without going through render() - a full
@@ -6428,7 +6482,14 @@ export default async function SolTrendApp() {
               // same fix: without this, a refusal logged this session never
               // showed its photos in the Gallery or Daily Report until a
               // full reload pulled the real record back from the server.
-              photos: []
+              photos: [],
+              // Matches the server default (see schema.prisma) so a
+              // freshly-logged refusal shows as Open in the Refusal List
+              // immediately, before the next loadRefusals() round-trip.
+              status: 'open',
+              resolutionNotes: '',
+              resolvedBy: null,
+              resolvedAt: null
             };
             // Replace, don't append, for the same reason as recordInspection:
             // re-logging a refusal for a pile that already has one shouldn't
@@ -6448,6 +6509,158 @@ export default async function SolTrendApp() {
             render();
             // Save to database
             saveRefusal(refusal, photos);
+          }
+
+          // REFUSAL LIST - reviewing/closing out logged refusals. Reached
+          // via the "X Open" pill on the field logging screen above
+          // (navigateTo('refusalList')), not a separate nav item - Glen
+          // was explicit that the one-at-a-time logging screen has to stay
+          // the primary entry point for field crews, so this list is a
+          // drill-in from it rather than a replacement for it.
+          function refusalStatusBadge(status) {
+            const map = {
+              open: ['bg-red-500/20 text-red-300', 'Open'],
+              resolved: ['bg-green-500/20 text-green-300', 'Resolved'],
+              redesign_required: ['bg-purple-500/20 text-purple-300', 'Redesign Required']
+            };
+            const m = map[status] || map.open;
+            return '<span class="text-xs px-2 py-0.5 rounded-full font-medium ' + m[0] + '">' + m[1] + '</span>';
+          }
+          function setRefusalListFilter(filter) {
+            hapticFeedback();
+            state.refusalListFilter = filter;
+            state.refusalListExpanded = null;
+            render();
+          }
+          // Opens the inline resolve panel pre-set to 'status' (what the
+          // clicked action button means to do), or closes it if that same
+          // action on that same card is clicked again. Pre-fills the notes
+          // textarea from any resolution note already on file, so editing
+          // an existing resolution doesn't start blank.
+          function openRefusalResolvePanel(pileId, status) {
+            hapticFeedback();
+            if (state.refusalListExpanded === pileId && state.refusalResolveStatus === status) {
+              state.refusalListExpanded = null;
+              return render();
+            }
+            const r = state.refusals.find(function(x) { return x.pileId === pileId; });
+            state.refusalListExpanded = pileId;
+            state.refusalResolveStatus = status;
+            state.refusalResolveNotes = (r && r.resolutionNotes) || '';
+            render();
+          }
+          function cancelRefusalResolve() {
+            hapticFeedback();
+            state.refusalListExpanded = null;
+            render();
+          }
+          async function saveRefusalResolution(pileId) {
+            hapticFeedback();
+            const status = state.refusalResolveStatus;
+            const notes = (state.refusalResolveNotes || '').trim();
+            if (status !== 'open' && !notes) {
+              showToast('Add a resolution note before saving.', 'error');
+              return;
+            }
+            const projectId = state.currentProject?.id || 'proj_001';
+            const idx = state.refusals.findIndex(function(r) { return r.pileId === pileId; });
+            const prev = idx >= 0 ? Object.assign({}, state.refusals[idx]) : null;
+            // Optimistic local update, same pattern as submitRefusal/
+            // recordInspection - rolled back below if the PATCH fails.
+            if (idx >= 0) {
+              state.refusals[idx] = Object.assign({}, state.refusals[idx], {
+                status: status,
+                resolutionNotes: status === 'open' ? '' : notes,
+                resolvedBy: status === 'open' ? null : state.currentUser.name,
+                resolvedAt: status === 'open' ? null : Date.now()
+              });
+            }
+            state.openRefusals = state.refusals.filter(function(r) { return r.status === 'open'; }).length;
+            state.refusalListExpanded = null;
+            render();
+            try {
+              const res = await fetch('/api/refusals', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: projectId, pileId: pileId, status: status, resolutionNotes: notes, resolvedBy: state.currentUser.id })
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(function() { return {}; });
+                showToast(err.error || 'Failed to update this refusal.', 'error');
+                if (prev && idx >= 0) { state.refusals[idx] = prev; state.openRefusals = state.refusals.filter(function(r) { return r.status === 'open'; }).length; render(); }
+              } else {
+                showToast('Refusal updated.', 'success');
+              }
+            } catch (e) {
+              console.error('Update refusal error:', e);
+              showToast('Failed to update this refusal - check your connection.', 'error');
+              if (prev && idx >= 0) { state.refusals[idx] = prev; state.openRefusals = state.refusals.filter(function(r) { return r.status === 'open'; }).length; render(); }
+            }
+          }
+          function renderRefusalList() {
+            const all = state.refusals.slice().sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
+            const counts = {
+              open: all.filter(function(r) { return r.status === 'open'; }).length,
+              resolved: all.filter(function(r) { return r.status === 'resolved'; }).length,
+              redesign_required: all.filter(function(r) { return r.status === 'redesign_required'; }).length,
+              all: all.length
+            };
+            const filter = state.refusalListFilter || 'open';
+            const filtered = filter === 'all' ? all : all.filter(function(r) { return r.status === filter; });
+            const pills = [
+              { id: 'open', label: 'Open' },
+              { id: 'resolved', label: 'Resolved' },
+              { id: 'redesign_required', label: 'Redesign Required' },
+              { id: 'all', label: 'All' }
+            ];
+            const pillsHtml = pills.map(function(p) {
+              return '<button onclick="setRefusalListFilter(\\'' + p.id + '\\')" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap ' +
+                (filter === p.id ? 'bg-amber-500 text-black' : 'bg-slate-700 text-slate-300') + '">' + p.label + ' (' + counts[p.id] + ')</button>';
+            }).join('');
+            const cardsHtml = filtered.length === 0
+              ? '<div class="card rounded-xl p-8 text-center text-slate-400 text-sm">No refusals in this view.</div>'
+              : filtered.map(function(r) {
+                  const shortfall = (r.achievedDepth != null && r.targetDepth != null) ? (r.targetDepth - r.achievedDepth) : null;
+                  const actions = [
+                    { status: 'resolved', label: 'Resolve' },
+                    { status: 'redesign_required', label: 'Redesign Required' },
+                    { status: 'open', label: 'Reopen' }
+                  ].filter(function(a) { return a.status !== r.status; });
+                  const actionsHtml = actions.map(function(a) {
+                    const isActive = state.refusalListExpanded === r.pileId && state.refusalResolveStatus === a.status;
+                    return '<button onclick="openRefusalResolvePanel(\\'' + r.pileId + '\\', \\'' + a.status + '\\')" class="px-2.5 py-1.5 rounded-lg text-xs font-medium ' +
+                      (isActive ? 'bg-amber-500 text-black' : 'bg-slate-700 hover:bg-slate-600 text-slate-200') + '">' + a.label + '</button>';
+                  }).join('');
+                  const resolutionBlock = (r.status !== 'open' && r.resolutionNotes)
+                    ? '<div class="mt-2 bg-slate-900/60 border border-slate-700 rounded-lg p-2.5"><p class="text-[10px] text-slate-400 uppercase mb-1">Resolution</p><p class="text-sm text-slate-200">' + r.resolutionNotes + '</p>' +
+                      (r.resolvedBy ? '<p class="text-xs text-slate-500 mt-1">by ' + r.resolvedBy + (r.resolvedAt ? ' · ' + timeAgo(r.resolvedAt) : '') + '</p>' : '') + '</div>'
+                    : '';
+                  const panel = state.refusalListExpanded === r.pileId
+                    ? '<div class="mt-3 bg-slate-900/60 border border-amber-500/40 rounded-lg p-3">' +
+                        '<p class="text-xs text-slate-300 mb-2">' + (state.refusalResolveStatus === 'open' ? 'Reopen this refusal?' : 'Mark as ' + (state.refusalResolveStatus === 'resolved' ? 'Resolved' : 'Redesign Required') + ':') + '</p>' +
+                        (state.refusalResolveStatus !== 'open'
+                          ? '<textarea oninput="state.refusalResolveNotes=this.value" rows="2" placeholder="What was done to close this out..." class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none mb-2">' + (state.refusalResolveNotes || '') + '</textarea>'
+                          : '') +
+                        '<div class="flex gap-2"><button onclick="saveRefusalResolution(\\'' + r.pileId + '\\')" class="flex-1 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-sm font-bold">Save</button><button onclick="cancelRefusalResolve()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm">Cancel</button></div>' +
+                      '</div>'
+                    : '';
+                  return '<div class="card rounded-xl p-4">' +
+                    '<div class="flex items-start justify-between gap-2 mb-1.5"><div class="flex items-center gap-2"><span class="font-display font-bold text-white">' + r.pileId + '</span>' + refusalStatusBadge(r.status) + '</div>' +
+                    '<span class="text-xs text-slate-500 whitespace-nowrap">' + timeAgo(r.timestamp) + '</span></div>' +
+                    '<p class="text-sm text-slate-300 capitalize mb-1">' + r.reason + '</p>' +
+                    '<p class="text-xs text-slate-400 mb-1.5">Target ' + r.targetDepth + '" · Achieved ' + (r.achievedDepth != null ? r.achievedDepth + '"' : 'N/A') + (shortfall != null ? ' · Shortfall ' + shortfall + '"' : '') + '</p>' +
+                    (r.notes ? '<p class="text-sm text-slate-400 mb-1.5">' + r.notes + '</p>' : '') +
+                    '<p class="text-xs text-slate-500">Logged by ' + r.user + '</p>' +
+                    resolutionBlock +
+                    '<div class="flex flex-wrap gap-2 mt-3">' + actionsHtml + '</div>' +
+                    panel +
+                  '</div>';
+                }).join('');
+            return '<div class="space-y-4 animate-fade-in max-w-2xl mx-auto">' +
+              '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><button onclick="navigateTo(\\'refusal\\')" class="p-1.5 text-slate-400 hover:text-white">' + icon('chevron-left', 'w-5 h-5') + '</button><h1 class="font-display text-xl font-bold text-white">Refusal List</h1></div><span class="text-sm text-slate-400">' + counts.all + ' total</span></div>' +
+              '<div class="flex gap-2 overflow-x-auto pb-1">' + pillsHtml + '</div>' +
+              '<div class="space-y-3">' + cardsHtml + '</div>' +
+            '</div>';
           }
 
           // WEATHER & DELAY LOGGING - one entry per project per calendar
@@ -8004,7 +8217,7 @@ export default async function SolTrendApp() {
           let renderSuppressCount = 0;
           function render() {
             if (renderSuppressCount > 0) return;
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, delays: renderDelays, dailylog: renderDailyLog, punchlist: renderPunchList, heatmap: renderHeatMap, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, refusalList: renderRefusalList, delays: renderDelays, dailylog: renderDailyLog, punchlist: renderPunchList, heatmap: renderHeatMap, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button>' + mobileHeaderBrand() + '<span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();

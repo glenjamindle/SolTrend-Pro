@@ -38,7 +38,8 @@ model User {
   company   Company  @relation(fields: [companyId], references: [id])
   crew      Crew?    @relation(fields: [crewId], references: [id])
   inspections Inspection[]
-  refusals  Refusal[]
+  refusals  Refusal[] @relation("RefusalLoggedBy")
+  resolvedRefusals Refusal[] @relation("RefusalResolvedBy")
   productionEntries ProductionEntry[]
   punchItems PunchItem[]
   delayLogs DelayLog[]
@@ -267,15 +268,23 @@ model Refusal {
   photos        String?  // JSON string
   gps           String?  // JSON string
   status        String   @default("open")  // open, resolved, redesign_required
-  
+  // Remediation - what was actually done to close this out (re-driven,
+  // engineered footing approved, etc.), separate from `notes` above,
+  // which captures what was encountered in the field at the time of the
+  // original refusal. Set together with `status` via PATCH /api/refusals.
+  resolutionNotes String?
+  resolvedById    String?
+  resolvedAt      DateTime?
+
   projectId String
   userId    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
-  project   Project  @relation(fields: [projectId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
-  
+
+  project    Project @relation(fields: [projectId], references: [id])
+  user       User    @relation(fields: [userId], references: [id], name: "RefusalLoggedBy")
+  resolvedBy User?   @relation(fields: [resolvedById], references: [id], name: "RefusalResolvedBy")
+
   @@unique([projectId, pileId])
 }
 
