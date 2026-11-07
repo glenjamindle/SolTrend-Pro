@@ -1230,6 +1230,36 @@ export default async function SolTrendApp() {
             updateActiveProjectsTable();
           }
 
+          // Weights Piles/Tables/Modules completion by each phase's planned
+          // SCHEDULE DURATION (from the real Milestone dates on the
+          // Schedule tab) instead of raw unit count. Unit-count weighting
+          // (1484 piles / 9766 total units) undercounts how much piles
+          // actually represent, because piles are the slow, hard phase -
+          // Hogan's schedule gives Pile Installation 30 days for 1484
+          // piles but PV Module Installation only 21 days for 7797
+          // modules. Matches milestones by phase-name keyword rather than
+          // an exact string, since each project's schedule was parsed
+          // from a separate PDF and wording can vary slightly project to
+          // project. Returns null (not 0) when a project has no matching
+          // milestone dates at all, so the caller can fall back to
+          // unit-count weighting instead of reporting a false 0%.
+          function scheduleWeightedCompletion(project, pilesPct, tablesPct, modulesPct) {
+            const milestones = project.milestones || [];
+            const find = (re) => milestones.find(function(m) { return re.test(m.phase || ''); });
+            const pileM = find(/pile.*install|install.*pile/i);
+            const tableM = find(/rack/i);
+            const moduleM = find(/pv.*module|module.*install/i);
+            function phaseDays(m) {
+              if (!m || !m.plannedStart || !m.plannedEnd) return 0;
+              const d = Math.round((new Date(m.plannedEnd).getTime() - new Date(m.plannedStart).getTime()) / 86400000);
+              return d > 0 ? d : 0;
+            }
+            const pD = phaseDays(pileM), tD = phaseDays(tableM), mD = phaseDays(moduleM);
+            const totalD = pD + tD + mD;
+            if (totalD === 0) return null;
+            return Math.round(((pilesPct / 100) * pD + (tablesPct / 100) * tD + (modulesPct / 100) * mD) / totalD * 100);
+          }
+
           // PROJECT DASHBOARD
           function renderProjectDashboard() {
             const project = state.currentProject; if(!project) return '';
@@ -1238,16 +1268,21 @@ export default async function SolTrendApp() {
             // this same piles-only number relabeled as overall project
             // completion, so a project with 1484/1484 piles installed but
             // 0/485 tables and 0/7797 modules still built showed "100%
-            // Complete" at the top. Blend all three phases by unit count
-            // instead, so the headline number actually reflects how much
-            // of the site is done, not just the first of three install
-            // phases. Falls back to piles-only when a project hasn't set
-            // Tables/Modules totals (totalUnits === totalPiles then), so
-            // this is a no-op for any project not tracking those.
+            // Complete" at the top. Prefer weighting the three phases by
+            // their real planned SCHEDULE DURATION (scheduleWeightedCompletion,
+            // above) since piles take disproportionately longer per unit
+            // than tables/modules; fall back to unit-count weighting when
+            // a project has no matching milestone dates to weight by, and
+            // further to piles-only when it hasn't set Tables/Modules
+            // totals either (totalUnits === totalPiles then) - so this is
+            // a no-op for any project tracking neither.
             const pilesPct = Math.round((project.installedPiles / project.totalPiles) * 100);
+            const tablesPctForWeight = project.totalTables > 0 ? Math.round(((project.tablesInstalled || 0) / project.totalTables) * 100) : 0;
+            const modulesPctForWeight = project.totalModules > 0 ? Math.round(((project.modulesInstalled || 0) / project.totalModules) * 100) : 0;
+            const scheduleCompletionPct = scheduleWeightedCompletion(project, pilesPct, tablesPctForWeight, modulesPctForWeight);
             const totalUnits = project.totalPiles + (project.totalTables || 0) + (project.totalModules || 0);
             const installedUnits = project.installedPiles + (project.tablesInstalled || 0) + (project.modulesInstalled || 0);
-            const completionPct = totalUnits > 0 ? Math.round((installedUnits / totalUnits) * 100) : 0;
+            const completionPct = scheduleCompletionPct !== null ? scheduleCompletionPct : (totalUnits > 0 ? Math.round((installedUnits / totalUnits) * 100) : 0);
             const passRate = project.passedInspections > 0 ? Math.round((project.passedInspections / (project.passedInspections + project.failedInspections)) * 100) : 0;
             // Was a hardcoded "45 days remaining" regardless of actual
             // progress - now derived from the real installedPiles count and
