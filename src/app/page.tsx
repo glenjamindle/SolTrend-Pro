@@ -123,7 +123,7 @@ export default async function SolTrendApp() {
         .activity-item.fail::before { background: #ef4444; }
         .activity-item.refusal::before { background: #f97316; }
         .activity-item.production::before { background: #3b82f6; }
-        .sparkline { display: flex; align-items: flex-end; gap: 2px; height: 40px; }
+        .sparkline { display: flex; align-items: flex-end; gap: 2px; height: 40px; overflow: hidden; }
         .sparkline-bar { flex: 1; background: linear-gradient(to top, #f59e0b, #fbbf24); border-radius: 2px; }
         .chart-bar { transition: all 0.2s ease; }
         .chart-bar:hover { filter: brightness(1.2); }
@@ -1233,7 +1233,21 @@ export default async function SolTrendApp() {
           // PROJECT DASHBOARD
           function renderProjectDashboard() {
             const project = state.currentProject; if(!project) return '';
-            const completionPct = Math.round((project.installedPiles / project.totalPiles) * 100);
+            // pilesPct is what the Piles row below reports - piles only.
+            // completionPct (the big bar/header number) used to just be
+            // this same piles-only number relabeled as overall project
+            // completion, so a project with 1484/1484 piles installed but
+            // 0/485 tables and 0/7797 modules still built showed "100%
+            // Complete" at the top. Blend all three phases by unit count
+            // instead, so the headline number actually reflects how much
+            // of the site is done, not just the first of three install
+            // phases. Falls back to piles-only when a project hasn't set
+            // Tables/Modules totals (totalUnits === totalPiles then), so
+            // this is a no-op for any project not tracking those.
+            const pilesPct = Math.round((project.installedPiles / project.totalPiles) * 100);
+            const totalUnits = project.totalPiles + (project.totalTables || 0) + (project.totalModules || 0);
+            const installedUnits = project.installedPiles + (project.tablesInstalled || 0) + (project.modulesInstalled || 0);
+            const completionPct = totalUnits > 0 ? Math.round((installedUnits / totalUnits) * 100) : 0;
             const passRate = project.passedInspections > 0 ? Math.round((project.passedInspections / (project.passedInspections + project.failedInspections)) * 100) : 0;
             // Was a hardcoded "45 days remaining" regardless of actual
             // progress - now derived from the real installedPiles count and
@@ -1265,7 +1279,13 @@ export default async function SolTrendApp() {
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-start justify-between mb-4"><div><div class="flex items-center gap-2"><h1 class="font-display text-2xl font-bold text-white">' + project.name + '</h1><span class="px-2 py-0.5 text-xs font-medium rounded bg-green-500/10 text-green-400">' + project.status + '</span></div><p class="text-slate-400 text-sm">' + project.client + ' · ' + project.location + '</p></div><div class="text-right"><p class="text-xs text-slate-400">Project Manager</p><p class="text-sm text-white font-medium">' + project.projectManager + '</p></div></div>' +
                 '<div class="h-2 bg-slate-700 rounded-full overflow-hidden mt-4"><div class="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full transition-all" style="width: ' + completionPct + '%"></div></div>' +
-                '<div class="flex justify-between mt-1 text-xs"><span class="text-green-400">' + completionPct + '% Complete</span><span class="text-slate-400">' + (daysRemainingEst === null ? 'Not enough data yet' : daysRemainingEst === 0 ? 'Complete' : daysRemainingEst + ' days remaining (est.)') + '</span></div>' +
+                // estimateDaysRemaining() is pile-install-pace only (see
+                // its own comment), so now that the % to its left covers
+                // all three phases, a finished-piles project showed the
+                // confusing pairing "15% Complete ... Complete". Labeled
+                // explicitly as piles so the two numbers stop looking like
+                // they contradict each other.
+                '<div class="flex justify-between mt-1 text-xs"><span class="text-green-400">' + completionPct + '% Complete</span><span class="text-slate-400">' + (daysRemainingEst === null ? 'Not enough data yet' : daysRemainingEst === 0 ? 'Piles complete' : daysRemainingEst + ' days to finish piles (est.)') + '</span></div>' +
               '</div>' +
               '<div class="grid lg:grid-cols-3 gap-4">' +
                 '<div class="lg:col-span-2 card rounded-xl p-5">' +
@@ -1274,7 +1294,14 @@ export default async function SolTrendApp() {
                     '<div class="bg-slate-800/50 rounded-lg p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Target</p><p class="font-display text-3xl font-bold text-white">' + todayTarget + '</p></div>' +
                     '<div class="bg-slate-800/50 rounded-lg p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Actual</p><p class="font-display text-3xl font-bold text-amber-400">' + todayActual + '</p></div>' +
                   '</div>' +
-                  '<div class="mt-4"><p class="text-xs text-slate-400 mb-2">Last 7 Days</p><div class="sparkline">' + state.production.slice(-7).map(p => { const h = Math.max(20, (p.piles / 50) * 100); return '<div class="sparkline-bar" style="height: ' + h + '%"></div>'; }).join('') + '</div></div>' +
+                  // Height was uncapped - (piles/50)*100 - so a bulk
+                  // catch-up entry (e.g. backfilling hundreds of piles in
+                  // one day from a QA/QC import) produced a bar several
+                  // hundred percent tall with nothing to stop it, blowing
+                  // out of the card. Clamped to 100% and labeled with the
+                  // real count on hover so an outlier day still reads as
+                  // "pegged at max", not a missing/broken bar.
+                  '<div class="mt-4"><p class="text-xs text-slate-400 mb-2">Last 7 Days</p><div class="sparkline">' + state.production.slice(-7).map(p => { const h = Math.min(100, Math.max(20, (p.piles / 50) * 100)); return '<div class="sparkline-bar" style="height: ' + h + '%" title="' + p.date + ': ' + p.piles + ' piles"></div>'; }).join('') + '</div></div>' +
                 '</div>' +
                 '<div class="card rounded-xl p-5 flex flex-col justify-center gap-3">' +
                   '<button onclick="navigateTo(\\'inspection\\')" class="w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('clipboard-check', 'w-5 h-5') + ' Start QC</button>' +
@@ -1286,7 +1313,7 @@ export default async function SolTrendApp() {
               '<div class="card rounded-xl p-5">' +
                 '<h3 class="font-display font-semibold text-white mb-3">Installation Progress</h3>' +
                 '<div class="space-y-4">' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(project.installedPiles) + ' / ' + formatNumber(project.totalPiles) + ' <span class="text-slate-400 font-normal">· ' + completionPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + completionPct + '%"></div></div></div>' +
+                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(project.installedPiles) + ' / ' + formatNumber(project.totalPiles) + ' <span class="text-slate-400 font-normal">· ' + pilesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + pilesPct + '%"></div></div></div>' +
                   '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(project.tablesInstalled || 0) + ' / ' + formatNumber(project.totalTables || 0) + ' <span class="text-slate-400 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
                   '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(project.modulesInstalled || 0) + ' / ' + formatNumber(project.totalModules || 0) + ' <span class="text-slate-400 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
                 (!project.totalTables && !project.totalModules ? '<p class="text-xs text-slate-400 pt-1">Set planned Tables/Modules totals for this project in Settings to see progress here.</p>' : '') +
