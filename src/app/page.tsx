@@ -1718,6 +1718,7 @@ export default async function SolTrendApp() {
           function renderReports() {
             return '<div class="space-y-6 animate-fade-in">' +
               '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Reports</h1><p class="text-slate-400">Generate and export reports</p></div></div>' +
+              '<p class="text-xs text-slate-500 flex items-center gap-1.5 -mt-3"><span class="w-1.5 h-1.5 rounded-full bg-green-400 inline-block"></span> on a calendar below marks a day with data already recorded</p>' +
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-center gap-3 mb-4">' + icon('layers', 'w-8 h-8 text-indigo-400') + '<div><h3 class="font-display font-semibold text-white">Portfolio Report</h3><p class="text-xs text-slate-400">Company-wide rollup across every active project, as of right now</p></div></div>' +
                 '<button onclick="generatePortfolioReport()" class="w-full py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
@@ -7065,6 +7066,45 @@ export default async function SolTrendApp() {
             'galleryUploadDate': { maxToday: true, compact: true },
             'dailyLogDate': { maxToday: true },
           };
+          // Which report date fields get a "data recorded that day" dot on
+          // their calendar (Raken-style), and what counts as data for each -
+          // matching exactly what that field's own report actually pulls,
+          // so the dot never promises data the report then shows as empty.
+          // Daily/Weekly pull from every log source (see generateDailyReport/
+          // generateWeeklyReport); QC and Refusal are scoped to just their
+          // own record type (see generateQCReport/generateRefusalReport).
+          // Everything else (production entry date, milestones, COI expiry,
+          // etc.) isn't a report field and gets no dots at all.
+          const REPORT_CALENDAR_SOURCES = {
+            'reportDates.daily': 'activity',
+            'reportDates.weekly': 'activity',
+            'reportDates.qcStart': 'inspections',
+            'reportDates.qcEnd': 'inspections',
+            'reportDates.refusalStart': 'refusals',
+            'reportDates.refusalEnd': 'refusals'
+          };
+          // Built once per calendar render (not re-scanned per day cell) -
+          // on a project with thousands of inspections/refusals, filtering
+          // per cell would mean re-walking the whole array ~35-42 times for
+          // one month view. Returns null for any non-report field, which
+          // renderCalendarDropdown treats as "no dots here".
+          function datesWithDataSet(fieldPath) {
+            const source = REPORT_CALENDAR_SOURCES[fieldPath];
+            if (!source) return null;
+            const set = new Set();
+            if (source === 'activity' || source === 'inspections') {
+              (state.inspections || []).forEach(function(i) { set.add(localDateStr(i.timestamp)); });
+            }
+            if (source === 'activity' || source === 'refusals') {
+              (state.refusals || []).forEach(function(r) { set.add(localDateStr(r.timestamp)); });
+            }
+            if (source === 'activity') {
+              (state.production || []).forEach(function(p) { if (p.date) set.add(p.date); });
+              (state.delays || []).forEach(function(d) { if (d.date) set.add(d.date); });
+              (state.dailyLogs || []).forEach(function(l) { if (l.date) set.add(l.date); });
+            }
+            return set;
+          }
           function getStateByPath(path) {
             const parts = path.split('.');
             let obj = state;
@@ -7163,6 +7203,9 @@ export default async function SolTrendApp() {
             const totalDays = daysInMonth(cy, cm);
             const selected = getStateByPath(fieldPath) || (opts.maxToday ? todayStr : '');
             const monthLabel = new Date(cy, cm - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            // null on every non-report field (see REPORT_CALENDAR_SOURCES) -
+            // dataSet is only ever truthy for the 6 report date pickers.
+            const dataSet = datesWithDataSet(fieldPath);
             let cells = '';
             for (let i = 0; i < firstDow; i++) cells += '<div></div>';
             for (let day = 1; day <= totalDays; day++) {
@@ -7170,8 +7213,10 @@ export default async function SolTrendApp() {
               const isDisabled = !!(opts.maxToday && ds > todayStr);
               const isSelected = ds === selected;
               const isToday = ds === todayStr;
+              const hasData = !!(dataSet && dataSet.has(ds));
               const cls = isSelected ? 'bg-amber-500 text-black font-bold' : isDisabled ? 'text-slate-600 cursor-not-allowed' : isToday ? 'border border-amber-500 text-amber-400' : 'text-slate-200 hover:bg-slate-700';
-              cells += '<button type="button" ' + (isDisabled ? 'disabled' : 'onclick="selectCalendarDate(\\'' + ds + '\\')"') + ' class="h-9 w-9 rounded-lg text-sm flex items-center justify-center ' + cls + '">' + day + '</button>';
+              const dot = hasData ? '<span class="absolute bottom-1 w-1 h-1 rounded-full bg-green-400' + (isSelected ? ' ring-1 ring-black/40' : '') + '"></span>' : '';
+              cells += '<button type="button" ' + (isDisabled ? 'disabled' : 'onclick="selectCalendarDate(\\'' + ds + '\\')"') + (hasData ? ' title="Data recorded on this date"' : '') + ' class="relative h-9 w-9 rounded-lg text-sm flex items-center justify-center ' + cls + '">' + day + dot + '</button>';
             }
             const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(function(d) { return '<div class="h-6 flex items-center justify-center text-[10px] text-slate-400 uppercase">' + d + '</div>'; }).join('');
             return '<div class="p-3 bg-slate-900 border border-slate-600 rounded-xl shadow-xl" style="width:272px;" onclick="event.stopPropagation()">' +
