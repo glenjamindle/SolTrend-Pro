@@ -581,6 +581,48 @@ export default async function SolTrendApp() {
           function formatNumber(num) { return num?.toLocaleString() || '0'; }
           function getPileId(row, pile) { return row + '-' + pile; }
           function parsePileId(id) { const parts = String(id).split('-'); return { row: parseInt(parts[0]) || 1, pile: parseInt(parts[1]) || 1 }; }
+          // A custom layout's real identity for a pile is its pileId string
+          // (e.g. "128-9", the field's own row-pile numbering from the CSV
+          // import) - that has nothing to do with where it's stored in the
+          // row/position GRID (state.piles' row/position fields), which is
+          // purely a visual layout used to draw the Pile Map and bound
+          // Inspection/Refusal nav (that same pile might sit at grid row 1,
+          // position 37). getPileId/parsePileId above synthesize or parse a
+          // "row-pile" STRING and are only ever correct for a grid-mode
+          // project, which has no separate real identifier at all.
+          // Inspection/Refusal use real grid row/position
+          // (state.currentRow/currentPile, state.refusalRow/refusalPile) as
+          // their nav coordinates, same as the Pile Map - so resolving
+          // "what pile is at these coordinates" has to look it up in
+          // state.piles and use ITS pileId, never synthesize one. Falls
+          // back to the synthesized form for grid-mode projects (no Pile
+          // records exist there at all) or before piles have loaded, which
+          // keeps that case working exactly as before.
+          function resolvePileAt(row, position) {
+            if (state.currentProject?.pileLayoutMode === 'custom' && state.piles && state.piles.length > 0) {
+              const found = state.piles.find(function(p) { return p.row === row && p.position === position; });
+              if (found) return found;
+            }
+            return { pileId: getPileId(row, position), row: row, position: position, skip: false };
+          }
+          // Nudges a grid row/position off a gap/obstacle placeholder onto
+          // the nearest REAL pile, searching the given direction (+1/-1)
+          // first and the opposite direction if the row runs out that way
+          // - e.g. backing into a run of gaps at the start of a row snaps
+          // forward to the first real pile instead of walking off the
+          // front. A no-op for grid-mode projects (nothing is ever a gap
+          // there) or the rare row that's entirely gaps.
+          function snapOffGap(row, position, dir) {
+            if (state.currentProject?.pileLayoutMode !== 'custom' || !state.piles || state.piles.length === 0) return position;
+            const max = getRowPileCount(row);
+            if (max <= 0) return position;
+            let p = position;
+            while (p >= 1 && p <= max && resolvePileAt(row, p).skip) p += dir;
+            if (p >= 1 && p <= max) return p;
+            p = position;
+            while (p >= 1 && p <= max && resolvePileAt(row, p).skip) p -= dir;
+            return (p >= 1 && p <= max) ? p : position;
+          }
           // Real per-row pile count for Inspection/Refusal's prev/next
           // navigation. A project with a custom (irregular) pile layout -
           // imported from CSV or built up manually, see syncProjectPileMode -
@@ -3884,7 +3926,18 @@ export default async function SolTrendApp() {
             content.innerHTML = '<div class="p-5 border-b border-slate-700/50 flex justify-between items-center"><h3 class="font-display text-lg font-bold text-white">Pile ' + pileId + '</h3><button onclick="closePileModal()" class="p-1 text-slate-400 hover:text-white">' + icon('x', 'w-5 h-5') + '</button></div><div class="p-5"><div class="flex items-center gap-3 mb-4"><div class="w-10 h-10 rounded-full ' + info.bg + ' flex items-center justify-center ' + info.color + '">' + icon(info.icon, 'w-5 h-5') + '</div><div><span class="' + info.color + ' font-bold text-lg">' + info.label + '</span><p class="text-xs text-slate-400">' + (status !== 'notstarted' ? 'Recorded' : 'No data') + '</p></div></div>' + (status !== 'notstarted' ? '<div class="space-y-2 mb-4 text-sm"><div class="flex justify-between text-slate-300"><span class="text-slate-400">Inspector:</span><span>' + userString + '</span></div><div class="flex justify-between text-slate-300"><span class="text-slate-400">Timestamp:</span><span>' + timeString + '</span></div>' + (inspection?.depth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-400">Depth:</span><span>' + inspection.depth + '"</span></div>' : '') + (inspection?.plumbNS ? '<div class="flex justify-between text-slate-300"><span class="text-slate-400">Plumb N-S:</span><span>' + inspection.plumbNS + '°</span></div>' : '') + (status === 'refusal' ? '<div class="flex justify-between text-slate-300"><span class="text-slate-400">Reason:</span><span class="capitalize">' + (refusal?.reason || 'N/A') + '</span></div>' + (refusal?.achievedDepth ? '<div class="flex justify-between text-slate-300"><span class="text-slate-400">Achieved Depth:</span><span>' + refusal.achievedDepth + '"</span></div>' : '') + (refusal?.notes ? '<div class="flex justify-between text-slate-300"><span class="text-slate-400">Notes:</span><span class="text-right">' + refusal.notes + '</span></div>' : '') : '') + '</div>' : '') + '<div class="grid grid-cols-2 gap-2 mt-4">' + (status === 'fail' || status === 'refusal' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('refresh-cw', 'w-4 h-4') + ' Reinspect</button><button onclick="deletePileRecord(\\'' + pileId + '\\')" class="w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button><button onclick="closePileModal()" class="col-span-2 w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>' : status === 'notstarted' ? '<button onclick="reinspectPile(\\'' + pileId + '\\')" class="col-span-2 w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('plus', 'w-4 h-4') + ' Inspect Now</button>' : '<button onclick="deletePileRecord(\\'' + pileId + '\\')" class="w-full py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('trash-2', 'w-4 h-4') + ' Delete</button><button onclick="closePileModal()" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm">Close</button>') + '</div></div>';
             modal.classList.remove('hidden'); modal.classList.add('flex'); lucide.createIcons();
           }
-          function reinspectPile(pileId) { const { row, pile } = parsePileId(pileId); state.currentRow = row; state.currentPile = pile; syncInspectionPileTypeFromLayout(); closePileModal(); navigateTo('inspection'); }
+          // Looks the tapped pile up by its real pileId to get its actual
+          // grid row/position - NOT parsed from the pileId string, which
+          // for a custom layout is a different numbering scheme entirely
+          // (see resolvePileAt() above). Falls back to parsing for
+          // grid-mode projects, where there's no Pile record to look up
+          // and the string IS the row/position.
+          function reinspectPile(pileId) {
+            const match = state.piles.find(function(p) { return p.pileId === pileId; });
+            if (match) { state.currentRow = match.row; state.currentPile = match.position; }
+            else { const { row, pile } = parsePileId(pileId); state.currentRow = row; state.currentPile = pile; }
+            syncInspectionPileTypeFromLayout(); closePileModal(); navigateTo('inspection');
+          }
           function closePileModal() { document.getElementById('pileModal').classList.add('hidden'); }
           // Lets a misclicked QC inspection or refusal be removed straight
           // from the pile map, instead of it being stuck on the pile
@@ -4356,10 +4409,8 @@ export default async function SolTrendApp() {
           // there's no prior inspection recorded for it to load that from
           // instead (see loadInspectionIntoForm(), which calls this).
           function syncInspectionPileTypeFromLayout() {
-            if (!state.piles || state.piles.length === 0) return;
-            const pid = getPileId(state.currentRow, state.currentPile);
-            const match = state.piles.find(function(p) { return p.pileId === pid; });
-            if (match && match.pileType) state.inspectionPileType = match.pileType;
+            const current = resolvePileAt(state.currentRow, state.currentPile);
+            if (current.pileType) state.inspectionPileType = current.pileType;
           }
           // Loads whichever inspection already exists for this pile into
           // the detailed-mode fields, so landing on a pile you (or someone
@@ -5076,7 +5127,8 @@ export default async function SolTrendApp() {
 
           // INSPECTION - WITH PHOTO CAPTURE
           function renderInspection() {
-            const pid = getPileId(state.currentRow, state.currentPile);
+            state.currentPile = snapOffGap(state.currentRow, state.currentPile, 1);
+            const pid = resolvePileAt(state.currentRow, state.currentPile).pileId;
             if (state.inspectionLoadedPileId !== pid) {
               loadInspectionIntoForm(pid);
               state.inspectionLoadedPileId = pid;
@@ -5159,37 +5211,38 @@ export default async function SolTrendApp() {
           // every path that changes either one (these two, incRow/decRow
           // below, or reinspectPile() from the Pile Map) picks it up on
           // the very next render() without needing its own explicit call.
-          function incPile() { hapticFeedback(); if (state.currentPile < getRowPileCount(state.currentRow)) state.currentPile++; render(); }
-          function decPile() { hapticFeedback(); if (state.currentPile > 1) state.currentPile--; render(); }
+          // Each nudges state.currentPile by one real (non-gap) pile in the
+          // given direction via snapOffGap - without it, a plain +/-1 could
+          // land on a gap/obstacle placeholder, which isn't a real pile to
+          // log anything against (grid-mode projects are unaffected -
+          // snapOffGap is a no-op there).
+          function incPile() { hapticFeedback(); if (state.currentPile < getRowPileCount(state.currentRow)) state.currentPile++; state.currentPile = snapOffGap(state.currentRow, state.currentPile, 1); render(); }
+          function decPile() { hapticFeedback(); if (state.currentPile > 1) state.currentPile--; state.currentPile = snapOffGap(state.currentRow, state.currentPile, -1); render(); }
           // Clamp currentPile to the row just switched to - on a custom
           // layout a row can be shorter than the one just left (see
           // getRowPileCount), so without this, moving from a long row while
           // sitting on pile 25 onto a 9-pile row left the counter on "2-25",
           // a pile that doesn't exist.
           function clampCurrentPileToRow() { const max = getRowPileCount(state.currentRow); if (max > 0 && state.currentPile > max) state.currentPile = max; }
-          // A custom layout's totalRows is however many rows have actually
-          // been imported/entered into Settings -> Pile Layout so far, not
-          // a hard ceiling on the real site - a site that's grown, or was
-          // under-captured in the original CSV, has real piles beyond it.
-          // Capping navigation there left no way to log anything for them
-          // at all (the Pile Map's custom-layout view only draws rows it
-          // already has records for either, so that wasn't an escape
-          // hatch). Grid-mode projects keep the old cap - there, totalRows
-          // IS the whole procedural rectangle by definition, and growing
-          // it is a deliberate Settings change (Standard Grid), not
-          // something to fall out of an arrow tap. Submitting an
-          // inspection/refusal for a pile this far out auto-registers it
-          // server-side - see shouldAutoRegisterPile() in
-          // /api/inspections and /api/refusals.
-          function incRow() { hapticFeedback(); const uncapped = state.currentProject?.pileLayoutMode === 'custom'; if (uncapped || state.currentRow < state.heatmap.totalRows) state.currentRow++; clampCurrentPileToRow(); render(); }
-          function decRow() { hapticFeedback(); if (state.currentRow > 1) state.currentRow--; clampCurrentPileToRow(); render(); }
+          // totalRows is a hard ceiling in both layout modes: for a custom
+          // layout, it's however many rows exist in the real Pile table
+          // (from the CSV import or Settings -> Pile Layout) - not a guess
+          // at how many rows "should" exist. A project whose real site has
+          // grown needs its layout updated in Settings, not a way to log
+          // against rows that were never imported - see the comment on
+          // recomputeProjectPileStats() in src/lib/pileStats.ts for why
+          // auto-registering a pile here was tried and removed.
+          function incRow() { hapticFeedback(); if (state.currentRow < state.heatmap.totalRows) state.currentRow++; clampCurrentPileToRow(); state.currentPile = snapOffGap(state.currentRow, state.currentPile, 1); render(); }
+          function decRow() { hapticFeedback(); if (state.currentRow > 1) state.currentRow--; clampCurrentPileToRow(); state.currentPile = snapOffGap(state.currentRow, state.currentPile, -1); render(); }
           function setInspectionMode(mode) { state.inspectionMode = mode; render(); }
           function selectInspectionFailReason(reason) { hapticFeedback(); state.inspectionFailReason = state.inspectionFailReason === reason ? null : reason; render(); }
           function recordInspection(status) {
             hapticFeedback();
+            const currentPileRec = resolvePileAt(state.currentRow, state.currentPile);
+            if (currentPileRec.skip) { alert('This position is a gap/obstacle, not a real pile - nothing to inspect here.'); return; }
             playSound(status);
             const photos = state.inspectionPhotos;
-            const pileId = getPileId(state.currentRow, state.currentPile);
+            const pileId = currentPileRec.pileId;
             // In detailed mode, pick up the depth/plumb measurement inputs -
             // these existed on the API and database already, but the form
             // never rendered or collected them, so every inspection saved
@@ -6529,7 +6582,8 @@ export default async function SolTrendApp() {
             state.refusalPhotos = [];
           }
           function renderRefusal() {
-            const pid = getPileId(state.refusalRow, state.refusalPile);
+            state.refusalPile = snapOffGap(state.refusalRow, state.refusalPile, 1);
+            const pid = resolvePileAt(state.refusalRow, state.refusalPile).pileId;
             if (state.refusalLoadedPileId !== pid) {
               loadRefusalIntoForm(pid);
               state.refusalLoadedPileId = pid;
@@ -6586,18 +6640,20 @@ export default async function SolTrendApp() {
             if (box) box.className = sc + ' rounded-xl p-4 text-center';
             if (val) val.textContent = sh !== null ? (sh + '"') : 'Enter both depths';
           }
-          function incRefusalPile() { hapticFeedback(); if (state.refusalPile < getRowPileCount(state.refusalRow)) state.refusalPile++; render(); }
-          function decRefusalPile() { hapticFeedback(); if (state.refusalPile > 1) state.refusalPile--; render(); }
+          // See the matching comment on incPile()/incRow() above - same
+          // gap-skipping, same hard cap at the real imported layout.
+          function incRefusalPile() { hapticFeedback(); if (state.refusalPile < getRowPileCount(state.refusalRow)) state.refusalPile++; state.refusalPile = snapOffGap(state.refusalRow, state.refusalPile, 1); render(); }
+          function decRefusalPile() { hapticFeedback(); if (state.refusalPile > 1) state.refusalPile--; state.refusalPile = snapOffGap(state.refusalRow, state.refusalPile, -1); render(); }
           function clampRefusalPileToRow() { const max = getRowPileCount(state.refusalRow); if (max > 0 && state.refusalPile > max) state.refusalPile = max; }
-          // See the matching comment on incRow() above - same reasoning,
-          // same uncapped-for-custom-layout behavior.
-          function incRefusalRow() { hapticFeedback(); const uncapped = state.currentProject?.pileLayoutMode === 'custom'; if (uncapped || state.refusalRow < state.heatmap.totalRows) state.refusalRow++; clampRefusalPileToRow(); render(); }
-          function decRefusalRow() { hapticFeedback(); if (state.refusalRow > 1) state.refusalRow--; clampRefusalPileToRow(); render(); }
+          function incRefusalRow() { hapticFeedback(); if (state.refusalRow < state.heatmap.totalRows) state.refusalRow++; clampRefusalPileToRow(); state.refusalPile = snapOffGap(state.refusalRow, state.refusalPile, 1); render(); }
+          function decRefusalRow() { hapticFeedback(); if (state.refusalRow > 1) state.refusalRow--; clampRefusalPileToRow(); state.refusalPile = snapOffGap(state.refusalRow, state.refusalPile, -1); render(); }
           function setRefusalReason(reason) { state.refusalReason = reason; render(); }
           function submitRefusal() {
             hapticFeedback();
+            const currentPileRec = resolvePileAt(state.refusalRow, state.refusalPile);
+            if (currentPileRec.skip) { alert('This position is a gap/obstacle, not a real pile - nothing to log here.'); return; }
             const photos = state.refusalPhotos;
-            const pileId = getPileId(state.refusalRow, state.refusalPile);
+            const pileId = currentPileRec.pileId;
             // /api/refusals' update path only touches the original
             // field-logged data (reason/depths/notes/photos) and
             // deliberately leaves status/resolutionNotes/resolvedBy/

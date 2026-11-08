@@ -1,12 +1,24 @@
 import { prisma } from '@/lib/db'
 
 // Recomputes a custom-layout project's cached totalPiles/totalRows from the
-// real Pile table. Originally lived only in /api/piles (after a manual add,
-// CSV import, or delete); now also called from /api/inspections and
-// /api/refusals whenever logging a pile auto-registers a new row/position
-// there (see shouldAutoRegisterPile/registerPile below), so the cached
-// totals stay correct no matter which of the three routes last changed the
-// layout.
+// real Pile table. Called from /api/piles after a manual add, CSV import,
+// or delete, so the cached totals stay in sync with whatever the layout
+// actually is.
+//
+// Note: "totalRows" here is the Pile table's row/position GRID - a purely
+// visual layout used to draw the Pile Map (and bound Inspection/Refusal
+// nav), not a count of the field's own physical rows. A pile's real-world
+// identity lives entirely in its pileId string (e.g. "128-9"), which is
+// independent of this grid - see the comment on resolvePileAt() in
+// page.tsx for the full explanation. Don't use totalRows as a proxy for
+// "how many rows exist in the field."
+//
+// Auto-registering a pile that isn't in this table was tried and
+// deliberately removed (see git history around Nov 2026) - Glen: field
+// crews don't pay attention and will keep logging against piles that
+// don't exist, corrupting the layout. A project's piles come ONLY from the
+// grid default or an explicit CSV import/manual edit in Settings -> Pile
+// Layout - never from Inspection/Refusal logging.
 export async function recomputeProjectPileStats(projectId: string) {
   const piles = await prisma.pile.findMany({ where: { projectId }, select: { row: true, skip: true } })
   const real = piles.filter((p) => !p.skip)
@@ -19,40 +31,4 @@ export async function recomputeProjectPileStats(projectId: string) {
       totalRows: maxRow || undefined,
     },
   })
-}
-
-// Whether a pile ID that isn't in the Pile table yet should be
-// auto-registered rather than rejected, for a custom-layout project.
-// True only at the genuine edge of what's charted so far:
-//  - a row beyond the project's current max row (nothing charted there
-//    yet - the site has grown, or was under-captured in the original
-//    import, past what's on file), or
-//  - the very next position along the current last row (walking one
-//    pile further than what's currently charted - the same situation,
-//    one level down, for a last row whose own real width was also
-//    under-captured).
-// A position inside an already-charted, already-known-to-be-short row
-// (e.g. row 5 really only has 9 piles, but something asks for "5-25")
-// still returns false - that's the original bug this whole guard exists
-// to catch (a client nav bug walking off the end of a short row), not a
-// legitimately new pile, and it stays rejected exactly as before.
-export async function shouldAutoRegisterPile(projectId: string, row: number, position: number): Promise<boolean> {
-  const maxRowAgg = await prisma.pile.aggregate({ where: { projectId }, _max: { row: true } })
-  const maxRow = maxRowAgg._max.row || 0
-  if (row > maxRow) return true
-  if (row === maxRow) {
-    const maxPosAgg = await prisma.pile.aggregate({ where: { projectId, row }, _max: { position: true } })
-    const maxPos = maxPosAgg._max.position || 0
-    return position === maxPos + 1
-  }
-  return false
-}
-
-// Creates the bare Pile record (no zone/type/color - just enough for the
-// layout guard to recognize it and for the Pile Map to draw it) and
-// refreshes the project's cached totals. Only call once
-// shouldAutoRegisterPile has confirmed it's safe to.
-export async function registerPile(projectId: string, pileId: string, row: number, position: number) {
-  await prisma.pile.create({ data: { projectId, pileId, row, position, skip: false } })
-  await recomputeProjectPileStats(projectId)
 }
