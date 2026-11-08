@@ -577,7 +577,28 @@ export default async function SolTrendApp() {
           window.addEventListener('offline', function() { state.isOnline = false; render(); });
 
           // UTILITY FUNCTIONS
-          function formatDate(dateStr) { const date = new Date(dateStr); return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
+          // Every "calendar day" field in this app (due dates, delay/
+          // production/daily-log dates, milestone planned/actual dates, COI
+          // expiry, a project's planned finish date...) is a Prisma
+          // DateTime stored at UTC midnight of that day - there's no real
+          // time-of-day, it's just how a date-only value has to be
+          // represented. new Date('2027-06-15') parses AS that UTC
+          // midnight, and reading it back via toLocaleDateString() (or any
+          // comparison against Date.now()) in a timezone behind UTC - all
+          // of the US included - rolls the calendar day back by one: a
+          // daily log saved for "2027-06-15" displayed as "Jun 14", and
+          // anything due today read as already overdue from the previous
+          // evening on. Pulling the Y/M/D straight out of the string (bare
+          // "2026-11-08" or the full "2026-11-08T00:00:00.000Z" Prisma
+          // round-trips) and building a LOCAL-midnight Date from those same
+          // numbers sidesteps it entirely, since there's never a real UTC
+          // offset to lose. Anything that isn't shaped like a date-only
+          // value falls back to a normal parse unchanged.
+          function parseLocalDate(dateStr) {
+            const m = /^(\\d{4})-(\\d{2})-(\\d{2})/.exec(String(dateStr));
+            return m ? new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10)) : new Date(dateStr);
+          }
+          function formatDate(dateStr) { const date = parseLocalDate(dateStr); return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
           function formatNumber(num) { return num?.toLocaleString() || '0'; }
           function getPileId(row, pile) { return row + '-' + pile; }
           function parsePileId(id) { const parts = String(id).split('-'); return { row: parseInt(parts[0]) || 1, pile: parseInt(parts[1]) || 1 }; }
@@ -704,7 +725,7 @@ export default async function SolTrendApp() {
                 type: 'production',
                 message: p.piles + ' pile' + (p.piles === 1 ? '' : 's') + ' installed' + (p.crew ? ' — ' + p.crew : ''),
                 user: p.user || p.crew || 'Field crew',
-                timestamp: new Date(p.date).getTime()
+                timestamp: parseLocalDate(p.date).getTime()
               });
             });
             items.sort(function(a, b) { return b.timestamp - a.timestamp; });
@@ -725,7 +746,7 @@ export default async function SolTrendApp() {
           // against the project's target.
           function avgInstallRate(project) {
             if (!project || !project.installedPiles || !project.startDate) return null;
-            const daysElapsed = Math.max(1, Math.ceil((Date.now() - new Date(project.startDate).getTime()) / 86400000));
+            const daysElapsed = Math.max(1, Math.ceil((Date.now() - parseLocalDate(project.startDate).getTime()) / 86400000));
             const rate = project.installedPiles / daysElapsed;
             return (isFinite(rate) && rate > 0) ? rate : null;
           }
@@ -784,7 +805,7 @@ export default async function SolTrendApp() {
           // whether a project is on a hard date or just an estimate.
           function scheduleTiming(project) {
             if (project.plannedEndDate) {
-              const days = Math.ceil((new Date(project.plannedEndDate).getTime() - Date.now()) / 86400000);
+              const days = Math.ceil((parseLocalDate(project.plannedEndDate).getTime() - Date.now()) / 86400000);
               if (days < 0) return { text: Math.abs(days) + ' days overdue', hex: '#ef4444', days: days };
               if (days === 0) return { text: 'Due today', hex: '#eab308', days: days };
               return { text: days + ' days left', hex: days <= 14 ? '#eab308' : '#94a3b8', days: days };
@@ -1079,7 +1100,7 @@ export default async function SolTrendApp() {
               '<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">' +
                 '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Total Piles</span>' + icon('database', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-white">' + formatNumber(installedPiles) + '</p><p class="text-xs text-slate-400 mt-1">of ' + formatNumber(totalPiles) + ' planned</p></div>' +
                 '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Pass Rate</span>' + icon('check-circle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-blue-400">' + companyPassRate + '%</p><p class="text-xs text-slate-400 mt-1"><span class="text-green-400 font-medium">' + formatNumber(totalPassed) + ' passed</span> · <span class="text-red-400 font-medium">' + formatNumber(totalFailed) + ' failed</span></p></div>' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Refusals</span>' + icon('alert-triangle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-orange-400">' + state.refusals.length + '</p><p class="text-xs text-slate-400 mt-1">total logged</p></div>' +
+                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Refusals</span>' + icon('alert-triangle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-orange-400">' + state.projects.reduce((sum, p) => sum + (p.refusalCount || 0), 0) + '</p><p class="text-xs text-slate-400 mt-1">total logged</p></div>' +
                 '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Active Crews</span>' + icon('users', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-green-400">' + state.crews.length + '</p><p class="text-xs text-slate-400 mt-1">' + (state.crews.length * 8) + ' workers</p></div>' +
               '</div>' +
               '<div class="card rounded-xl p-5">' +
@@ -1123,8 +1144,8 @@ export default async function SolTrendApp() {
               const submittals = project.submittals || [];
               const punchItems = project.punchItems || [];
               const rfiBlocking = rfis.some(function(r) { return r.blocking; });
-              const subOverdue = submittals.some(function(s) { return s.dueDate && new Date(s.dueDate).getTime() < now; });
-              const punchOverdue = punchItems.some(function(p) { return p.dueDate && new Date(p.dueDate).getTime() < now; });
+              const subOverdue = submittals.some(function(s) { return s.dueDate && parseLocalDate(s.dueDate).getTime() < now; });
+              const punchOverdue = punchItems.some(function(p) { return p.dueDate && parseLocalDate(p.dueDate).getTime() < now; });
               const pilesPct = project.totalPiles > 0 ? Math.round((project.installedPiles / project.totalPiles) * 100) : 0;
               const tablesPct = project.totalTables > 0 ? Math.round((project.tablesInstalled / project.totalTables) * 100) : 0;
               const modulesPct = project.totalModules > 0 ? Math.round((project.modulesInstalled / project.totalModules) * 100) : 0;
@@ -1192,12 +1213,12 @@ export default async function SolTrendApp() {
                 return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (x.blocking ? ' text-red-300' : ' text-slate-200') + '">' + x.number + ' · ' + x.subject + (x.blocking ? ' <span class="text-red-400">· blocking</span>' : '') + '<span class="block text-slate-400">' + daysElapsedSince(x.createdAt) + 'd open</span></div>';
               });
               const subHtml = r.submittals.map(function(x) {
-                const overdue = x.dueDate && new Date(x.dueDate).getTime() < now;
-                const sub = overdue ? Math.abs(Math.ceil((now - new Date(x.dueDate).getTime()) / 86400000)) + 'd overdue' : (x.dueDate ? 'due ' + formatDate(x.dueDate) : daysElapsedSince(x.createdAt) + 'd open');
+                const overdue = x.dueDate && parseLocalDate(x.dueDate).getTime() < now;
+                const sub = overdue ? Math.abs(Math.ceil((now - parseLocalDate(x.dueDate).getTime()) / 86400000)) + 'd overdue' : (x.dueDate ? 'due ' + formatDate(x.dueDate) : daysElapsedSince(x.createdAt) + 'd open');
                 return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (overdue ? ' text-red-300' : ' text-slate-200') + '">' + x.number + ' · ' + x.specSection + '<span class="block text-slate-400">' + sub + '</span></div>';
               });
               const punchHtml = r.punchItems.map(function(x) {
-                const overdue = x.dueDate && new Date(x.dueDate).getTime() < now;
+                const overdue = x.dueDate && parseLocalDate(x.dueDate).getTime() < now;
                 return '<div class="text-xs py-1.5 border-t border-slate-700/50 first:border-t-0' + (overdue ? ' text-red-300' : ' text-slate-200') + '">' + x.description + (x.location ? ' <span class="text-slate-400">· ' + x.location + '</span>' : '') + (overdue ? '<span class="block text-red-400">overdue</span>' : '') + '</div>';
               });
               const hasAny = r.rfis.length || r.submittals.length || r.punchItems.length;
@@ -2173,10 +2194,10 @@ export default async function SolTrendApp() {
             (project.rfis || []).filter(function(r) { return r.blocking; }).forEach(function(r) {
               items.push('RFI ' + r.number + ' (' + r.subject + ') is marked blocking and still open &mdash; ' + daysElapsedSince(r.createdAt) + ' days.');
             });
-            (project.submittals || []).filter(function(s) { return s.dueDate && new Date(s.dueDate).getTime() < now; }).forEach(function(s) {
+            (project.submittals || []).filter(function(s) { return s.dueDate && parseLocalDate(s.dueDate).getTime() < now; }).forEach(function(s) {
               items.push('Submittal ' + s.number + ' (' + s.specSection + ') is overdue &mdash; was due ' + formatDate(s.dueDate) + '.');
             });
-            (project.punchItems || []).filter(function(p) { return p.dueDate && new Date(p.dueDate).getTime() < now; }).forEach(function(p) {
+            (project.punchItems || []).filter(function(p) { return p.dueDate && parseLocalDate(p.dueDate).getTime() < now; }).forEach(function(p) {
               items.push('Punch item overdue: ' + p.description + (p.location ? ' (' + p.location + ')' : '') + '.');
             });
             return items;
@@ -2570,7 +2591,7 @@ export default async function SolTrendApp() {
                   </div>
                   <div class="report-meta">
                     <div class="report-type">Daily Production Report</div>
-                    <div class="report-date">\${new Date(date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                    <div class="report-date">\${parseLocalDate(date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
                   </div>
                 </div>
                 <div class="project-banner">
@@ -3246,7 +3267,7 @@ export default async function SolTrendApp() {
               <body>
                 <div class="header">
                   <h1>Quality Control Report</h1>
-                  <p>\${project?.name || 'SolTrend Pro'} | \${new Date(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                  <p>\${project?.name || 'SolTrend Pro'} | \${parseLocalDate(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${parseLocalDate(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                   <p style="font-size:12px;color:#a855f7;font-weight:600;">\${reportScheduleLineText(project)}</p>
                 </div>
                 \${reportAttentionHtml(qcAttentionItems)}
@@ -3600,7 +3621,7 @@ export default async function SolTrendApp() {
               <body>
                 <div class="header">
                   <h1>Refusal Analysis Report</h1>
-                  <p>\${project?.name || 'SolTrend Pro'} | \${new Date(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                  <p>\${project?.name || 'SolTrend Pro'} | \${parseLocalDate(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${parseLocalDate(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                   <p style="font-size:12px;color:#f97316;font-weight:600;">\${reportScheduleLineText(project)}</p>
                 </div>
                 \${reportAttentionHtml(refusalAttentionItems)}
@@ -3686,8 +3707,8 @@ export default async function SolTrendApp() {
               const submittals = project.submittals || [];
               const punchItems = project.punchItems || [];
               const rfiBlocking = rfis.filter(function(r) { return r.blocking; });
-              const subOverdue = submittals.filter(function(s) { return s.dueDate && new Date(s.dueDate).getTime() < now; });
-              const punchOverdue = punchItems.filter(function(p) { return p.dueDate && new Date(p.dueDate).getTime() < now; });
+              const subOverdue = submittals.filter(function(s) { return s.dueDate && parseLocalDate(s.dueDate).getTime() < now; });
+              const punchOverdue = punchItems.filter(function(p) { return p.dueDate && parseLocalDate(p.dueDate).getTime() < now; });
               const pilesPct = project.totalPiles > 0 ? Math.round((project.installedPiles / project.totalPiles) * 100) : 0;
               return { project: project, scheduleStatus: scheduleStatus, phase: phase, timing: timing, rfis: rfis, submittals: submittals, punchItems: punchItems, rfiBlocking: rfiBlocking, subOverdue: subOverdue, punchOverdue: punchOverdue, pilesPct: pilesPct };
             });
@@ -5922,7 +5943,7 @@ export default async function SolTrendApp() {
             const covLabel = {}; coverageTypes.forEach(function(c) { covLabel[c.id] = c.label; });
             const canDelete = hasRole('admin');
             function coiStatus(expiresAt) {
-              const days = Math.floor((new Date(expiresAt).getTime() - Date.now()) / 86400000);
+              const days = Math.floor((parseLocalDate(expiresAt).getTime() - Date.now()) / 86400000);
               if (days < 0) return { label: 'Expired', hex: '#ef4444' };
               if (days <= 30) return { label: 'Expiring Soon', hex: '#eab308' };
               return { label: 'Valid', hex: '#22c55e' };
@@ -6153,7 +6174,7 @@ export default async function SolTrendApp() {
             const canReview = hasRole('manager');
             const notDoneStatuses = ['approved', 'approved_as_noted', 'rejected'];
             const openCount = state.submittals.filter(function(s) { return notDoneStatuses.indexOf(s.status) === -1; }).length;
-            const overdueCount = state.submittals.filter(function(s) { return s.dueDate && new Date(s.dueDate).getTime() < Date.now() && notDoneStatuses.indexOf(s.status) === -1; }).length;
+            const overdueCount = state.submittals.filter(function(s) { return s.dueDate && parseLocalDate(s.dueDate).getTime() < Date.now() && notDoneStatuses.indexOf(s.status) === -1; }).length;
             const statRow = '<div class="grid grid-cols-2 gap-3 mb-4">' +
               '<div class="card rounded-xl p-4"><p class="text-2xl font-bold text-white">' + openCount + '</p><p class="text-xs text-slate-400">In Review</p></div>' +
               '<div class="card rounded-xl p-4"><p class="text-2xl font-bold ' + (overdueCount > 0 ? 'text-red-400' : 'text-white') + '">' + overdueCount + '</p><p class="text-xs text-slate-400">Overdue</p></div>' +
@@ -6181,7 +6202,7 @@ export default async function SolTrendApp() {
               (filteredSubmittals.length > 0 ? filteredSubmittals.map(function(s) {
                 const meta = statusMeta[s.status] || { label: s.status, hex: '#64748b' };
                 const canAdvance = notDoneStatuses.indexOf(s.status) === -1;
-                const overdue = s.dueDate && new Date(s.dueDate).getTime() < Date.now() && canAdvance;
+                const overdue = s.dueDate && parseLocalDate(s.dueDate).getTime() < Date.now() && canAdvance;
                 const reopenLink = canReview && !canAdvance ? ' <button onclick="reopenSubmittal(\\'' + s.id + '\\')" class="text-xs text-amber-400 hover:text-amber-300 ml-2">Reopen</button>' : '';
                 const statusSelect = (canReview && canAdvance ? '<select onchange="advanceSubmittal(\\'' + s.id + '\\', this.value)" class="bg-slate-900 border border-slate-600 rounded-lg px-2 py-1 text-white text-xs">' + SUBMITTAL_STATUSES.map(function(st) { return '<option value="' + st.id + '"' + (s.status === st.id ? ' selected' : '') + '>' + st.label + '</option>'; }).join('') + '</select>' : statusBadge(meta.label, meta.hex)) + reopenLink;
                 return '<tr class="border-t border-slate-700/50"><td class="p-3 text-white font-medium">' + s.number + '</td><td class="p-3 text-slate-400 text-xs">' + s.specSection + (s.materialName ? ' · ' + s.materialName : '') + '</td><td class="p-3 text-slate-400 text-xs">' + (typeLabel[s.type] || s.type) + '</td><td class="p-3 text-slate-400 text-xs">' + s.revision + '</td><td class="p-3 text-xs ' + (overdue ? 'text-red-400 font-medium' : 'text-slate-400') + '">' + (s.dueDate ? formatDate(s.dueDate) : '—') + '</td><td class="p-3">' + statusSelect + '</td><td class="p-3 text-right">' + (s.fileUrl ? '<a href="' + s.fileUrl + '" target="_blank" rel="noopener" class="text-xs text-blue-400 hover:text-blue-300 mr-2">View</a>' : '') + (canDelete ? '<button onclick="deleteSubmittal(\\'' + s.id + '\\')" class="text-xs text-red-400 hover:text-red-300">Delete</button>' : '') + '</td></tr>';
@@ -6254,11 +6275,11 @@ export default async function SolTrendApp() {
             const canDelete = hasRole('admin');
             function materialStatus(m) {
               if (m.orderedQty > 0 && m.deliveredQty >= m.orderedQty) return statusBadge('Complete', '#22c55e');
-              if (m.expectedDate && new Date(m.expectedDate).getTime() < Date.now() && m.deliveredQty < m.orderedQty) return statusBadge('Behind', '#ef4444');
+              if (m.expectedDate && parseLocalDate(m.expectedDate).getTime() < Date.now() && m.deliveredQty < m.orderedQty) return statusBadge('Behind', '#ef4444');
               if (m.deliveredQty > 0) return statusBadge('On Track', '#22c55e');
               return statusBadge('Not Started', '#64748b');
             }
-            const behind = state.materials.filter(function(m) { return m.expectedDate && new Date(m.expectedDate).getTime() < Date.now() && m.deliveredQty < m.orderedQty; });
+            const behind = state.materials.filter(function(m) { return m.expectedDate && parseLocalDate(m.expectedDate).getTime() < Date.now() && m.deliveredQty < m.orderedQty; });
             const warnBanner = behind.length > 0 ? '<div class="mb-4 px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;">' + icon('alert-triangle', 'w-4 h-4 flex-shrink-0') + '<span>' + behind.map(function(m) { return m.name + ' (' + m.deliveredQty + '/' + m.orderedQty + ' ' + m.unit + ')'; }).join(', ') + ' behind schedule.</span></div>' : '';
 
             const materialForm = state.materialFormOpen ? '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
@@ -7181,8 +7202,8 @@ export default async function SolTrendApp() {
               '<div class="flex gap-1 p-1 bg-slate-800/50 rounded-xl overflow-x-auto max-w-md">' + filters.map(function(f) { return '<button onclick="setPunchFilter(\\'' + f.id + '\\')" class="flex-1 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ' + (state.punchFilter === f.id ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white') + '">' + f.label + '</button>'; }).join('') + '</div>' +
               (items.length === 0 ? '<div class="card rounded-xl p-8 text-center text-slate-400 text-sm">No ' + (state.punchFilter === 'all' ? '' : state.punchFilter.replace('_', ' ') + ' ') + 'punch items.</div>' :
               '<div class="space-y-3">' + items.map(function(p) {
-                const dueLabel = p.dueDate ? new Date(p.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
-                const overdue = p.dueDate && p.status !== 'resolved' && new Date(p.dueDate).getTime() < Date.now();
+                const dueLabel = p.dueDate ? parseLocalDate(p.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+                const overdue = p.dueDate && p.status !== 'resolved' && parseLocalDate(p.dueDate).getTime() < Date.now();
                 return '<div class="card rounded-xl p-4">' +
                   '<div class="flex items-start justify-between gap-3">' +
                     '<div class="flex-1 min-w-0"><p class="text-white text-sm">' + p.description + '</p>' +
