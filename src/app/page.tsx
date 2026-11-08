@@ -946,11 +946,20 @@ export default async function SolTrendApp() {
               { title: 'Project', items: [
                 { id: 'dashboard', label: 'Project Dashboard', icon: 'layout-dashboard' },
                 { id: 'schedule', label: 'Schedule', icon: 'calendar-range' },
-                { id: 'production', label: 'Production', icon: 'truck' },
+              ]},
+              // Daily Log now captures Production's half of the day too
+              // (piles/tables/modules/crew/subcontractor/notes) alongside
+              // the narrative half it already had - see renderDailyLog()/
+              // submitDailyLog() - so the standalone "Production" nav item
+              // that used to sit here is gone; everything it did now lives
+              // on this one screen.
+              { title: 'Field Logging', items: [
                 { id: 'dailylog', label: 'Daily Log', icon: 'notebook-pen' },
                 { id: 'inspection', label: 'QC Inspection', icon: 'clipboard-check' },
                 { id: 'refusal', label: 'Refusals', icon: 'alert-triangle' },
                 { id: 'delays', label: 'Delays', icon: 'cloud-rain' },
+              ]},
+              { title: 'Site Reference', items: [
                 { id: 'materials', label: 'Materials', icon: 'package' },
                 { id: 'heatmap', label: 'Pile Map', icon: 'map' },
                 { id: 'gallery', label: 'Gallery', icon: 'images' },
@@ -1365,7 +1374,7 @@ export default async function SolTrendApp() {
                 '<div class="card rounded-xl p-5 flex flex-col justify-center gap-3">' +
                   '<button onclick="navigateTo(\\'inspection\\')" class="w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('clipboard-check', 'w-5 h-5') + ' Start QC</button>' +
                   '<button onclick="navigateTo(\\'refusal\\')" class="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('alert-triangle', 'w-5 h-5') + ' Log Refusal</button>' +
-                  '<button onclick="navigateTo(\\'production\\')" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('truck', 'w-5 h-5') + ' Log Production</button>' +
+                  '<button onclick="navigateTo(\\'dailylog\\')" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('truck', 'w-5 h-5') + ' Daily Log</button>' +
                   '<button onclick="navigateTo(\\'heatmap\\')" class="w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('map', 'w-5 h-5') + ' View Map</button>' +
                 '</div>' +
               '</div>' +
@@ -6777,6 +6786,23 @@ export default async function SolTrendApp() {
             state.dailyLogVisitors = existing ? (existing.visitors || '') : '';
             state.dailyLogNarrative = existing ? (existing.narrative || '') : '';
             state.dailyLogPhotos = existing && Array.isArray(existing.photos) ? existing.photos.slice() : [];
+            // Daily Log and Production are now one screen (see
+            // renderDailyLog()/submitDailyLog()) - picking a date loads
+            // whichever ProductionEntry already exists for it too, so the
+            // piles/tables/modules/crew/subcontractor fields show that
+            // day's real counts instead of carrying over whatever a
+            // previously-viewed date left in the form.
+            const existingProd = state.production.find(function(p) { return p.date === date; });
+            state.productionEntry = {
+              date: date,
+              crew: existingProd ? (existingProd.crewId || null) : null,
+              subcontractor: existingProd ? (existingProd.subcontractorId || null) : null,
+              piles: existingProd ? String(existingProd.piles || '') : '',
+              tables: existingProd ? String(existingProd.tables || '') : '',
+              modules: existingProd ? String(existingProd.modules || '') : '',
+              notes: existingProd ? (existingProd.notes || '') : '',
+              photos: existingProd && Array.isArray(existingProd.photos) ? existingProd.photos.slice() : []
+            };
           }
           function setDailyLogDate(date) {
             state.dailyLogDate = date;
@@ -6785,23 +6811,39 @@ export default async function SolTrendApp() {
           }
           function renderDailyLog() {
             const date = state.dailyLogDate;
-            const dayProduction = state.production.filter(function(p) { return p.date === date; });
+            const entry = state.productionEntry;
             const dayDelays = state.delays.filter(function(d) { return d.date === date; });
             const dayRefusals = state.refusals.filter(function(r) { return localDateStr(r.timestamp) === date; });
-            const hasRecap = dayProduction.length > 0 || dayDelays.length > 0 || dayRefusals.length > 0;
+            const hasRecap = dayDelays.length > 0 || dayRefusals.length > 0;
             const recent = state.dailyLogs.slice(0, 10);
             const submitting = state.dailyLogSubmitting;
-            const recap = '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Already Logged for This Date</h3>' +
+            // Production used to be its own tab; its counts/crew/
+            // subcontractor/notes/photos now live right in this form (see
+            // loadDailyLogIntoForm()/submitDailyLog()), so the recap below
+            // only needs to cover the things that still happen on their own
+            // screens - Delays and Refusals.
+            const recap = '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Logged Elsewhere for This Date</h3>' +
               (hasRecap ? '<div class="space-y-2 text-sm">' +
-                dayProduction.map(function(p) { return '<div class="flex items-center justify-between py-1.5 border-b border-slate-700/50"><span class="text-slate-300">Production</span><span class="text-slate-400">' + p.piles + ' piles, ' + (p.tables || 0) + ' tables, ' + (p.modules || 0) + ' modules</span></div>'; }).join('') +
                 dayDelays.map(function(d) { return '<div class="flex items-center justify-between py-1.5 border-b border-slate-700/50"><span class="text-slate-300">Delay</span><span class="text-slate-400 capitalize">' + d.reason.replace(/_/g, ' ') + (d.hoursLost ? ' · ' + d.hoursLost + 'h' : '') + '</span></div>'; }).join('') +
                 (dayRefusals.length > 0 ? '<div class="flex items-center justify-between py-1.5"><span class="text-slate-300">Refusals</span><span class="text-slate-400">' + dayRefusals.length + ' pile' + (dayRefusals.length === 1 ? '' : 's') + '</span></div>' : '') +
-              '</div>' : '<p class="text-sm text-slate-400">Nothing logged yet for this date in Production, Delays, or Refusals.</p>') +
+              '</div>' : '<p class="text-sm text-slate-400">Nothing logged yet for this date in Delays or Refusals.</p>') +
             '</div>';
             return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto">' +
               '<div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Daily Log</h1><span class="text-sm text-slate-400">' + state.dailyLogs.length + ' logged</span></div>' +
-              '<div class="card rounded-xl p-5 space-y-4">' +
+              '<div class="card rounded-xl p-5">' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Date</label>' + calendarField('dailyLogDate') + '<p class="text-xs text-slate-400 mt-1">Picking a date that already has a log loads it for editing.</p></div>' +
+              '</div>' +
+              '<div class="card rounded-xl p-5 space-y-4">' +
+                '<h3 class="font-display font-semibold text-white text-sm">Production</h3>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Crew</label><select onchange="state.productionEntry.crew=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.crews.map(c => '<option value="' + c.id + '"' + (entry.crew === c.id ? ' selected' : '') + '>' + c.name + '</option>').join('') + '</select></div>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Subcontractor</label><select onchange="state.productionEntry.subcontractor=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white"><option value="">Select...</option>' + state.subcontractors.map(s => '<option value="' + s.id + '"' + (entry.subcontractor === s.id ? ' selected' : '') + '>' + s.name + '</option>').join('') + '</select></div>' +
+                '<p class="text-xs text-slate-400 -mt-2">Crew and Subcontractor here are what Subcontractor Analytics attributes this day\\'s production to - separate from the Crew on Site roster below.</p>' +
+                '<div class="grid grid-cols-3 gap-3"><div><label class="text-xs text-slate-400 mb-1 block">Piles</label><input type="number" min="0" value="' + entry.piles + '" oninput="state.productionEntry.piles=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-400 mb-1 block">Tables</label><input type="number" min="0" value="' + entry.tables + '" oninput="state.productionEntry.tables=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div><div><label class="text-xs text-slate-400 mb-1 block">Modules</label><input type="number" min="0" value="' + entry.modules + '" oninput="state.productionEntry.modules=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-3 text-white font-mono text-center" placeholder="0"></div></div>' +
+                '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Production Notes</label><textarea oninput="state.productionEntry.notes=this.value" rows="2" placeholder="Any issues or notes..." class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (entry.notes || '') + '</textarea></div>' +
+                '<div>' + renderPhotoCapture('production') + '</div>' +
+              '</div>' +
+              '<div class="card rounded-xl p-5 space-y-4">' +
+                '<h3 class="font-display font-semibold text-white text-sm">Site Log</h3>' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Crew on Site</label><div class="space-y-2">' +
                   state.dailyLogCrew.map(function(c, idx) { return '<div class="flex gap-2"><input type="text" value="' + (c.trade || '') + '" oninput="updateCrewRow(' + idx + ', \\'trade\\', this.value)" placeholder="Trade (e.g. Pile Driving)" class="flex-1 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"><input type="number" min="0" value="' + (c.count || '') + '" oninput="updateCrewRow(' + idx + ', \\'count\\', this.value)" placeholder="#" class="w-16 bg-slate-900 border border-slate-600 rounded-lg px-2 py-2 text-white text-sm text-center"><button onclick="removeCrewRow(' + idx + ')" class="px-2 text-slate-400 hover:text-red-400">' + icon('x', 'w-4 h-4') + '</button></div>'; }).join('') +
                 '</div><button onclick="addCrewRow()" class="mt-2 text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">' + icon('plus', 'w-3.5 h-3.5') + ' Add Trade</button></div>' +
@@ -6809,8 +6851,8 @@ export default async function SolTrendApp() {
                 '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Visitors</label><input type="text" value="' + (state.dailyLogVisitors || '') + '" oninput="state.dailyLogVisitors=this.value" placeholder="e.g. Client walkthrough, AHJ inspector" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-white text-sm"></div>' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Notes</label><textarea rows="4" placeholder="Narrative summary of the day..." oninput="state.dailyLogNarrative=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (state.dailyLogNarrative || '') + '</textarea></div>' +
                 '<div>' + renderPhotoCapture('dailylog') + '</div>' +
-                '<button onclick="submitDailyLog()" ' + (submitting ? 'disabled' : '') + ' class="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold text-lg flex items-center justify-center gap-2">' + (submitting ? '<span class="spinner"></span><span>Saving...</span>' : '<span>Save Daily Log</span>') + '</button>' +
               '</div>' +
+              '<button onclick="submitDailyLog()" ' + (submitting ? 'disabled' : '') + ' class="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold text-lg flex items-center justify-center gap-2">' + (submitting ? '<span class="spinner"></span><span>Saving...</span>' : '<span>Save Daily Log</span>') + '</button>' +
               recap +
               '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Recent Daily Logs</h3>' + (recent.length > 0 ? '<div class="space-y-2">' + recent.map(function(l) { return '<div onclick="setDailyLogDate(\\'' + l.date + '\\')" class="flex items-center justify-between py-2 border-b border-slate-700/50 last:border-0 cursor-pointer hover:bg-slate-800/40 rounded px-1 -mx-1"><div><p class="text-sm text-white">' + formatDate(l.date) + '</p><p class="text-xs text-slate-400">' + (l.weather || 'No weather noted') + (l.narrative ? ' · ' + l.narrative.slice(0, 40) + (l.narrative.length > 40 ? '...' : '') : '') + '</p></div>' + (Array.isArray(l.crew) && l.crew.length > 0 ? '<span class="text-xs text-slate-400">' + l.crew.reduce(function(sum, c) { return sum + (parseInt(c.count) || 0); }, 0) + ' crew</span>' : '') + '</div>'; }).join('') + '</div>' : '<p class="text-sm text-slate-400">No daily logs yet.</p>') + '</div>' +
             '</div>';
@@ -6821,6 +6863,26 @@ export default async function SolTrendApp() {
             const date = state.dailyLogDate;
             const crew = state.dailyLogCrew.filter(function(c) { return c.trade && c.trade.trim(); }).map(function(c) { return { trade: c.trade.trim(), count: parseInt(c.count) || 0 }; });
             const projectId = state.currentProject?.id || 'proj_001';
+
+            // Production half of the merged form - see renderDailyLog().
+            // Only worth its own /api/production call when there's
+            // actually something to persist: either this date already has
+            // an entry (so this keeps it in sync, including correcting a
+            // count back down if that's what changed), or a field was
+            // filled in. A pure weather/narrative day with nothing here
+            // shouldn't create an empty ProductionEntry row just because
+            // Production and Daily Log now share one screen.
+            const prodEntry = state.productionEntry;
+            const existingProd = state.production.find(function(p) { return p.date === date; });
+            const pilesInstalled = parseInt(prodEntry.piles) || 0;
+            const tablesInstalled = parseInt(prodEntry.tables) || 0;
+            const modulesInstalled = parseInt(prodEntry.modules) || 0;
+            const prodCrewId = prodEntry.crew || null;
+            const prodSubcontractorId = prodEntry.subcontractor || null;
+            const prodNotes = (prodEntry.notes || '').trim();
+            const prodPhotos = prodEntry.photos || [];
+            const shouldSaveProduction = !!existingProd || pilesInstalled > 0 || tablesInstalled > 0 || modulesInstalled > 0 || !!prodNotes || !!prodCrewId || !!prodSubcontractorId || prodPhotos.length > 0;
+
             state.dailyLogSubmitting = true;
             render();
             try {
@@ -6844,6 +6906,41 @@ export default async function SolTrendApp() {
               if (existingIdx >= 0) state.dailyLogs[existingIdx] = log; else state.dailyLogs.unshift(log);
               state.dailyLogs.sort(function(a, b) { return b.date.localeCompare(a.date); });
               state.dailyLogPhotos = uploadedPhotos;
+
+              if (shouldSaveProduction) {
+                const uploadedProdPhotos = await uploadPendingPhotos(prodPhotos, 'production', projectId);
+                const res = await fetch('/api/production', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    projectId,
+                    pilesInstalled,
+                    tablesInstalled,
+                    modulesInstalled,
+                    date: date || undefined,
+                    crewId: prodCrewId,
+                    subcontractorId: prodSubcontractorId,
+                    notes: prodNotes || undefined,
+                    loggedBy: state.currentUser.id,
+                    photos: uploadedProdPhotos
+                  })
+                });
+                const prodData = await res.json();
+                if (state.currentProject && typeof prodData.installedPiles === 'number') {
+                  state.currentProject.installedPiles = prodData.installedPiles;
+                  state.currentProject.tablesInstalled = prodData.tablesInstalled;
+                  state.currentProject.modulesInstalled = prodData.modulesInstalled;
+                  const proj = state.projects.find(p => p.id === projectId);
+                  if (proj) {
+                    proj.installedPiles = prodData.installedPiles;
+                    proj.tablesInstalled = prodData.tablesInstalled;
+                    proj.modulesInstalled = prodData.modulesInstalled;
+                  }
+                }
+                state.productionEntry.photos = uploadedProdPhotos;
+                await loadProduction();
+              }
+
               showToast('Daily log saved.', 'success');
             } catch (e) {
               console.error('Submit daily log error:', e);
@@ -8419,7 +8516,7 @@ export default async function SolTrendApp() {
                 if (savedProject) state.currentProject = savedProject;
               }
               const savedView = localStorage.getItem('soltrend_lastView');
-              const validViews = ['company', 'dashboard', 'production', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
+              const validViews = ['company', 'dashboard', 'dailylog', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
               const projectIndependentViews = ['company', 'settings'];
               if (savedView && validViews.indexOf(savedView) !== -1 && (projectIndependentViews.indexOf(savedView) !== -1 || state.currentProject)) {
                 state.currentView = savedView;

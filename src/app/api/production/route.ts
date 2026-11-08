@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
       tables: e.tablesInstalled,
       modules: e.modulesInstalled,
       crew: e.crew?.name || null,
+      crewId: e.crewId || null,
       user: e.user?.name || null,
       subcontractorId: e.subcontractorId || null,
       subcontractor: e.subcontractor?.name || null,
