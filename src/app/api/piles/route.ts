@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth/next'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { recomputeProjectPileStats } from '@/lib/pileStats'
 
 // This route manages Project.piles - the real per-pile layout data that
 // backs a "custom" pile map (see the Pile model's comment in schema.prisma).
@@ -29,25 +30,6 @@ type PileInput = {
 
 function derivePileId(p: PileInput): string {
   return p.pileId && String(p.pileId).trim() ? String(p.pileId).trim() : `${p.row}-${p.position}`
-}
-
-// Recomputes the cached totals a "custom" layout project should show
-// elsewhere in the app (Active Projects cards, Company Dashboard) so
-// totalPiles keeps meaning something once it's no longer just
-// totalRows * pilesPerRow. installedPiles/passedInspections etc are left
-// alone here - those are still driven by actual Inspection records.
-async function recomputeProjectPileStats(projectId: string) {
-  const piles = await prisma.pile.findMany({ where: { projectId }, select: { row: true, skip: true } })
-  const real = piles.filter((p) => !p.skip)
-  const maxRow = piles.reduce((m, p) => Math.max(m, p.row), 0)
-  await prisma.project.update({
-    where: { id: projectId },
-    data: {
-      pileLayoutMode: 'custom',
-      totalPiles: real.length,
-      totalRows: maxRow || undefined,
-    },
-  })
 }
 
 // GET /api/piles?projectId=...

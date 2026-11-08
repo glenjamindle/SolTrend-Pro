@@ -305,6 +305,11 @@ export default async function SolTrendApp() {
             // before switchToProject() ever runs, could start the counter
             // past the end of row 1. 1-1 is always in range.
             currentRow: 1, currentPile: 1,
+            // Tracks which pile's data is currently loaded into the form
+            // (see renderInspection()/loadInspectionIntoForm()) so a
+            // render() triggered by, say, typing in a field doesn't
+            // re-load and wipe it - only an actual change of pile does.
+            inspectionLoadedPileId: null,
             inspectionPhotos: [], lastInspection: null,
             inspectionFailReason: null,
             inspectionDepth: '', inspectionPlumbNS: '', inspectionPlumbEW: '',
@@ -315,6 +320,9 @@ export default async function SolTrendApp() {
             // out of range for plenty of real projects before anything has
             // had a chance to click or clamp it. 1-1 is always in range.
             refusalRow: 1, refusalPile: 1,
+            // Same purpose as inspectionLoadedPileId above, for the
+            // Refusal entry screen (see renderRefusal()/loadRefusalIntoForm()).
+            refusalLoadedPileId: null,
             targetDepth: 72, achievedDepth: null, refusalReason: null, refusalNotes: '', refusalPhotos: [],
             openRefusals: 8,
             // Refusal List (see renderRefusalList) - the "X Open" pill on
@@ -4343,18 +4351,42 @@ export default async function SolTrendApp() {
           // manual pile add switches it to 'custom' - see Project.pileLayoutMode
           // and the Pile model in schema.prisma, and /api/piles.
           //
-          // Known limitation (accepted for this round): Inspection's
-          // sequential prev/next navigation still steps through the
-          // totalRows/pilesPerRow rectangle, not the real row lengths - it
-          // just looks up a matching Pile record at each stop to
-          // auto-fill the pile type. The Pile Map's tap-to-inspect flow
-          // (reinspectPile) is the precise entry point once a project has
-          // a real irregular layout, since it always jumps to a real pile.
+          // Auto-fills the detailed-mode Pile Type dropdown from the real
+          // layout's assigned type for whichever pile is showing, when
+          // there's no prior inspection recorded for it to load that from
+          // instead (see loadInspectionIntoForm(), which calls this).
           function syncInspectionPileTypeFromLayout() {
             if (!state.piles || state.piles.length === 0) return;
             const pid = getPileId(state.currentRow, state.currentPile);
             const match = state.piles.find(function(p) { return p.pileId === pid; });
             if (match && match.pileType) state.inspectionPileType = match.pileType;
+          }
+          // Loads whichever inspection already exists for this pile into
+          // the detailed-mode fields, so landing on a pile you (or someone
+          // else) already inspected shows what was recorded instead of a
+          // blank form that would silently overwrite it on the next Pass/
+          // Fail tap. Called from renderInspection() itself (guarded by
+          // state.inspectionLoadedPileId so it only runs when the pile
+          // actually changes, not on every render) - that one call site
+          // covers every way the pile can change: the arrows, a project
+          // switch, or the Pile Map's reinspectPile(). Clears back to
+          // blank for a pile with nothing logged yet, same as before.
+          function loadInspectionIntoForm(pileId) {
+            const existing = state.inspections.find(function(i) { return i.pileId === pileId; });
+            state.inspectionDepth = existing && existing.depth != null ? String(existing.depth) : '';
+            state.inspectionPlumbNS = existing && existing.plumbNS != null ? String(existing.plumbNS) : '';
+            state.inspectionPlumbEW = existing && existing.plumbEW != null ? String(existing.plumbEW) : '';
+            state.inspectionHeight = existing && existing.heightIn != null ? String(existing.heightIn) : '';
+            state.inspectionTwist = existing && existing.twistDeg != null ? String(existing.twistDeg) : '';
+            state.inspectionSpacing = existing && existing.spacingIn != null ? String(existing.spacingIn) : '';
+            state.inspectionAlignment = existing && existing.alignmentIn != null ? String(existing.alignmentIn) : '';
+            state.inspectionFailReason = existing ? (existing.failReason || null) : null;
+            // A prior inspection's own recorded pile type wins (shows
+            // exactly what was logged); only fall back to the layout's
+            // assigned type when there's no prior inspection to show.
+            state.inspectionPileType = existing && existing.pileType ? existing.pileType : '';
+            if (!existing) syncInspectionPileTypeFromLayout();
+            state.inspectionPhotos = [];
           }
 
           // Keeps the project's cached layout-mode/totals in sync locally
@@ -5045,6 +5077,36 @@ export default async function SolTrendApp() {
           // INSPECTION - WITH PHOTO CAPTURE
           function renderInspection() {
             const pid = getPileId(state.currentRow, state.currentPile);
+            if (state.inspectionLoadedPileId !== pid) {
+              loadInspectionIntoForm(pid);
+              state.inspectionLoadedPileId = pid;
+            }
+            const existingInspection = state.inspections.find(function(i) { return i.pileId === pid; });
+            // Shown right under the pile selector so it's the first thing
+            // seen on landing here, not something you'd only find by
+            // backing out to the Pile Map - see Glen's original question:
+            // no way to tell from this screen alone whether a pile had
+            // already been inspected, or what was recorded if so.
+            const alreadyLoggedBanner = !existingInspection ? '' : (
+              '<div class="rounded-xl p-4 border ' + (existingInspection.status === 'pass' ? 'border-green-500/30 bg-green-500/10' : 'border-red-500/30 bg-red-500/10') + '">' +
+                '<div class="flex items-center justify-between"><span class="text-sm font-semibold ' + (existingInspection.status === 'pass' ? 'text-green-400' : 'text-red-400') + '">Already logged · ' + existingInspection.status.toUpperCase() + '</span><span class="text-xs text-slate-400">' + new Date(existingInspection.timestamp).toLocaleString() + '</span></div>' +
+                '<p class="text-xs text-slate-400 mt-1">By ' + (existingInspection.user || 'Unknown') + (existingInspection.failReason ? ' · ' + existingInspection.failReason : '') + '</p>' +
+                ([
+                  existingInspection.depth != null ? 'Depth ' + existingInspection.depth + '"' : null,
+                  existingInspection.plumbNS != null ? 'Plumb N-S ' + existingInspection.plumbNS + '°' : null,
+                  existingInspection.plumbEW != null ? 'Plumb E-W ' + existingInspection.plumbEW + '°' : null,
+                  existingInspection.heightIn != null ? 'Height ' + existingInspection.heightIn + '"' : null,
+                  existingInspection.twistDeg != null ? 'Twist ' + existingInspection.twistDeg + '°' : null,
+                ].filter(Boolean).join(' · ') ? '<p class="text-xs text-slate-400 mt-1">' + [
+                  existingInspection.depth != null ? 'Depth ' + existingInspection.depth + '"' : null,
+                  existingInspection.plumbNS != null ? 'Plumb N-S ' + existingInspection.plumbNS + '°' : null,
+                  existingInspection.plumbEW != null ? 'Plumb E-W ' + existingInspection.plumbEW + '°' : null,
+                  existingInspection.heightIn != null ? 'Height ' + existingInspection.heightIn + '"' : null,
+                  existingInspection.twistDeg != null ? 'Twist ' + existingInspection.twistDeg + '°' : null,
+                ].filter(Boolean).join(' · ') + '</p>' : '') +
+                '<p class="text-xs text-slate-500 mt-1.5">The fields below are loaded from this - tapping PASS/FAIL again overwrites it.</p>' +
+              '</div>'
+            );
             // Reference-only: shows the project's active racking profile
             // tolerance next to the measurement inputs so the inspector can
             // see the target while entering readings. This does not
@@ -5089,18 +5151,38 @@ export default async function SolTrendApp() {
               }).join('') +
               '</div></div>'
             ) : '';
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">QC Inspection</h1></div><div class="flex items-center gap-2"><span class="badge-pass px-3 py-1.5 rounded-full text-sm">' + state.session.passed + ' Pass</span><span class="badge-fail px-3 py-1.5 rounded-full text-sm">' + state.session.failed + ' Fail</span></div></div><div class="flex gap-2"><button onclick="setInspectionMode(\\'quick\\')" class="mode-btn ' + (state.inspectionMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">quick</button><button onclick="setInspectionMode(\\'detailed\\')" class="mode-btn ' + (state.inspectionMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">detailed</button></div><div class="pile-display p-6"><p class="text-xs text-slate-400 uppercase tracking-wider text-center mb-3">INSPECTING</p><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.currentRow + '</span><button onclick="incRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div>' + detailedPanel + '<div class="grid grid-cols-2 gap-3"><button onclick="recordInspection(\\'pass\\')" class="btn-action bg-green-600 text-white flex flex-col items-center justify-center gap-2">' + icon('check-circle', 'w-12 h-12') + '<span>PASS</span></button><button onclick="recordInspection(\\'fail\\')" class="btn-action bg-red-600 text-white flex flex-col items-center justify-center gap-2">' + icon('x-circle', 'w-12 h-12') + '<span>FAIL</span></button></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('inspection') + '</div></div>';
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><div><h1 class="font-display text-xl font-bold text-white">QC Inspection</h1></div><div class="flex items-center gap-2"><span class="badge-pass px-3 py-1.5 rounded-full text-sm">' + state.session.passed + ' Pass</span><span class="badge-fail px-3 py-1.5 rounded-full text-sm">' + state.session.failed + ' Fail</span></div></div><div class="flex gap-2"><button onclick="setInspectionMode(\\'quick\\')" class="mode-btn ' + (state.inspectionMode === 'quick' ? 'mode-btn-active' : 'mode-btn-inactive') + '">quick</button><button onclick="setInspectionMode(\\'detailed\\')" class="mode-btn ' + (state.inspectionMode === 'detailed' ? 'mode-btn-active' : 'mode-btn-inactive') + '">detailed</button></div><div class="pile-display p-6"><p class="text-xs text-slate-400 uppercase tracking-wider text-center mb-3">INSPECTING</p><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.currentRow + '</span><button onclick="incRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div>' + alreadyLoggedBanner + detailedPanel + '<div class="grid grid-cols-2 gap-3"><button onclick="recordInspection(\\'pass\\')" class="btn-action bg-green-600 text-white flex flex-col items-center justify-center gap-2">' + icon('check-circle', 'w-12 h-12') + '<span>PASS</span></button><button onclick="recordInspection(\\'fail\\')" class="btn-action bg-red-600 text-white flex flex-col items-center justify-center gap-2">' + icon('x-circle', 'w-12 h-12') + '<span>FAIL</span></button></div><div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('inspection') + '</div></div>';
           }
-          function incPile() { hapticFeedback(); if (state.currentPile < getRowPileCount(state.currentRow)) state.currentPile++; syncInspectionPileTypeFromLayout(); render(); }
-          function decPile() { hapticFeedback(); if (state.currentPile > 1) state.currentPile--; syncInspectionPileTypeFromLayout(); render(); }
+          // Loading whichever pile's already-logged data into the form
+          // (see loadInspectionIntoForm()) now happens inside
+          // renderInspection() itself, keyed off currentRow/currentPile -
+          // every path that changes either one (these two, incRow/decRow
+          // below, or reinspectPile() from the Pile Map) picks it up on
+          // the very next render() without needing its own explicit call.
+          function incPile() { hapticFeedback(); if (state.currentPile < getRowPileCount(state.currentRow)) state.currentPile++; render(); }
+          function decPile() { hapticFeedback(); if (state.currentPile > 1) state.currentPile--; render(); }
           // Clamp currentPile to the row just switched to - on a custom
           // layout a row can be shorter than the one just left (see
           // getRowPileCount), so without this, moving from a long row while
           // sitting on pile 25 onto a 9-pile row left the counter on "2-25",
           // a pile that doesn't exist.
           function clampCurrentPileToRow() { const max = getRowPileCount(state.currentRow); if (max > 0 && state.currentPile > max) state.currentPile = max; }
-          function incRow() { hapticFeedback(); if (state.currentRow < state.heatmap.totalRows) state.currentRow++; clampCurrentPileToRow(); syncInspectionPileTypeFromLayout(); render(); }
-          function decRow() { hapticFeedback(); if (state.currentRow > 1) state.currentRow--; clampCurrentPileToRow(); syncInspectionPileTypeFromLayout(); render(); }
+          // A custom layout's totalRows is however many rows have actually
+          // been imported/entered into Settings -> Pile Layout so far, not
+          // a hard ceiling on the real site - a site that's grown, or was
+          // under-captured in the original CSV, has real piles beyond it.
+          // Capping navigation there left no way to log anything for them
+          // at all (the Pile Map's custom-layout view only draws rows it
+          // already has records for either, so that wasn't an escape
+          // hatch). Grid-mode projects keep the old cap - there, totalRows
+          // IS the whole procedural rectangle by definition, and growing
+          // it is a deliberate Settings change (Standard Grid), not
+          // something to fall out of an arrow tap. Submitting an
+          // inspection/refusal for a pile this far out auto-registers it
+          // server-side - see shouldAutoRegisterPile() in
+          // /api/inspections and /api/refusals.
+          function incRow() { hapticFeedback(); const uncapped = state.currentProject?.pileLayoutMode === 'custom'; if (uncapped || state.currentRow < state.heatmap.totalRows) state.currentRow++; clampCurrentPileToRow(); render(); }
+          function decRow() { hapticFeedback(); if (state.currentRow > 1) state.currentRow--; clampCurrentPileToRow(); render(); }
           function setInspectionMode(mode) { state.inspectionMode = mode; render(); }
           function selectInspectionFailReason(reason) { hapticFeedback(); state.inspectionFailReason = state.inspectionFailReason === reason ? null : reason; render(); }
           function recordInspection(status) {
@@ -6432,8 +6514,35 @@ export default async function SolTrendApp() {
           }
 
           // REFUSAL - WITH PHOTO CAPTURE
+          // Loads whichever refusal already exists for this pile into the
+          // Achieved/Reason/Notes fields - same reasoning and same
+          // guarded-by-pile-change call site pattern as
+          // loadInspectionIntoForm() above. Target Depth is deliberately
+          // NOT included here; renderRefusal() already recomputes that
+          // separately on every render from the project's default, not
+          // from whatever was recorded before.
+          function loadRefusalIntoForm(pileId) {
+            const existing = state.refusals.find(function(r) { return r.pileId === pileId; });
+            state.achievedDepth = existing && existing.achievedDepth != null ? existing.achievedDepth : null;
+            state.refusalReason = existing ? (existing.reason || null) : null;
+            state.refusalNotes = existing ? (existing.notes || '') : '';
+            state.refusalPhotos = [];
+          }
           function renderRefusal() {
             const pid = getPileId(state.refusalRow, state.refusalPile);
+            if (state.refusalLoadedPileId !== pid) {
+              loadRefusalIntoForm(pid);
+              state.refusalLoadedPileId = pid;
+            }
+            const existingRefusal = state.refusals.find(function(r) { return r.pileId === pid; });
+            const alreadyLoggedBanner = !existingRefusal ? '' : (
+              '<div class="rounded-xl p-4 border border-orange-500/30 bg-orange-500/10">' +
+                '<div class="flex items-center justify-between"><span class="text-sm font-semibold text-orange-400 capitalize">Already logged · ' + existingRefusal.reason + '</span><span class="text-xs text-slate-400">' + new Date(existingRefusal.timestamp).toLocaleString() + '</span></div>' +
+                '<p class="text-xs text-slate-400 mt-1">By ' + (existingRefusal.user || 'Unknown') + ' · Target ' + existingRefusal.targetDepth + '" · Achieved ' + (existingRefusal.achievedDepth != null ? existingRefusal.achievedDepth + '"' : 'N/A') + ' · ' + refusalStatusBadge(existingRefusal.status) + '</p>' +
+                (existingRefusal.notes ? '<p class="text-xs text-slate-400 mt-1">"' + existingRefusal.notes + '"</p>' : '') +
+                '<p class="text-xs text-slate-500 mt-1.5">The fields below are loaded from this - logging again overwrites the original entry (status/resolution stay as-is).</p>' +
+              '</div>'
+            );
             // Re-derived on every render of this view (pile/row nav, a
             // just-submitted refusal advancing to the next pile, a project
             // switch, or restoring straight into this tab on app boot) so
@@ -6453,7 +6562,7 @@ export default async function SolTrendApp() {
             // between the two modes.
             const notesPanel = '<div class="card rounded-xl p-4 mb-3"><h3 class="font-display font-semibold text-white text-sm mb-3">Notes</h3>' +
               '<textarea id="refusalNotesInput" rows="3" placeholder="What was encountered, crew observations, anything relevant to follow-up..." oninput="state.refusalNotes=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm resize-none">' + (state.refusalNotes || '') + '</textarea></div>';
-            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Pile Refusals</h1><button onclick="navigateTo(\\'refusalList\\')" class="badge-open px-3 py-1.5 rounded-full text-sm hover:brightness-110 transition" title="View and resolve logged refusals">' + state.openRefusals + ' Open</button></div><div class="pile-display p-6"><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.refusalRow + '</span><button onclick="incRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-400 mb-1 block">Target (in)</label><input type="number" id="refusalTarget" value="' + state.targetDepth + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div><div><label class="text-xs text-slate-400 mb-1 block">Achieved (in)</label><input type="number" id="refusalDepth" value="' + (state.achievedDepth||'') + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div></div><div id="refusalShortfallBox" class="' + sc + ' rounded-xl p-4 text-center"><span class="text-sm text-slate-400">Shortfall: <span id="refusalShortfallValue">' + shortfallText + '</span></span></div><div><label class="text-xs text-slate-400 mb-2 block">Reason</label><div class="grid grid-cols-4 gap-2">' + ['bedrock', 'cobble', 'obstruction', 'other'].map(r => '<button onclick="setRefusalReason(\\'' + r + '\\')" class="reason-btn ' + (state.refusalReason===r?'reason-btn-selected':'') + '"><span class="text-xs text-white capitalize">' + r + '</span></button>').join('') + '</div></div>' + notesPanel + '<div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('refusal') + '</div><button onclick="submitRefusal()" class="w-full py-4 bg-red-600 text-white rounded-xl font-bold mt-4">LOG REFUSAL</button></div>';
+            return '<div class="space-y-4 animate-fade-in max-w-lg mx-auto"><div class="flex items-center justify-between"><h1 class="font-display text-xl font-bold text-white">Pile Refusals</h1><button onclick="navigateTo(\\'refusalList\\')" class="badge-open px-3 py-1.5 rounded-full text-sm hover:brightness-110 transition" title="View and resolve logged refusals">' + state.openRefusals + ' Open</button></div><div class="pile-display p-6"><div class="flex items-center justify-center gap-4 mb-4"><button onclick="decRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-left', 'w-8 h-8') + '</button><div class="flex-1 text-center"><span class="font-display text-5xl font-bold text-white">' + pid + '</span></div><button onclick="incRefusalPile()" class="nav-arrow nav-arrow-large bg-slate-700 text-white">' + icon('chevron-right', 'w-8 h-8') + '</button></div><div class="flex items-center justify-center gap-3"><button onclick="decRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-left', 'w-5 h-5') + '</button><span class="text-sm text-slate-400 px-3">Row #' + state.refusalRow + '</span><button onclick="incRefusalRow()" class="nav-arrow nav-arrow-small bg-slate-700/50 text-slate-300">' + icon('chevron-right', 'w-5 h-5') + '</button></div></div>' + alreadyLoggedBanner + '<div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-400 mb-1 block">Target (in)</label><input type="number" id="refusalTarget" value="' + state.targetDepth + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div><div><label class="text-xs text-slate-400 mb-1 block">Achieved (in)</label><input type="number" id="refusalDepth" value="' + (state.achievedDepth||'') + '" oninput="updateRefusalShortfall()" class="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white font-bold"></div></div><div id="refusalShortfallBox" class="' + sc + ' rounded-xl p-4 text-center"><span class="text-sm text-slate-400">Shortfall: <span id="refusalShortfallValue">' + shortfallText + '</span></span></div><div><label class="text-xs text-slate-400 mb-2 block">Reason</label><div class="grid grid-cols-4 gap-2">' + ['bedrock', 'cobble', 'obstruction', 'other'].map(r => '<button onclick="setRefusalReason(\\'' + r + '\\')" class="reason-btn ' + (state.refusalReason===r?'reason-btn-selected':'') + '"><span class="text-xs text-white capitalize">' + r + '</span></button>').join('') + '</div></div>' + notesPanel + '<div class="border-t border-slate-700 pt-4 mt-4">' + renderPhotoCapture('refusal') + '</div><button onclick="submitRefusal()" class="w-full py-4 bg-red-600 text-white rounded-xl font-bold mt-4">LOG REFUSAL</button></div>';
           }
           // Updates the Shortfall box live as the Target/Achieved inputs
           // are typed into, without going through render() - a full
@@ -6480,13 +6589,27 @@ export default async function SolTrendApp() {
           function incRefusalPile() { hapticFeedback(); if (state.refusalPile < getRowPileCount(state.refusalRow)) state.refusalPile++; render(); }
           function decRefusalPile() { hapticFeedback(); if (state.refusalPile > 1) state.refusalPile--; render(); }
           function clampRefusalPileToRow() { const max = getRowPileCount(state.refusalRow); if (max > 0 && state.refusalPile > max) state.refusalPile = max; }
-          function incRefusalRow() { hapticFeedback(); if (state.refusalRow < state.heatmap.totalRows) state.refusalRow++; clampRefusalPileToRow(); render(); }
+          // See the matching comment on incRow() above - same reasoning,
+          // same uncapped-for-custom-layout behavior.
+          function incRefusalRow() { hapticFeedback(); const uncapped = state.currentProject?.pileLayoutMode === 'custom'; if (uncapped || state.refusalRow < state.heatmap.totalRows) state.refusalRow++; clampRefusalPileToRow(); render(); }
           function decRefusalRow() { hapticFeedback(); if (state.refusalRow > 1) state.refusalRow--; clampRefusalPileToRow(); render(); }
           function setRefusalReason(reason) { state.refusalReason = reason; render(); }
           function submitRefusal() {
             hapticFeedback();
             const photos = state.refusalPhotos;
             const pileId = getPileId(state.refusalRow, state.refusalPile);
+            // /api/refusals' update path only touches the original
+            // field-logged data (reason/depths/notes/photos) and
+            // deliberately leaves status/resolutionNotes/resolvedBy/
+            // resolvedAt alone - re-logging a resolved refusal's depths
+            // doesn't reopen it server-side. The local optimistic copy
+            // below used to hardcode 'open'/blank regardless, so a
+            // resolved refusal would flash back to "Open" in the UI (Pile
+            // Map, Refusal List, the banner above) until the next reload
+            // quietly corrected it. Carrying the existing record's values
+            // forward here keeps the local copy consistent with what the
+            // server actually does.
+            const existingRefusal = state.refusals.find(function(r) { return r.pileId === pileId; });
             const refusal = {
               pileId,
               reason: state.refusalReason,
@@ -6500,13 +6623,10 @@ export default async function SolTrendApp() {
               // showed its photos in the Gallery or Daily Report until a
               // full reload pulled the real record back from the server.
               photos: [],
-              // Matches the server default (see schema.prisma) so a
-              // freshly-logged refusal shows as Open in the Refusal List
-              // immediately, before the next loadRefusals() round-trip.
-              status: 'open',
-              resolutionNotes: '',
-              resolvedBy: null,
-              resolvedAt: null
+              status: existingRefusal ? existingRefusal.status : 'open',
+              resolutionNotes: existingRefusal ? existingRefusal.resolutionNotes : '',
+              resolvedBy: existingRefusal ? existingRefusal.resolvedBy : null,
+              resolvedAt: existingRefusal ? existingRefusal.resolvedAt : null
             };
             // Replace, don't append, for the same reason as recordInspection:
             // re-logging a refusal for a pile that already has one shouldn't

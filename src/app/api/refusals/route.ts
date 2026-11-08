@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createNotification } from '@/lib/notify'
+import { shouldAutoRegisterPile, registerPile } from '@/lib/pileStats'
 
 function parsePileId(pileId: string) {
   const parts = String(pileId).split('-')
@@ -65,11 +66,22 @@ export async function POST(request: NextRequest) {
 
     // Same guard as /api/inspections - a 'custom' layout's rows vary in
     // length, so don't let a refusal get logged against a pile ID that
-    // isn't actually part of the imported layout.
+    // isn't actually part of the imported layout, UNLESS it's right at
+    // the edge of what's charted so far (a new row past the last one on
+    // file, or the next position along the current last row) - see the
+    // matching comment in /api/inspections and shouldAutoRegisterPile().
     if (project.pileLayoutMode === 'custom') {
       const pile = await prisma.pile.findUnique({ where: { projectId_pileId: { projectId, pileId } } })
-      if (!pile || pile.skip) {
-        return NextResponse.json({ error: `Pile ${pileId} is not part of this project's layout` }, { status: 400 })
+      if (pile?.skip) {
+        return NextResponse.json({ error: `Pile ${pileId} is marked as a gap/obstacle, not a real pile` }, { status: 400 })
+      }
+      if (!pile) {
+        const { row: pileRow, pile: pilePosition } = parsePileId(pileId)
+        if (await shouldAutoRegisterPile(projectId, pileRow, pilePosition)) {
+          await registerPile(projectId, pileId, pileRow, pilePosition)
+        } else {
+          return NextResponse.json({ error: `Pile ${pileId} is not part of this project's layout` }, { status: 400 })
+        }
       }
     }
 

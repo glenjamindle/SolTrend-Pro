@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createNotification } from '@/lib/notify'
+import { shouldAutoRegisterPile, registerPile } from '@/lib/pileStats'
 
 function parsePileId(pileId: string) {
   const parts = String(pileId).split('-')
@@ -69,10 +70,28 @@ export async function POST(request: NextRequest) {
     // inspected total above its real pile count with no way to tell which
     // records are real. Reject at the source instead of trusting the
     // client to have capped it correctly.
+    //
+    // The one exception: a pile right at the edge of what's charted so
+    // far (a new row past the last one on file, or the next position
+    // along the current last row) gets auto-registered instead of
+    // rejected - see shouldAutoRegisterPile(). That's the real-world case
+    // this used to block outright: a site with more rows than the
+    // original CSV import captured, with no way to log anything for them
+    // without first going into Settings -> Pile Layout. A pile that falls
+    // within an already-charted, already-known-to-be-short row is still
+    // rejected - that's the original bug this guard exists for.
     if (project.pileLayoutMode === 'custom') {
       const pile = await prisma.pile.findUnique({ where: { projectId_pileId: { projectId, pileId } } })
-      if (!pile || pile.skip) {
-        return NextResponse.json({ error: `Pile ${pileId} is not part of this project's layout` }, { status: 400 })
+      if (pile?.skip) {
+        return NextResponse.json({ error: `Pile ${pileId} is marked as a gap/obstacle, not a real pile` }, { status: 400 })
+      }
+      if (!pile) {
+        const { row: pileRow, pile: pilePosition } = parsePileId(pileId)
+        if (await shouldAutoRegisterPile(projectId, pileRow, pilePosition)) {
+          await registerPile(projectId, pileId, pileRow, pilePosition)
+        } else {
+          return NextResponse.json({ error: `Pile ${pileId} is not part of this project's layout` }, { status: 400 })
+        }
       }
     }
 
