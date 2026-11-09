@@ -3,9 +3,11 @@ import { prisma } from '@/lib/db'
 import { hashPassword } from '@/lib/auth'
 
 // POST /api/seed
-// Idempotent: ensures a default company, the 5 demo-credential users,
-// default crews/subcontractors/racking profiles, and a default project
-// exist. Safe to call repeatedly - only creates what's missing.
+// Idempotent: ensures a default company, default crews/subcontractors/
+// racking profiles, a default project, and - ONLY on a truly fresh
+// company with no users at all yet - the 5 demo-credential users exist.
+// Safe to call repeatedly (and it is - initializeApp() calls this on
+// every page load); only creates what's missing.
 export async function POST() {
   try {
     let company = await prisma.company.findFirst()
@@ -17,30 +19,44 @@ export async function POST() {
     }
 
     const demoUsers = [
-      { email: 'admin@apexsolar.com', name: 'Marcus Thompson', role: 'admin' },
-      { email: 'pm@apexsolar.com', name: 'Sarah Kim', role: 'manager' },
-      { email: 'supervisor@apexsolar.com', name: 'Elena Vargas', role: 'supervisor' },
-      { email: 'crew@apexsolar.com', name: 'James King', role: 'crew' },
-      { email: 'inspector@apexsolar.com', name: 'Dana Ruiz', role: 'inspector' },
+      { email: 'admin@kruger.com', name: 'Marcus Thompson', role: 'admin' },
+      { email: 'pm@kruger.com', name: 'Sarah Kim', role: 'manager' },
+      { email: 'supervisor@kruger.com', name: 'Elena Vargas', role: 'supervisor' },
+      { email: 'crew@kruger.com', name: 'James King', role: 'crew' },
+      { email: 'inspector@kruger.com', name: 'Dana Ruiz', role: 'inspector' },
     ]
 
-    // Hashed once and reused - all five demo accounts share the same demo
-    // password, and bcrypt is deliberately slow, so there's no reason to
-    // pay that cost five times for an identical result.
-    const demoPasswordHash = hashPassword('demo123')
+    // Every other seeded entity below (crews/subcontractors/racking
+    // profiles) only creates its defaults when that table is completely
+    // empty for this company - this loop used to be the one exception,
+    // upserting all 5 demo accounts by email on EVERY call regardless of
+    // how many real users already existed. That meant renaming one of
+    // these demo accounts' email (e.g. to a real company domain) just
+    // recreated a fresh duplicate under the old email on the very next
+    // page load, since the upsert's `where: { email }` no longer matched
+    // the renamed row. Gating this on "no users yet for this company"
+    // fixes that for good, and matches how everything else here already
+    // behaves.
+    const existingUserCount = await prisma.user.count({ where: { companyId: company.id } })
+    if (existingUserCount === 0) {
+      // Hashed once and reused - all five demo accounts share the same
+      // demo password, and bcrypt is deliberately slow, so there's no
+      // reason to pay that cost five times for an identical result.
+      const demoPasswordHash = hashPassword('demo123')
 
-    for (const u of demoUsers) {
-      await prisma.user.upsert({
-        where: { email: u.email },
-        update: {},
-        create: {
-          email: u.email,
-          name: u.name,
-          role: u.role,
-          password: demoPasswordHash,
-          companyId: company.id,
-        },
-      })
+      for (const u of demoUsers) {
+        await prisma.user.upsert({
+          where: { email: u.email },
+          update: {},
+          create: {
+            email: u.email,
+            name: u.name,
+            role: u.role,
+            password: demoPasswordHash,
+            companyId: company.id,
+          },
+        })
+      }
     }
 
     const crewCount = await prisma.crew.count({ where: { companyId: company.id } })
