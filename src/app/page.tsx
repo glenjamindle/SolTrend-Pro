@@ -264,6 +264,14 @@ export default async function SolTrendApp() {
             subcontractors: [],
             rackingProfiles: [],
             editingRackingTypes: [],
+            // Draft storage for the Racking Profile modal's Name/
+            // Manufacturer fields, same reasoning as editingRackingTypes
+            // just above: this modal re-renders on things like "+ Add
+            // Pile Type" (anything that calls render()), and a NEW
+            // profile has no saved row to re-populate a plain DOM input
+            // from, so without a draft to render from, Name/Manufacturer
+            // silently reset to blank on that re-render.
+            editingProfileDraft: { name: '', manufacturer: '' },
             piles: [],
             pileCsvPreview: null,
             editingPile: null,
@@ -8091,13 +8099,20 @@ export default async function SolTrendApp() {
                 '</div>';
             } else if (item.type === 'rackingProfile') {
               title = item.id ? 'Edit Racking Profile' : 'New Racking Profile';
-              const r = item.id ? state.rackingProfiles.find(x => x.id === item.id) || {} : {};
               const types = state.editingRackingTypes || [];
+              // Rendered from the draft (populated in openEditModal, kept
+              // live via oninput below), not from state.rackingProfiles -
+              // same reason the pile-type rows just below read from
+              // state.editingRackingTypes instead of the DOM: this modal
+              // re-renders on things like "+ Add Pile Type", and these
+              // two fields need to survive that for a brand-new profile
+              // that has no saved row to re-populate them from.
+              const draft = state.editingProfileDraft || { name: '', manufacturer: '' };
               formContent =
                 '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Profile Name</label>' +
-                '<input type="text" id="modalName" value="' + (r.name || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<input type="text" id="modalName" value="' + (draft.name || '') + '" oninput="state.editingProfileDraft.name=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Manufacturer</label>' +
-                '<input type="text" id="modalManufacturer" value="' + (r.manufacturer || '') + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
+                '<input type="text" id="modalManufacturer" value="' + (draft.manufacturer || '') + '" oninput="state.editingProfileDraft.manufacturer=this.value" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '<div class="flex items-center justify-between pt-2 border-t border-slate-700/50">' +
                   '<label class="text-xs text-slate-400 uppercase block">Pile Types &amp; Tolerances</label>' +
                   '<button type="button" onclick="addRackingType()" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-xs flex items-center gap-1">' + icon('plus', 'w-3.5 h-3.5') + ' Add Pile Type</button>' +
@@ -8194,10 +8209,11 @@ export default async function SolTrendApp() {
               state.editingRackingTypes = (r && Array.isArray(r.pileTypeSpecs) && r.pileTypeSpecs.length > 0)
                 ? JSON.parse(JSON.stringify(r.pileTypeSpecs))
                 : [];
+              state.editingProfileDraft = { name: (r && r.name) || '', manufacturer: (r && r.manufacturer) || '' };
             }
             render();
           }
-          function closeEditModal() { state.editingItem = null; state.editingRackingTypes = []; render(); }
+          function closeEditModal() { state.editingItem = null; state.editingRackingTypes = []; state.editingProfileDraft = { name: '', manufacturer: '' }; render(); }
           function addRackingType() {
             state.editingRackingTypes = state.editingRackingTypes || [];
             state.editingRackingTypes.push({
@@ -8265,9 +8281,20 @@ export default async function SolTrendApp() {
                 alert('Every pile type needs a label.');
                 return;
               }
+              // Read from the draft, not the DOM - same reason the pile
+              // types above read from state.editingRackingTypes: a
+              // getElementById read here raced the "+ Add Pile Type"
+              // re-render wiping these two fields back to blank (see the
+              // comment on state.editingProfileDraft), so whatever the
+              // draft holds is the only value that's actually reliable.
+              const profileDraft = state.editingProfileDraft || {};
+              if (!profileDraft.name) {
+                alert('Give this profile a name before saving.');
+                return;
+              }
               data = {
-                name: document.getElementById('modalName')?.value || '',
-                manufacturer: document.getElementById('modalManufacturer')?.value || '',
+                name: profileDraft.name || '',
+                manufacturer: profileDraft.manufacturer || '',
                 pileTypeSpecs: state.editingRackingTypes,
                 isActive: true,
               };
