@@ -248,6 +248,14 @@ export default async function SolTrendApp() {
             reportOptions: { weeklyPhotos: false, monthlyPhotos: false },
             companyId: null,
             company: null,
+            // Set true only when the initial loadSettings() call itself
+            // failed (network error, or a non-success response with no
+            // usable company payload) - never for a company that simply
+            // has zero projects yet, which is a normal, legitimate state.
+            // render() shows a dedicated retry screen while this is true
+            // instead of attempting the normal views, which all assume a
+            // real company/current user context exists.
+            loadFailed: false,
             projects: [],
             inspections: [],
             refusals: [],
@@ -976,37 +984,20 @@ export default async function SolTrendApp() {
             return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" multiple class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photos</span></button>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
           }
 
-          // DEMO DATA GENERATION
-          function generateDemoData() {
-            state.company = { id: 'comp_001', name: 'Apex Solar Construction', tier: 'enterprise', users: 47 };
-            state.projects = [
-              { id: 'proj_001', name: 'Desert Sun Solar Farm', location: 'Phoenix, AZ', status: 'active', health: 'green', totalPiles: 750, installedPiles: 542, passedInspections: 489, failedInspections: 23, refusals: 30, client: 'NextEra Energy', startDate: '2024-09-15', plannedEnd: '2025-02-15', rackingProfile: 'gamechange', projectManager: 'Sarah K.', dailyTarget: 35 },
-              { id: 'proj_002', name: 'High Plains Array', location: 'Colorado Springs, CO', status: 'completed', health: 'green', totalPiles: 1200, installedPiles: 1200, passedInspections: 1156, failedInspections: 28, refusals: 16, client: 'Xcel Energy', startDate: '2024-06-01', plannedEnd: '2024-11-15', rackingProfile: 'nextracker', projectManager: 'Mike R.' },
-            ];
-            state.currentProject = state.projects[0];
-            state.crews = [{ id: 'crew_001', name: 'Alpha Crew', lead: 'Marcus T.', status: 'active' }, { id: 'crew_002', name: 'Beta Crew', lead: 'Elena V.', status: 'active' }, { id: 'crew_003', name: 'Gamma Crew', lead: 'James K.', status: 'standby' }];
-            state.subcontractors = [{ id: 'sub_001', name: 'SolarForce Inc.' }, { id: 'sub_002', name: 'PileDrivers LLC' }];
-            
-            // Generate heatmap data
-            for (let row = 1; row <= state.heatmap.totalRows; row++) {
-              for (let pile = 1; pile <= state.heatmap.pilesPerRow; pile++) {
-                const pileId = row + '-' + pile;
-                const random = Math.random();
-                if (random < 0.65) state.inspections.push({ pileId, status: 'pass', timestamp: Date.now() - Math.random()*3600000*24, user: state.crews[0].lead, depth: Math.floor(72 + Math.random()*8), plumbNS: (Math.random()*2).toFixed(1), plumbEW: (Math.random()*2).toFixed(1) });
-                else if (random < 0.72) state.inspections.push({ pileId, status: 'fail', timestamp: Date.now() - Math.random()*3600000*5, user: state.crews[1].lead, depth: Math.floor(64 + Math.random()*8), plumbNS: (2 + Math.random()*2).toFixed(1), plumbEW: (Math.random()*2).toFixed(1), failReason: ['plumb', 'twist', 'height', 'alignment', 'spacing'][Math.floor(Math.random()*5)] });
-                else if (random < 0.76) state.refusals.push({ pileId, reason: ['bedrock', 'cobble', 'obstruction'][Math.floor(Math.random()*3)], timestamp: Date.now() - Math.random()*3600000*48, user: state.crews[0].lead, targetDepth: 72, achievedDepth: Math.floor(30 + Math.random()*24) });
-              }
-            }
-            // Recent Activity is now derived live from state.inspections/
-            // refusals/production (see computeRecentActivity) instead of a
-            // separately-seeded array, so the demo fallback above already
-            // covers it - no separate fake feed needed here.
-            
-            // Generate 30 days of production data
-            for (let i = 29; i >= 0; i--) {
-              state.production.push({ date: localDateStr(Date.now() - i * 24 * 60 * 60 * 1000), piles: Math.floor(Math.random() * 20 + 35), crew: state.crews[Math.floor(Math.random() * state.crews.length)].name });
-            }
-          }
+          // There used to be a DEMO DATA GENERATION function here
+          // (generateDemoData()) that fabricated an entire fake company,
+          // fake projects, and Math.random()-based inspections/refusals/
+          // production whenever initializeApp() thought the database was
+          // empty. The trouble: it fired on ANY reason state.company/
+          // state.projects came back empty, including a loadSettings()
+          // fetch that genuinely failed (a Railway cold start, a network
+          // blip) - not just a confirmed-empty database. The server's own
+          // /api/settings GET already guarantees a real company exists on
+          // any successful round trip, so there's no legitimate case left
+          // where this app should ever show invented numbers instead of
+          // either real data or an honest "couldn't load, try again."
+          // Removed outright - see the loadFailed handling in
+          // loadSettings()/initializeApp()/renderLoadError() below.
 
           // SIDEBAR
           function renderSidebar() {
@@ -8440,14 +8431,18 @@ export default async function SolTrendApp() {
             try {
               const response = await fetch('/api/settings' + (state.companyId ? '?companyId=' + state.companyId : ''));
               const data = await response.json();
-              
+
               if (data.companyId && !state.companyId) {
                 state.companyId = data.companyId;
                 await loadSettings();
                 return;
               }
-              
-              if (data.company) state.company = data.company;
+
+              // A genuinely successful round trip always includes a real
+              // company (see the comment on state.loadFailed above) - only
+              // clear the failed flag once we actually have one, not just
+              // because the request didn't throw.
+              if (data.company) { state.company = data.company; state.loadFailed = false; }
               if (data.projects) state.projects = data.projects;
               if (data.crews) state.crews = data.crews;
               if (data.subcontractors) state.subcontractors = data.subcontractors;
@@ -8475,6 +8470,13 @@ export default async function SolTrendApp() {
               render();
             } catch (e) {
               console.error('Load settings error:', e);
+              // Only the very first load (before any company has ever
+              // loaded) should flip into the full-screen retry state - a
+              // transient failure on a later background refresh shouldn't
+              // yank a working session back to an error screen out from
+              // under someone mid-task. initializeApp() is what actually
+              // acts on this flag.
+              if (!state.company) state.loadFailed = true;
             }
           }
 
@@ -8563,6 +8565,11 @@ export default async function SolTrendApp() {
           let renderSuppressCount = 0;
           function render() {
             if (renderSuppressCount > 0) return;
+            if (state.loadFailed) {
+              document.getElementById('app').innerHTML = renderLoadError();
+              if (window.lucide) lucide.createIcons();
+              return;
+            }
             const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, refusalList: renderRefusalList, delays: renderDelays, dailylog: renderDailyLog, punchlist: renderPunchList, heatmap: renderHeatMap, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button>' + mobileHeaderBrand() + '<span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
@@ -8680,6 +8687,26 @@ export default async function SolTrendApp() {
           }
           setTimeout(revealApp, 5000);
 
+          // Shown instead of the normal app when the very first
+          // loadSettings() call fails outright (see state.loadFailed) -
+          // the honest alternative to the old generateDemoData() fallback,
+          // which silently showed fabricated numbers in this exact
+          // situation.
+          function renderLoadError() {
+            return '<div class="min-h-screen flex items-center justify-center p-6">' +
+              '<div class="max-w-sm w-full text-center space-y-4">' +
+                icon('wifi-off', 'w-10 h-10 text-slate-500 mx-auto') +
+                '<h2 class="font-display text-lg font-semibold text-white">Couldn\\'t load your data</h2>' +
+                '<p class="text-sm text-slate-400">SolTrend Pro couldn\\'t reach the server to load your company and projects. This is usually temporary - check your connection and try again.</p>' +
+                '<button onclick="retryInitialLoad()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-semibold">Retry</button>' +
+              '</div>' +
+            '</div>';
+          }
+          function retryInitialLoad() {
+            state.loadFailed = false;
+            initializeApp();
+          }
+
           // INITIALIZATION - Load data from database
           async function initializeApp() {
             // Show loading state
@@ -8693,11 +8720,21 @@ export default async function SolTrendApp() {
 
             // Try to load settings from database first
             await loadSettings();
-            
-            // If no data was loaded, fall back to demo data
-            if (!state.company || state.projects.length === 0) {
-              console.log('No data in database, using demo data');
-              generateDemoData();
+
+            // state.company staying null here means loadSettings() itself
+            // failed (see the comment on state.loadFailed) - a real
+            // company having zero projects yet is a legitimate, different
+            // state and is left to render normally (the Settings/Projects
+            // and Company Dashboard views already have their own "no
+            // projects yet" empty states for that). Show a plain retry
+            // screen and stop - there's nothing useful left to do without
+            // a company (seeding, notifications, etc. would all just fail
+            // too), and no scenario where fabricating data instead is
+            // better than telling the truth that the load failed.
+            if (!state.company) {
+              state.loadFailed = true;
+              render();
+              return;
             }
 
             // Restore whichever project and view were open before a
