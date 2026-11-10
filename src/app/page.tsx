@@ -383,7 +383,7 @@ export default async function SolTrendApp() {
             dailyLogWeather: '', dailyLogVisitors: '', dailyLogNarrative: '',
             dailyLogPhotos: [], dailyLogSubmitting: false,
             punchItems: [], punchFilter: 'open', punchFormOpen: false,
-            punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: [],
+            punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: [], punchSubmitting: false,
             pendingSyncCount: 0,
             // SAFETY
             toolboxTalks: [], safetyObservations: [], safetyIncidents: [],
@@ -396,8 +396,8 @@ export default async function SolTrendApp() {
             milestonePhase: '', milestonePlannedStart: '', milestonePlannedEnd: '', milestoneActualStart: '', milestoneActualEnd: '', milestoneStatus: 'not_started', milestonePercent: '',
             // DOCUMENTS & COI
             documents: [], cois: [], documentsTab: 'library',
-            docFormOpen: false, docTitle: '', docCategory: 'site_plans', docPendingFile: null,
-            coiFormOpen: false, coiSubcontractorId: '', coiCoverageType: 'general_liability', coiExpiresAt: '', coiPendingFile: null,
+            docFormOpen: false, docTitle: '', docCategory: 'site_plans', docPendingFile: null, docSubmitting: false,
+            coiFormOpen: false, coiSubcontractorId: '', coiCoverageType: 'general_liability', coiExpiresAt: '', coiPendingFile: null, coiSubmitting: false,
             // MATERIALS
             materials: [], deliveries: [],
             materialFormOpen: false, materialName: '', materialOrderedQty: '', materialUnit: 'units', materialExpectedDate: '', materialSupplier: '',
@@ -914,11 +914,44 @@ export default async function SolTrendApp() {
           // implied it. Now processes the whole FileList, then commits and
           // re-renders once, so a multi-select from the library lands as a
           // single batch instead of one photo at a time.
+          // Single lookup used by handlePhotoCapture/removePhoto/
+          // renderPhotoCapture instead of three separate copies of the same
+          // context->array chain, so there's exactly one place to extend
+          // when a new photo context is added.
+          function photoArrayFor(context) {
+            if (context === 'production') return state.productionEntry.photos;
+            if (context === 'inspection') return state.inspectionPhotos;
+            if (context === 'refusal') return state.refusalPhotos;
+            if (context === 'punchlist') return state.punchPhotos;
+            if (context === 'safety-obs') return state.obsPhotos;
+            if (context === 'safety-incident') return state.incidentPhotos;
+            if (context === 'rfi') return state.rfiPhotos;
+            if (context === 'gallery') return state.galleryUploadPhotos;
+            if (context === 'dailylog') return state.dailyLogPhotos;
+            return null;
+          }
+          // Picking/shooting a photo used to go completely silent from the
+          // moment the OS picker closed until Promise.all below resolved -
+          // reading the file, decoding it into an <img>, drawing it to a
+          // resize canvas, re-encoding as JPEG, AND waiting up to 2s per
+          // photo for a GPS fix, all with nothing on screen changing. That's
+          // easily a second or more with zero feedback, which is exactly
+          // why this got tapped repeatedly - there was nothing to tell
+          // Glen (or anyone) the tap had registered. Now a gray spinner
+          // tile is pushed into the grid for each selected photo
+          // IMMEDIATELY (before any decoding/GPS work starts), then swapped
+          // for the real thumbnail as soon as that one photo finishes
+          // processing - visible proof of the tap right away, not just at
+          // the very end.
           async function handlePhotoCapture(event, context) {
             const files = Array.from(event.target.files || []);
             if (files.length === 0) return;
             hapticFeedback();
             event.target.value = '';
+            const arr = photoArrayFor(context);
+            const placeholders = files.map(function() { return { id: 'pending_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8), pending: true }; });
+            if (arr) arr.push(...placeholders);
+            render();
             const maxW = 1280, maxH = 720;
             const processOne = (file) => new Promise((resolve) => {
               const img = new Image(); const reader = new FileReader();
@@ -936,42 +969,31 @@ export default async function SolTrendApp() {
               };
               reader.readAsDataURL(file);
             });
-            const photoObjs = await Promise.all(files.map(processOne));
-            if (context === 'production') state.productionEntry.photos.push(...photoObjs);
-            else if (context === 'inspection') state.inspectionPhotos.push(...photoObjs);
-            else if (context === 'refusal') state.refusalPhotos.push(...photoObjs);
-            else if (context === 'punchlist') state.punchPhotos.push(...photoObjs);
-            else if (context === 'safety-obs') state.obsPhotos.push(...photoObjs);
-            else if (context === 'safety-incident') state.incidentPhotos.push(...photoObjs);
-            else if (context === 'rfi') state.rfiPhotos.push(...photoObjs);
-            else if (context === 'gallery') state.galleryUploadPhotos.push(...photoObjs);
-            else if (context === 'dailylog') state.dailyLogPhotos.push(...photoObjs);
-            render();
+            // Swap each placeholder for its real photo as soon as THAT one
+            // photo is ready, rather than waiting for every photo in the
+            // batch - a multi-photo pick fills in thumbnail by thumbnail
+            // instead of all at once at the end.
+            files.map(processOne).forEach(function(p, i) {
+              p.then(function(photoObj) {
+                if (!arr) return;
+                const idx = arr.findIndex(function(x) { return x.id === placeholders[i].id; });
+                // idx === -1 means the user already deleted this pending
+                // tile before processing finished - respect that instead
+                // of re-adding a photo they just removed.
+                if (idx !== -1) { arr[idx] = photoObj; render(); }
+              });
+            });
           }
           function removePhoto(context, id) {
             hapticFeedback();
-            if (context === 'production') state.productionEntry.photos = state.productionEntry.photos.filter(p => p.id !== id);
-            else if (context === 'inspection') state.inspectionPhotos = state.inspectionPhotos.filter(p => p.id !== id);
-            else if (context === 'refusal') state.refusalPhotos = state.refusalPhotos.filter(p => p.id !== id);
-            else if (context === 'punchlist') state.punchPhotos = state.punchPhotos.filter(p => p.id !== id);
-            else if (context === 'safety-obs') state.obsPhotos = state.obsPhotos.filter(p => p.id !== id);
-            else if (context === 'safety-incident') state.incidentPhotos = state.incidentPhotos.filter(p => p.id !== id);
-            else if (context === 'rfi') state.rfiPhotos = state.rfiPhotos.filter(p => p.id !== id);
-            else if (context === 'gallery') state.galleryUploadPhotos = state.galleryUploadPhotos.filter(p => p.id !== id);
-            else if (context === 'dailylog') state.dailyLogPhotos = state.dailyLogPhotos.filter(p => p.id !== id);
+            const arr = photoArrayFor(context);
+            if (!arr) return;
+            const idx = arr.findIndex(function(p) { return p.id === id; });
+            if (idx !== -1) arr.splice(idx, 1);
             render();
           }
           function renderPhotoCapture(context) {
-            let photos = [];
-            if (context === 'production') photos = state.productionEntry.photos;
-            else if (context === 'inspection') photos = state.inspectionPhotos;
-            else if (context === 'refusal') photos = state.refusalPhotos;
-            else if (context === 'punchlist') photos = state.punchPhotos;
-            else if (context === 'safety-obs') photos = state.obsPhotos;
-            else if (context === 'safety-incident') photos = state.incidentPhotos;
-            else if (context === 'rfi') photos = state.rfiPhotos;
-            else if (context === 'gallery') photos = state.galleryUploadPhotos;
-            else if (context === 'dailylog') photos = state.dailyLogPhotos;
+            const photos = photoArrayFor(context) || [];
             // Used to be two inputs: a capture="environment" one (direct
             // camera launch, but the OS camera app hands back exactly one
             // shot per launch - no way to batch) plus a separate library
@@ -989,7 +1011,10 @@ export default async function SolTrendApp() {
             // *selection* from photos already on the device. One input now
             // covers both the camera and the library, so the separate
             // library-only button is gone too.
-            return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" multiple class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photos</span></button>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>').join('') + '</div>' : '') + '</div>';
+            return '<div class="space-y-2"><input type="file" id="photoInput-' + context + '" accept="image/*" multiple class="hidden" onchange="handlePhotoCapture(event, \\'' + context + '\\')"><button onclick="triggerPhotoInput(\\'' + context + '\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('camera', 'w-5 h-5') + ' <span class="font-medium text-sm">Add Photos</span></button>' + (photos.length > 0 ? '<div class="photo-grid">' + photos.map(p => p.pending ?
+              '<div class="photo-thumb" style="display:flex;align-items:center;justify-content:center;"><span class="spinner" style="color:#fbbf24;"></span></div>' :
+              '<div class="photo-thumb"><img src="' + p.url + '" alt="Photo"><button onclick="removePhoto(\\'' + context + '\\', \\'' + p.id + '\\')" class="photo-delete">' + icon('x', 'w-3 h-3') + '</button></div>'
+            ).join('') + '</div>' : '') + '</div>';
           }
 
           // There used to be a DEMO DATA GENERATION function here
@@ -5723,7 +5748,7 @@ export default async function SolTrendApp() {
               return ticks;
             })();
             const tickLines = monthTicks.map(function(t) { return '<div class="absolute top-0 bottom-0 border-l border-slate-700/40" style="left:' + t.pct + '%;"></div>'; }).join('');
-            const ruler = milestones.length > 0 ? '<div class="grid grid-cols-[110px_1fr] gap-3 mb-2">' +
+            const ruler = milestones.length > 0 ? '<div class="grid grid-cols-[150px_1fr] gap-3 mb-2">' +
               '<div></div>' +
               '<div class="relative h-4">' + monthTicks.map(function(t) {
                 return '<div class="absolute top-0 bottom-0 border-l border-slate-700/50" style="left:' + t.pct + '%;"></div>' +
@@ -5737,8 +5762,16 @@ export default async function SolTrendApp() {
               const hasPlanned = plannedLeft !== null && plannedRight !== null;
               const percent = effectivePercent(m);
               const barColor = statusHex[m.status] || '#64748b';
-              return '<div class="grid grid-cols-[110px_1fr] items-center gap-3">' +
-                '<div class="min-w-0"><p class="text-xs font-semibold text-white truncate">' + m.phase + '</p><p class="text-[10px] text-slate-400">' + percent + '%</p></div>' +
+              // Phase names were single-line truncate inside a narrow
+              // 110px column, so similarly-worded phases ("Pile Driving -
+              // Zone A" / "Pile Driving - Zone B") both cut off to "Pile
+              // Driving -..." and were impossible to tell apart. Widened
+              // the column and switched to a 2-line clamp (most phase
+              // names fit in full now), plus a title attribute so the
+              // full name shows on hover/long-press even if it's still
+              // too long for two lines.
+              return '<div class="grid grid-cols-[150px_1fr] items-center gap-3">' +
+                '<div class="min-w-0"><p class="text-xs font-semibold text-white leading-snug" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;" title="' + m.phase + '">' + m.phase + '</p><p class="text-[10px] text-slate-400">' + percent + '%</p></div>' +
                 '<div class="relative h-4 bg-slate-900 rounded-md overflow-hidden">' +
                   tickLines +
                   (hasPlanned ? '<div class="absolute top-0 bottom-0 rounded-md" style="left:' + plannedLeft + '%;width:' + Math.max(2, plannedRight - plannedLeft) + '%;background:rgba(148,163,184,0.18);border:1px dashed rgba(148,163,184,0.4);"></div>' : '') +
@@ -5897,36 +5930,55 @@ export default async function SolTrendApp() {
               '<div><label class="text-xs text-slate-400 mb-1 block">Category</label><select oninput="state.docCategory=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + categories.map(function(c) { return '<option value="' + c.id + '"' + (state.docCategory === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
               '<input type="file" id="docFileInput-document" class="hidden" onchange="handleDocFileSelect(event, \\'document\\')">' +
               '<button onclick="triggerDocFileInput(\\'document\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.docPendingFile ? state.docPendingFile.name : 'Choose File') + '</span></button>' +
-              '<button onclick="submitDocument()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Upload</button>' +
+              '<button onclick="submitDocument()" ' + (state.docSubmitting ? 'disabled' : '') + ' class="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold flex items-center justify-center gap-2">' + (state.docSubmitting ? '<span class="spinner"></span><span>Uploading...</span>' : '<span>Upload</span>') + '</button>' +
             '</div>';
             const list = state.documents.length > 0 ? '<div class="space-y-2">' + state.documents.map(function(d) {
               return '<div class="card rounded-xl p-4 flex items-center justify-between gap-3"><a href="' + d.fileUrl + '" target="_blank" rel="noopener" class="flex items-center gap-3 flex-1 min-w-0">' + icon('file-text', 'w-5 h-5 text-slate-400 flex-shrink-0') + '<div class="min-w-0"><p class="text-sm font-medium text-white truncate">' + d.title + '</p><p class="text-xs text-slate-400">' + (catLabel[d.category] || d.category) + ' · ' + d.uploadedBy + ' · ' + formatDate(d.createdAt) + '</p></div></a>' + (canDelete ? '<button onclick="deleteDocument(\\'' + d.id + '\\')" class="text-slate-400 hover:text-red-400 p-1 flex-shrink-0">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') + '</div>';
             }).join('') + '</div>' : '<p class="text-sm text-slate-400">No documents uploaded yet.</p>';
             return form + list;
           }
+          // Used to clear the Title/File fields and render() BEFORE the
+          // upload even started, which was the only visible reaction to
+          // tapping "Upload" - the new document then didn't appear in the
+          // list until the two awaited round trips below (file upload,
+          // then the /api/documents create) finished, with nothing in
+          // between to show it was still working. Also meant a failed
+          // upload silently lost the title the person had just typed.
+          // Now mirrors the Production/Daily Log/Gallery pattern: disable
+          // the button and show a spinner for the whole in-flight window,
+          // and only clear the form (and only then) once the upload has
+          // actually succeeded.
           function submitDocument() {
+            if (state.docSubmitting) return;
             hapticFeedback();
             if (!state.docTitle || !state.docTitle.trim()) { alert('Enter a title.'); return; }
             if (!state.docPendingFile) { alert('Choose a file to upload.'); return; }
-            const file = state.docPendingFile;
-            const title = state.docTitle.trim(), category = state.docCategory;
-            state.docTitle = ''; state.docPendingFile = null;
+            state.docSubmitting = true;
             render();
-            saveDocument(title, category, file);
+            saveDocument(state.docTitle.trim(), state.docCategory, state.docPendingFile);
           }
           async function saveDocument(title, category, file) {
             try {
               const projectId = state.currentProject?.id || 'proj_001';
               const upRes = await fetch('/api/upload-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: file.dataUrl, context: 'document' }) });
               const upData = await upRes.json();
-              if (!upData.url) { console.error('Document upload failed'); return; }
+              if (!upData.url) throw new Error('Document upload failed');
               const res = await fetch('/api/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, title, category, fileKey: upData.key, fileUrl: upData.url, fileType: upData.contentType, fileSize: upData.size, uploadedBy: state.currentUser.id, filePendingUpload: !!upData.pendingUpload, fileUploadContext: 'document' }) });
               const created = await res.json();
               if (created && created.id) {
                 state.documents.unshift({ id: created.id, title: created.title, category: created.category, fileUrl: created.fileUrl, fileType: created.fileType, fileSize: created.fileSize, uploadedBy: state.currentUser.name, createdAt: created.createdAt });
-                render();
+                state.docTitle = ''; state.docPendingFile = null;
+                showToast('Document uploaded.', 'success');
+              } else {
+                throw new Error('Document create failed');
               }
-            } catch (e) { console.error('Save document error:', e); }
+            } catch (e) {
+              console.error('Save document error:', e);
+              showToast('Failed to upload document - check your connection and try again.', 'error');
+            } finally {
+              state.docSubmitting = false;
+              render();
+            }
           }
           function deleteDocument(id) {
             if (!confirm('Delete this document?')) return;
@@ -5956,7 +6008,7 @@ export default async function SolTrendApp() {
               '<div><label class="text-xs text-slate-400 mb-1 block">Expires</label>' + calendarField('coiExpiresAt') + '</div>' +
               '<input type="file" id="docFileInput-coi" class="hidden" onchange="handleDocFileSelect(event, \\'coi\\')">' +
               '<button onclick="triggerDocFileInput(\\'coi\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.coiPendingFile ? state.coiPendingFile.name : 'Attach Certificate (optional)') + '</span></button>' +
-              '<button onclick="submitCoi()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold">Add Certificate</button>' +
+              '<button onclick="submitCoi()" ' + (state.coiSubmitting ? 'disabled' : '') + ' class="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold flex items-center justify-center gap-2">' + (state.coiSubmitting ? '<span class="spinner"></span><span>Saving...</span>' : '<span>Add Certificate</span>') + '</button>' +
             '</div>';
             const expiredOrSoon = state.cois.filter(function(c) { return coiStatus(c.expiresAt).label !== 'Valid'; });
             const warnBanner = expiredOrSoon.length > 0 ? '<div class="mb-4 px-4 py-3 rounded-xl flex items-center gap-2 text-sm font-medium" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171;">' + icon('alert-triangle', 'w-4 h-4 flex-shrink-0') + '<span>' + expiredOrSoon.length + ' certificate' + (expiredOrSoon.length === 1 ? ' is' : 's are') + ' expired or expiring within 30 days.</span></div>' : '';
@@ -5969,12 +6021,12 @@ export default async function SolTrendApp() {
             return form + warnBanner + table;
           }
           function submitCoi() {
+            if (state.coiSubmitting) return;
             hapticFeedback();
             if (!state.coiSubcontractorId || !state.coiExpiresAt) { alert('Select a subcontractor and expiration date.'); return; }
-            const subcontractorId = state.coiSubcontractorId, coverageType = state.coiCoverageType, expiresAt = state.coiExpiresAt, file = state.coiPendingFile;
-            state.coiSubcontractorId = ''; state.coiExpiresAt = ''; state.coiPendingFile = null;
+            state.coiSubmitting = true;
             render();
-            saveCoi(subcontractorId, coverageType, expiresAt, file);
+            saveCoi(state.coiSubcontractorId, state.coiCoverageType, state.coiExpiresAt, state.coiPendingFile);
           }
           async function saveCoi(subcontractorId, coverageType, expiresAt, file) {
             try {
@@ -5990,9 +6042,18 @@ export default async function SolTrendApp() {
               if (created && created.id) {
                 const sub = state.subcontractors.find(function(s) { return s.id === subcontractorId; });
                 state.cois.unshift({ id: created.id, subcontractorId, subcontractor: sub ? sub.name : 'Unknown', coverageType, expiresAt: created.expiresAt, fileUrl, createdAt: created.createdAt });
-                render();
+                state.coiSubcontractorId = ''; state.coiExpiresAt = ''; state.coiPendingFile = null;
+                showToast('Certificate added.', 'success');
+              } else {
+                throw new Error('COI create failed');
               }
-            } catch (e) { console.error('Save COI error:', e); }
+            } catch (e) {
+              console.error('Save COI error:', e);
+              showToast('Failed to save certificate - check your connection and try again.', 'error');
+            } finally {
+              state.coiSubmitting = false;
+              render();
+            }
           }
           function deleteCoi(id) {
             if (!confirm('Delete this certificate?')) return;
@@ -6897,7 +6958,14 @@ export default async function SolTrendApp() {
                 '<div><label class="text-xs text-slate-400 uppercase mb-1.5 block">Notes</label><textarea id="delayDescInput" rows="2" placeholder="Any detail worth keeping for the record..." oninput="state.delayDescription=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-white resize-none text-sm">' + (state.delayDescription || '') + '</textarea></div>' +
                 '<button onclick="submitDelay()" class="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-lg">Log Delay</button>' +
               '</div>' +
-              '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Recent Delays</h3>' + (recent.length > 0 ? '<div class="space-y-2">' + recent.map(d => '<div class="flex items-center justify-between py-2 border-b border-slate-700/50 last:border-0"><div><p class="text-sm text-white capitalize">' + d.reason.replace(/_/g, ' ') + '</p><p class="text-xs text-slate-400">' + formatDate(d.date) + (d.description ? ' · ' + d.description : '') + '</p></div>' + (d.hoursLost ? '<span class="text-xs text-slate-400">' + d.hoursLost + 'h</span>' : '') + '</div>').join('') + '</div>' : '<p class="text-sm text-slate-400">No delays logged yet.</p>') + '</div>' +
+              // Was a plain flex row with no min-w-0/break-words on the
+              // text side and no flex-shrink-0 on the hours badge - a
+              // delay with a longer note (or one long unbroken word in
+              // it) could render wider than its own text column and spill
+              // past the card's right edge instead of wrapping. items-
+              // start (not items-center) so a two-line note doesn't look
+              // vertically off against the single-line hours badge.
+              '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white text-sm mb-3">Recent Delays</h3>' + (recent.length > 0 ? '<div class="space-y-2">' + recent.map(d => '<div class="flex items-start justify-between gap-3 py-2 border-b border-slate-700/50 last:border-0"><div class="min-w-0"><p class="text-sm text-white capitalize">' + d.reason.replace(/_/g, ' ') + '</p><p class="text-xs text-slate-400 break-words">' + formatDate(d.date) + (d.description ? ' · ' + d.description : '') + '</p></div>' + (d.hoursLost ? '<span class="text-xs text-slate-400 flex-shrink-0">' + d.hoursLost + 'h</span>' : '') + '</div>').join('') + '</div>' : '<p class="text-sm text-slate-400">No delays logged yet.</p>') + '</div>' +
             '</div>';
           }
           function setDelayReason(reason) { hapticFeedback(); state.delayReason = reason; render(); }
@@ -7192,7 +7260,7 @@ export default async function SolTrendApp() {
                   '<div><label class="text-xs text-slate-400 mb-1 block">Due Date</label>' + calendarField('punchDueDate') + '</div>' +
                 '</div>' +
                 renderPhotoCapture('punchlist') +
-                '<div class="flex gap-2"><button onclick="submitPunchItem()" class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-bold text-sm">Add Item</button><button onclick="closePunchForm()" class="px-4 py-3 bg-slate-700 text-slate-300 rounded-xl font-medium text-sm">Cancel</button></div>' +
+                '<div class="flex gap-2"><button onclick="submitPunchItem()" ' + (state.punchSubmitting ? 'disabled' : '') + ' class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold text-sm flex items-center justify-center gap-2">' + (state.punchSubmitting ? '<span class="spinner"></span><span>Saving...</span>' : '<span>Add Item</span>') + '</button><button onclick="closePunchForm()" ' + (state.punchSubmitting ? 'disabled' : '') + ' class="px-4 py-3 bg-slate-700 text-slate-300 rounded-xl font-medium text-sm disabled:opacity-60">Cancel</button></div>' +
               '</div>'
             ) : '';
             return '<div class="space-y-4 animate-fade-in">' +
@@ -7238,11 +7306,26 @@ export default async function SolTrendApp() {
           }
           function setPunchPriority(p) { state.punchPriority = p; render(); }
           function setPunchFilter(f) { state.punchFilter = f; render(); }
+          // Used to do none of its work inside a visible "busy" state at
+          // all - the form just sat there exactly as typed, Add Item still
+          // tappable, until BOTH the sequential photo uploads AND the
+          // /api/punchlist round trip finished, at which point the whole
+          // form vanished via closePunchForm(). Nothing on screen
+          // acknowledged the tap in between, which is exactly why this got
+          // tapped more than once. Also closed (and so cleared) the form
+          // even when the save had failed, silently discarding whatever
+          // had been typed. Now matches the Production/Daily Log/Gallery
+          // pattern: disable the button and show a spinner for the whole
+          // in-flight window, and only close/clear the form once the item
+          // has actually been saved.
           async function submitPunchItem() {
+            if (state.punchSubmitting) return;
             hapticFeedback();
             if (!state.punchDescription || !state.punchDescription.trim()) { alert('Enter a description for this punch item.'); return; }
-            const uploadedPhotos = await uploadPendingPhotos(state.punchPhotos, 'punchlist', 'punch');
+            state.punchSubmitting = true;
+            render();
             try {
+              const uploadedPhotos = await uploadPendingPhotos(state.punchPhotos, 'punchlist', 'punch');
               const projectId = state.currentProject?.id || 'proj_001';
               const res = await fetch('/api/punchlist', {
                 method: 'POST',
@@ -7259,24 +7342,30 @@ export default async function SolTrendApp() {
                 })
               });
               const created = await res.json();
-              if (created && created.id) {
-                state.punchItems.unshift({
-                  id: created.id,
-                  description: created.description,
-                  location: created.location,
-                  status: created.status,
-                  priority: created.priority,
-                  assignedTo: created.assignedTo,
-                  dueDate: created.dueDate,
-                  notes: created.notes,
-                  photos: uploadedPhotos,
-                  resolvedAt: created.resolvedAt,
-                  createdBy: state.currentUser.name,
-                  createdAt: created.createdAt
-                });
-              }
-            } catch (e) { console.error('Save punch item error:', e); }
-            closePunchForm();
+              if (!created || !created.id) throw new Error('Punch item create failed');
+              state.punchItems.unshift({
+                id: created.id,
+                description: created.description,
+                location: created.location,
+                status: created.status,
+                priority: created.priority,
+                assignedTo: created.assignedTo,
+                dueDate: created.dueDate,
+                notes: created.notes,
+                photos: uploadedPhotos,
+                resolvedAt: created.resolvedAt,
+                createdBy: state.currentUser.name,
+                createdAt: created.createdAt
+              });
+              state.punchSubmitting = false;
+              closePunchForm();
+              showToast('Punch item added.', 'success');
+            } catch (e) {
+              console.error('Save punch item error:', e);
+              state.punchSubmitting = false;
+              render();
+              showToast('Failed to save punch item - check your connection and try again.', 'error');
+            }
           }
           async function setPunchStatus(id, status) {
             hapticFeedback();
