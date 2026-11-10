@@ -2262,12 +2262,44 @@ export default async function SolTrendApp() {
           // link back to the app) injected into every generated report by
           // openReportWindow below. "no-print" so it never shows up in the
           // actual printed/saved-PDF output.
+          // The Print button used to call window.print() directly. Report
+          // photos render into this window as plain <img> tags pulled from
+          // /api/photos/<key> (a real server round-trip per photo, not a
+          // static asset) - there's no guarantee every photo has actually
+          // finished downloading by the moment someone clicks Print,
+          // especially right after the report window opens or on a slow
+          // connection. window.print()/"Save as PDF" captures whatever is
+          // painted at that instant - an image that hasn't loaded yet
+          // paints as nothing, leaving just the gray .photo-item
+          // placeholder box behind it in the output, even though the real
+          // photo shows up fine a moment later on screen. soltrendPrepareAndPrint()
+          // waits for every photo in the gallery to actually finish (load
+          // OR error, so one broken photo can't block the rest) before
+          // calling print(), with an 8s cap so a single stuck request
+          // can't prevent printing altogether.
           function reportToolbarHtml() {
             return '<div class="report-toolbar no-print" style="position:sticky;top:0;z-index:9999;display:flex;align-items:center;gap:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;margin-bottom:24px;">' +
               '<a href="/" style="color:#64748b;font-size:13px;font-weight:600;text-decoration:none;margin-right:auto;">&larr; Back to SolTrend Pro</a>' +
-              '<button type="button" onclick="window.print()" style="background:#f59e0b;color:#000;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;">Print / Save PDF</button>' +
+              '<button type="button" id="reportPrintBtn" onclick="soltrendPrepareAndPrint(this)" style="background:#f59e0b;color:#000;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;">Print / Save PDF</button>' +
               '<button type="button" onclick="(function(){ try { window.close(); } catch(e) {} setTimeout(function(){ location.href = \\'/\\'; }, 200); })()" style="background:#e2e8f0;color:#1e293b;border:none;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;">Close</button>' +
-            '</div>';
+            '</div>' +
+            '<script>' +
+              'function soltrendPrepareAndPrint(btn) {' +
+                'var imgs = Array.prototype.slice.call(document.querySelectorAll(".photo-gallery img"));' +
+                'var pending = imgs.filter(function(img) { return !img.complete; });' +
+                'if (pending.length === 0) { window.print(); return; }' +
+                'if (btn) { btn.disabled = true; btn.textContent = "Loading photos\\u2026"; }' +
+                'var remaining = pending.length, finished = false;' +
+                'function done() {' +
+                  'if (finished) return; finished = true;' +
+                  'if (btn) { btn.disabled = false; btn.textContent = "Print / Save PDF"; }' +
+                  'window.print();' +
+                '}' +
+                'function onOne() { remaining--; if (remaining <= 0) done(); }' +
+                'pending.forEach(function(img) { img.addEventListener("load", onOne); img.addEventListener("error", onOne); });' +
+                'setTimeout(done, 8000);' +
+              '}' +
+            '</script>';
           }
           // Every generate*Report() function used to repeat the same
           // open-a-tab-and-print three-liner. Centralizing it here so the
@@ -2428,14 +2460,30 @@ export default async function SolTrendApp() {
           }
 
           // PDF GENERATION FUNCTIONS
-          // Reports render in a blob: document (see openReportWindow) so that
-          // mobile Safari doesn't tear down the live app when opening one -
-          // but blob: is a non-special URL scheme, so a root-relative path
-          // like "/api/photos/xyz.jpg" can't resolve against it the way it
-          // would on a normal page. Absolutize against the real app origin
-          // so a photo's <img>/background-image actually finds it. Shared by
-          // every report that embeds photos (Daily, and now Weekly, Monthly,
-          // QC, Refusal) - was local to generateDailyReport only.
+          // Reports render into a popup opened via window.open('', '_blank')
+          // and filled with document.write() (see openReportWindow) - that
+          // document's own URL is about:blank, which has no real path for a
+          // root-relative URL like "/api/photos/xyz.jpg" to resolve against.
+          // Absolutize against the real app origin so a photo's <img> tag
+          // actually finds it. Shared by every report that embeds photos
+          // (Daily, and now Weekly, Monthly, QC, Refusal) - was local to
+          // generateDailyReport only.
+          //
+          // Photo tiles themselves were a plain div with the photo set as
+          // a CSS background-image, not an <img> tag. Chrome (and most
+          // browsers) only print/"Save as PDF" CSS background colors and
+          // background-images when "Background graphics" is on - off by
+          // default, and easy to miss - which is exactly why these came
+          // out as flat gray boxes in the PDF even though they displayed
+          // fine on screen in the report preview. Foreground <img> content
+          // isn't subject to that toggle at all, so these are now real
+          // <img> tags (object-fit: cover keeps the same cropped-to-fill
+          // look the old background-size: cover had). Separately, since an
+          // <img>'s load state is something script CAN actually observe
+          // (unlike a CSS background-image), reportToolbarHtml()'s Print
+          // button now waits for every photo to finish loading before
+          // calling print(), so a slow photo that hasn't downloaded yet
+          // doesn't get silently skipped either.
           const toAbsolutePhotoUrl = function(url) {
             if (!url) return url;
             if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
@@ -2602,7 +2650,8 @@ export default async function SolTrendApp() {
                   .notes-section h3 { font-size: 14px; font-weight: 700; color: #92400e; margin-bottom: 10px; }
                   .notes-content { font-size: 13px; color: #78350f; line-height: 1.6; }
                   .photo-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .photo-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
                   .qc-section { background: #f8fafc; border-radius: 10px; padding: 20px; }
                   .report-footer { border-top: 2px solid #e2e8f0; padding-top: 15px; margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
                 </style>
@@ -2671,7 +2720,7 @@ export default async function SolTrendApp() {
                   <div class="notes-content">\${notesContent}</div>
                 </div>
                 <div class="section-title">Photo Documentation</div>
-                <div class="photo-gallery">\${dayPhotos.length > 0 ? dayPhotos.map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured</div>'}</div>
+                <div class="photo-gallery">\${dayPhotos.length > 0 ? dayPhotos.map(function(p) { return '<div class="photo-item"><img src="' + p.url + '" alt="' + p.label + '" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured</div>'}</div>
                 \${dayPhotos.length > 0 ? '<p style="font-size:11px;color:#94a3b8;margin-top:8px;">' + dayPhotos.length + ' photo' + (dayPhotos.length === 1 ? '' : 's') + ' for this date</p>' : ''}
                 <div class="report-footer">
                   <div>Generated by SolTrend Pro • Report verified by: \${state.currentUser?.name || 'Field Supervisor'}</div>
@@ -2812,7 +2861,8 @@ export default async function SolTrendApp() {
                   .notes-section h3 { font-size: 14px; font-weight: 700; color: #1e40af; margin-bottom: 10px; }
                   .notes-content { font-size: 13px; color: #1e3a8a; line-height: 1.6; }
                   .photo-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .photo-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
                   .report-footer { border-top: 2px solid #e2e8f0; padding-top: 15px; margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
                 </style>
               </head>
@@ -2903,7 +2953,7 @@ export default async function SolTrendApp() {
                   <h3>Weekly Summary Notes</h3>
                   <div class="notes-content">Strong production week with crews operating at \${avgDaily >= dailyTarget ? 'full' : 'near'} capacity. Daily average of \${avgDaily} piles \${avgDaily >= dailyTarget ? 'exceeds' : 'approaches'} the target of \${dailyTarget} piles/day. QC pass rate for the week was \${passRate}%. Refusal rate was \${weekRefusalPct}% of piles installed. \${weekRefusals > 0 ? weekRefusals + ' refusal(s) logged this week, engineering notified for review.' : 'No refusals encountered this week.'}</div>
                 </div>
-                \${state.reportOptions.weeklyPhotos ? '<div class="section-title">Photo Documentation</div><div class="photo-gallery">' + (weekPhotos.length > 0 ? weekPhotos.map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured this week</div>') + '</div>' : ''}
+                \${state.reportOptions.weeklyPhotos ? '<div class="section-title">Photo Documentation</div><div class="photo-gallery">' + (weekPhotos.length > 0 ? weekPhotos.map(function(p) { return '<div class="photo-item"><img src="' + p.url + '" alt="' + p.label + '" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured this week</div>') + '</div>' : ''}
                 <div class="report-footer">
                   <div>Report prepared by: Project Management Team | Next report: \${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
                   <div>\${state.company?.name || 'Apex Solar Construction'} • Confidential</div>
@@ -3054,7 +3104,8 @@ export default async function SolTrendApp() {
                   .notes-section h3 { font-size: 14px; font-weight: 700; color: #166534; margin-bottom: 10px; }
                   .notes-content { font-size: 13px; color: #166534; line-height: 1.6; }
                   .photo-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .photo-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
                   .report-footer { border-top: 2px solid #e2e8f0; padding-top: 15px; margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; }
                 </style>
               </head>
@@ -3145,7 +3196,7 @@ export default async function SolTrendApp() {
                     return '<div class="notes-content">Performance: ' + monthLabel.split(' ')[0] + ' production ' + paceText + crewText + '. QC pass rate for the month was ' + passRate + '%. Month-over-Month: <span class="comparison-badge ' + (monthChange >= 0 ? 'positive' : 'negative') + '">' + (monthChange >= 0 ? '+' : '') + monthChange + '%</span> compared to previous month.</div>';
                   })()}
                 </div>
-                \${state.reportOptions.monthlyPhotos ? '<div class="section-title">Photo Documentation</div><div class="photo-gallery">' + (monthPhotos.length > 0 ? monthPhotos.map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured this month</div>') + '</div>' : ''}
+                \${state.reportOptions.monthlyPhotos ? '<div class="section-title">Photo Documentation</div><div class="photo-gallery">' + (monthPhotos.length > 0 ? monthPhotos.map(function(p) { return '<div class="photo-item"><img src="' + p.url + '" alt="' + p.label + '" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured this month</div>') + '</div>' : ''}
                 <div class="report-footer">
                   <div>Report prepared for: \${project?.client || 'NextEra Energy'} | Submitted by: \${state.company?.name || 'Apex Solar'} Project Management</div>
                   <div>Distribution: Client, PM, Field Supervisors</div>
@@ -3285,7 +3336,8 @@ export default async function SolTrendApp() {
                   .notes-section h3 { font-size: 14px; font-weight: 700; color: #6b21a8; margin-bottom: 10px; }
                   .notes-content { font-size: 13px; color: #581c87; line-height: 1.6; }
                   .photo-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .photo-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
                 </style>
               </head>
               <body>
@@ -3362,7 +3414,7 @@ export default async function SolTrendApp() {
                 </div>
                 <div class="section">
                   <h2>Photo Documentation</h2>
-                  <div class="photo-gallery">\${qcPhotos.length > 0 ? qcPhotos.map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No inspection photos in this range</div>'}</div>
+                  <div class="photo-gallery">\${qcPhotos.length > 0 ? qcPhotos.map(function(p) { return '<div class="photo-item"><img src="' + p.url + '" alt="' + p.label + '" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No inspection photos in this range</div>'}</div>
                   <p class="note">Photos taken during a QC inspection only, in the date range above - not production or Gallery photos.</p>
                 </div>
                 <div class="footer">
@@ -3639,7 +3691,8 @@ export default async function SolTrendApp() {
                   .notes-section h3 { font-size: 14px; font-weight: 700; color: #9a3412; margin-bottom: 10px; }
                   .notes-content { font-size: 13px; color: #7c2d12; line-height: 1.6; }
                   .photo-gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #64748b; font-size: 12px; }
+                  .photo-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
                 </style>
               </head>
               <body>
@@ -3696,7 +3749,7 @@ export default async function SolTrendApp() {
                 </div>
                 <div class="section">
                   <h2>Photo Documentation</h2>
-                  <div class="photo-gallery">\${refusalPhotos.length > 0 ? refusalPhotos.map(function(p) { return '<div class="photo-item" style="background-image:url(' + p.url + ');background-size:cover;background-position:center;" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No refusal photos in this range</div>'}</div>
+                  <div class="photo-gallery">\${refusalPhotos.length > 0 ? refusalPhotos.map(function(p) { return '<div class="photo-item"><img src="' + p.url + '" alt="' + p.label + '" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No refusal photos in this range</div>'}</div>
                   <p class="note">Photos attached to a refusal only, in the date range above - not inspection, production, or Gallery photos.</p>
                 </div>
                 <div class="footer">
