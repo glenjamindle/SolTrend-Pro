@@ -31,12 +31,18 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/module-rows
-// body: { projectId, rowId } with no id -> find-or-create (this is what a
-//   ROWTAG-{rowId} scan does: resume the row if it already exists this
-//   project, otherwise start it).
+// body: { projectId, rowId, expectedCount? } with no id -> find-or-create
+//   (Settings -> Module Rows pre-building a row, or - formerly - a
+//   ROWTAG-{rowId} scan: resume the row if it already exists this
+//   project, otherwise start it). expectedCount is only applied when the
+//   row is genuinely new - it never changes an existing row's count here,
+//   that's always the explicit { id, expectedCount } edit below, so a
+//   re-paste of the same bulk list can't accidentally wipe a count
+//   someone already corrected.
 // body: { id, offset?, expectedCount? } -> edit a row's manual alignment/
-//   validation fields (Module Map's row settings, manager+ only -
-//   mirrors Pile Layout's edit-layout gate).
+//   validation fields (Module Map's row settings, or an inline edit from
+//   Settings -> Module Rows - manager+ only, mirrors Pile Layout's
+//   edit-layout gate).
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -71,7 +77,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(withSlots)
     }
 
-    const created = await prisma.moduleRow.create({ data: { projectId, rowId } })
+    // Creating a genuinely new row is now only ever a deliberate Settings
+    // -> Module Rows action (see addModuleRow in page.tsx) - gated the
+    // same as editing one, so a row can never appear in a project without
+    // a manager or admin having put it there.
+    const session = await getServerSession(authOptions)
+    if (!session?.user || !hasRole(session.user.role, 'manager')) {
+      return NextResponse.json({ error: 'Only a manager or admin can add a new module row' }, { status: 403 })
+    }
+    const created = await prisma.moduleRow.create({
+      data: { projectId, rowId, expectedCount: typeof expectedCount === 'number' ? expectedCount : undefined },
+    })
     return NextResponse.json({ ...created, slots: [] })
   } catch (error) {
     console.error('Error saving module row:', error)

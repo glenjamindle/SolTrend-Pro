@@ -4458,14 +4458,23 @@ export default async function SolTrendApp() {
           // from Settings instead of from a barcode scan - existing rows
           // are a no-op, never an error, so pasting an overlapping list
           // twice is always safe.
-          async function addModuleRow(rowId) {
+          // expectedCount is optional - pass it when pre-building a row
+          // that should show "scanned / expected" (and flag as incomplete
+          // once scanning starts) from the moment it's created. It's only
+          // ever applied on CREATE here (see the matching comment on the
+          // server) - correcting an existing row's count always goes
+          // through updateModuleRowExpectedCount instead, so re-adding an
+          // already-set row from a pasted list is never destructive.
+          async function addModuleRow(rowId, expectedCount) {
             rowId = (rowId || '').trim();
             if (!rowId) return { ok: false, rowId: rowId, error: 'Blank row ID' };
             const existing = state.moduleRows.find(function(r) { return r.rowId === rowId; });
             if (existing) return { ok: true, rowId: rowId, skipped: true };
             try {
               const projectId = state.currentProject?.id || 'proj_001';
-              const res = await fetch('/api/module-rows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: projectId, rowId: rowId }) });
+              const body = { projectId: projectId, rowId: rowId };
+              if (typeof expectedCount === 'number') body.expectedCount = expectedCount;
+              const res = await fetch('/api/module-rows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
               const data = await res.json();
               if (!res.ok) return { ok: false, rowId: rowId, error: data.error || 'Could not add row.' };
               data.slots = data.slots || [];
@@ -4477,20 +4486,31 @@ export default async function SolTrendApp() {
             }
           }
           // Parses a paste/typed list (commas or newlines, either works)
-          // into unique row IDs and adds each one in turn. Sequential
+          // into unique row IDs, each optionally followed by its expected
+          // module count - "40", "40,32", or "40:32" are all valid on
+          // their own line, so Glen can set quantities for incomplete-row
+          // tracking in the same paste that pre-builds the rows. Sequential
           // rather than parallel on purpose - this is a rare, one-time
           // setup action (dozens to a couple hundred rows at most), and
           // keeping it simple and easy to reason about matters more here
           // than shaving a few seconds off a Settings-page submit.
           async function submitModuleRowBulkAdd() {
             const raw = state.moduleRowBulkInput || '';
-            const ids = raw.split(/[,\\n]/).map(function(s) { return s.trim(); }).filter(Boolean);
+            const lines = raw.split(/\\n/).map(function(l) { return l.trim(); }).filter(Boolean);
+            const parsed = [];
+            lines.forEach(function(line) {
+              line.split(',').map(function(s) { return s.trim(); }).filter(Boolean).forEach(function(piece) {
+                const m = /^([^:]+?)\\s*[:]\\s*(\\d+)$/.exec(piece);
+                if (m) { parsed.push({ rowId: m[1].trim(), expectedCount: parseInt(m[2], 10) }); return; }
+                parsed.push({ rowId: piece, expectedCount: null });
+              });
+            });
             const seen = {};
-            const uniqueIds = ids.filter(function(id) { if (seen[id]) return false; seen[id] = true; return true; });
-            if (uniqueIds.length === 0) { alert('Enter at least one row ID.'); return; }
+            const uniqueEntries = parsed.filter(function(e) { if (seen[e.rowId]) return false; seen[e.rowId] = true; return true; });
+            if (uniqueEntries.length === 0) { alert('Enter at least one row ID.'); return; }
             state.moduleRowBulkSubmitting = true; state.moduleRowBulkResult = null; render();
             const results = [];
-            for (const id of uniqueIds) { results.push(await addModuleRow(id)); }
+            for (const entry of uniqueEntries) { results.push(await addModuleRow(entry.rowId, entry.expectedCount)); }
             state.moduleRowBulkSubmitting = false;
             state.moduleRowBulkInput = '';
             state.moduleRowBulkResult = {
@@ -4499,6 +4519,32 @@ export default async function SolTrendApp() {
               failed: results.filter(function(r) { return !r.ok; }),
             };
             render();
+          }
+          // Inline "Expected" edit from the Settings table - same
+          // optimistic-then-reconcile pattern as saveModuleRowSettings
+          // (Module Map's gear-icon panel), just for this one field with
+          // no panel to open/close. Offset is deliberately left out of
+          // the request body so the server's { id, ... } branch leaves it
+          // untouched (see /api/module-rows - undefined fields are a
+          // no-op, not a reset to zero).
+          async function updateModuleRowExpectedCount(id, value) {
+            const raw = (value || '').trim();
+            const expectedCount = raw === '' ? null : (parseInt(raw, 10) || 0);
+            const row = state.moduleRows.find(function(r) { return r.id === id; });
+            if (!row) return;
+            const previous = row.expectedCount;
+            row.expectedCount = expectedCount;
+            render();
+            try {
+              const res = await fetch('/api/module-rows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, expectedCount: expectedCount }) });
+              if (!res.ok) { row.expectedCount = previous; render(); return; }
+              const data = await res.json();
+              row.expectedCount = data.expectedCount;
+              render();
+            } catch (e) {
+              console.error('Update module row expected count error:', e);
+              row.expectedCount = previous; render();
+            }
           }
           // admin-only, mirrors Pile Layout's Clear/delete gate and the
           // DELETE /api/module-rows route's own role check.
@@ -4801,7 +4847,12 @@ export default async function SolTrendApp() {
             let showScanInput = true;
             if (state.moduleScanKind === 'module') {
               if (row) {
-                topHtml = '<div class="text-center py-2"><p class="text-[10px] uppercase tracking-wider text-slate-400">Current row</p><p class="text-4xl font-display font-bold text-white">' + row.rowId + '</p><p class="text-xs text-slate-400 mt-1">' + row.slots.length + ' module' + (row.slots.length === 1 ? '' : 's') + ' scanned in this row</p></div>' +
+                const rowHasExpected = row.expectedCount != null;
+                const rowIncomplete = rowHasExpected && row.slots.length < row.expectedCount;
+                const rowProgressText = rowHasExpected
+                  ? (row.slots.length + ' / ' + row.expectedCount + ' scanned' + (rowIncomplete ? '' : ' - complete'))
+                  : (row.slots.length + ' module' + (row.slots.length === 1 ? '' : 's') + ' scanned in this row');
+                topHtml = '<div class="text-center py-2"><p class="text-[10px] uppercase tracking-wider text-slate-400">Current row</p><p class="text-4xl font-display font-bold text-white">' + row.rowId + '</p><p class="text-xs mt-1 ' + (rowIncomplete ? 'text-amber-400 font-medium' : 'text-slate-400') + '">' + rowProgressText + '</p></div>' +
                   '<div class="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-lg px-4 py-2.5 mb-3"><div><p class="text-lg font-bold text-white font-mono">Module ' + (row.slots.length + 1) + '</p><p class="text-[11px] text-slate-400">next position in this row</p></div><button onclick="endModuleRow()" class="text-xs font-medium text-slate-400 hover:text-white px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg">End Row</button></div>';
               } else {
                 showScanInput = false;
@@ -4813,7 +4864,12 @@ export default async function SolTrendApp() {
                   const filteredRows = search ? sortedRows.filter(function(r) { return (r.rowId + '').toLowerCase().indexOf(search) !== -1; }) : sortedRows;
                   const rowList = filteredRows.length > 0
                     ? ('<div class="max-h-64 overflow-y-auto space-y-1.5 mt-2">' + filteredRows.map(function(r) {
-                        return '<button onclick="resumeModuleRowById(\\'' + r.id + '\\')" class="w-full flex items-center justify-between px-4 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-left"><span class="text-white font-display font-bold">Row ' + r.rowId + '</span><span class="text-xs text-slate-400">' + r.slots.length + ' scanned' + (r.expectedCount ? ' / ' + r.expectedCount : '') + '</span></button>';
+                        const scanned = r.slots.length;
+                        const hasExpected = r.expectedCount != null;
+                        const incomplete = hasExpected && scanned < r.expectedCount;
+                        const progress = !hasExpected ? ('<span class="text-xs text-slate-400">' + scanned + ' scanned</span>') :
+                          ('<span class="text-xs font-mono ' + (incomplete ? 'text-amber-400' : 'text-emerald-400') + '">' + scanned + ' / ' + r.expectedCount + (incomplete ? ' ' + icon('alert-triangle', 'w-3 h-3 inline -mt-0.5') : '') + '</span>');
+                        return '<button onclick="resumeModuleRowById(\\'' + r.id + '\\')" class="w-full flex items-center justify-between px-4 py-3 bg-slate-800 hover:bg-slate-700 border ' + (incomplete ? 'border-amber-500/40' : 'border-slate-700') + ' rounded-lg text-left"><span class="text-white font-display font-bold">Row ' + r.rowId + '</span>' + progress + '</button>';
                       }).join('') + '</div>')
                     : ('<p class="text-xs text-slate-400 text-center py-4">' + (search ? 'No rows match "' + search + '".' : 'No rows yet.') + '</p>');
                   topHtml = '<div class="px-1"><p class="text-sm text-slate-300 font-medium text-center mb-2">Pick a row to scan into</p>' +
@@ -6149,8 +6205,8 @@ export default async function SolTrendApp() {
 
             const addCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
               '<h3 class="font-display font-semibold text-white text-sm">Add Rows</h3>' +
-              '<p class="text-xs text-slate-400">Paste or type the row IDs for this project - one per line, or comma-separated. Whatever format the project\\'s own tags/drawing use (plain numbers, N-1/S-28, anything else) - same free-text identity as before, just entered here instead of scanned.</p>' +
-              '<textarea id="moduleRowBulkTextarea" oninput="state.moduleRowBulkInput=this.value" placeholder="40\\n41\\n42\\n43\\n44" rows="4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono">' + (state.moduleRowBulkInput || '') + '</textarea>' +
+              '<p class="text-xs text-slate-400">Paste or type the row IDs for this project - one per line, or comma-separated. Whatever format the project\\'s own tags/drawing use (plain numbers, N-1/S-28, anything else) - same free-text identity as before, just entered here instead of scanned. Add an expected module count with a colon (e.g. <span class="font-mono">40:32</span>) to see "scanned / expected" and flag incomplete rows at a glance - leave it off and add it later if you don\\'t know it yet.</p>' +
+              '<textarea id="moduleRowBulkTextarea" oninput="state.moduleRowBulkInput=this.value" placeholder="40:32\\n41:32\\n42\\n43:28" rows="4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono">' + (state.moduleRowBulkInput || '') + '</textarea>' +
               resultBanner +
               '<button onclick="submitModuleRowBulkAdd()" ' + (state.moduleRowBulkSubmitting ? 'disabled' : '') + ' class="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + (state.moduleRowBulkSubmitting ? (icon('loader-2', 'w-4 h-4 animate-spin') + ' Adding...') : (icon('plus', 'w-4 h-4') + ' Add Rows')) + '</button>' +
               '</div>';
@@ -6183,15 +6239,22 @@ export default async function SolTrendApp() {
               csvResultBanner +
               '</div>';
 
+            const incompleteCount = rows.filter(function(r) { return r.expectedCount != null && (r.slots || []).length < r.expectedCount; }).length;
             const listCard = '<div class="card rounded-xl p-4 space-y-3">' +
-              '<h3 class="font-display font-semibold text-white text-sm">Rows (' + rows.length + ')</h3>' +
+              '<div class="flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Rows (' + rows.length + ')</h3>' +
+              (incompleteCount > 0 ? '<span class="text-xs font-medium text-amber-400">' + incompleteCount + ' incomplete</span>' : '') + '</div>' +
               (rows.length === 0 ? '<p class="text-sm text-slate-400 text-center py-6">No rows yet. Add some above to start scanning.</p>' :
-                '<div class="max-h-96 overflow-y-auto rounded-lg border border-slate-700/50"><table class="w-full text-xs"><thead class="bg-slate-800/70 text-slate-400 sticky top-0"><tr><th class="text-left px-2 py-1.5">Row</th><th class="text-left px-2 py-1.5">Scanned</th><th class="text-left px-2 py-1.5">Offset</th><th class="text-left px-2 py-1.5">Expected</th><th class="text-right px-2 py-1.5">Actions</th></tr></thead><tbody>' +
+                '<div class="max-h-96 overflow-y-auto rounded-lg border border-slate-700/50"><table class="w-full text-xs"><thead class="bg-slate-800/70 text-slate-400 sticky top-0"><tr><th class="text-left px-2 py-1.5">Row</th><th class="text-left px-2 py-1.5">Progress</th><th class="text-left px-2 py-1.5">Offset</th><th class="text-left px-2 py-1.5">Expected</th><th class="text-right px-2 py-1.5">Actions</th></tr></thead><tbody>' +
                 rows.map(function(r) {
-                  return '<tr class="border-t border-slate-800"><td class="px-2 py-1.5 text-slate-200 font-mono">' + r.rowId + '</td><td class="px-2 py-1.5 text-slate-400">' + (r.slots || []).length + '</td><td class="px-2 py-1.5 text-slate-400">' + (r.offset || 0) + '</td><td class="px-2 py-1.5 text-slate-400">' + (r.expectedCount || '-') + '</td><td class="px-2 py-1.5 text-right">' + (canDelete ? '<button onclick="deleteModuleRowSettings(\\'' + r.id + '\\',\\'' + r.rowId + '\\')" class="text-red-400 hover:text-red-300 p-1">' + icon('trash-2', 'w-3.5 h-3.5') + '</button>' : '') + '</td></tr>';
+                  const scanned = (r.slots || []).length;
+                  const hasExpected = r.expectedCount != null;
+                  const incomplete = hasExpected && scanned < r.expectedCount;
+                  const progressHtml = !hasExpected ? ('<span class="text-slate-400">' + scanned + ' scanned</span>') :
+                    ('<span class="font-mono ' + (incomplete ? 'text-amber-400' : 'text-emerald-400') + '">' + scanned + ' / ' + r.expectedCount + '</span>' + (incomplete ? ' ' + icon('alert-triangle', 'w-3 h-3 inline text-amber-400 -mt-0.5') : ''));
+                  return '<tr class="border-t border-slate-800' + (incomplete ? ' bg-amber-500/5' : '') + '"><td class="px-2 py-1.5 text-slate-200 font-mono">' + r.rowId + '</td><td class="px-2 py-1.5">' + progressHtml + '</td><td class="px-2 py-1.5 text-slate-400">' + (r.offset || 0) + '</td><td class="px-2 py-1.5">' + (canEdit ? '<input type="number" min="0" value="' + (r.expectedCount != null ? r.expectedCount : '') + '" placeholder="-" onchange="updateModuleRowExpectedCount(\\'' + r.id + '\\', this.value)" class="w-16 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-white">' : (r.expectedCount || '-')) + '</td><td class="px-2 py-1.5 text-right">' + (canDelete ? '<button onclick="deleteModuleRowSettings(\\'' + r.id + '\\',\\'' + r.rowId + '\\')" class="text-red-400 hover:text-red-300 p-1">' + icon('trash-2', 'w-3.5 h-3.5') + '</button>' : '') + '</td></tr>';
                 }).join('') +
               '</tbody></table></div>') +
-              (rows.length > 0 ? '<p class="text-xs text-slate-500">Offset and Expected are set per-row from the gear icon on the Module Map tab, once a row exists here.</p>' : '') +
+              (rows.length > 0 ? '<p class="text-xs text-slate-500">Expected can be set right here, or in bulk when pasting rows above. Offset (row-to-row visual alignment) is still set from the gear icon on the Module Map tab.</p>' : '') +
               '</div>';
 
             return '<div class="space-y-4 max-w-3xl">' +
