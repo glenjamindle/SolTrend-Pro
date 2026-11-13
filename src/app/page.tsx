@@ -384,6 +384,7 @@ export default async function SolTrendApp() {
             dailyLogPhotos: [], dailyLogSubmitting: false,
             punchItems: [], punchFilter: 'open', punchFormOpen: false,
             punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: [], punchSubmitting: false,
+            punchResolvingId: null, punchResolvePhotos: [], punchResolveSubmitting: false,
             pendingSyncCount: 0,
             // SAFETY
             toolboxTalks: [], safetyObservations: [], safetyIncidents: [],
@@ -923,6 +924,7 @@ export default async function SolTrendApp() {
             if (context === 'inspection') return state.inspectionPhotos;
             if (context === 'refusal') return state.refusalPhotos;
             if (context === 'punchlist') return state.punchPhotos;
+            if (context === 'punchresolve') return state.punchResolvePhotos;
             if (context === 'safety-obs') return state.obsPhotos;
             if (context === 'safety-incident') return state.incidentPhotos;
             if (context === 'rfi') return state.rfiPhotos;
@@ -7335,12 +7337,23 @@ export default async function SolTrendApp() {
                     '</div></div>' +
                     (canDelete ? '<button onclick="deletePunchItem(\\'' + p.id + '\\')" class="p-1.5 text-slate-400 hover:text-red-400">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') +
                   '</div>' +
-                  (p.photos && p.photos.length > 0 ? '<div class="photo-grid mt-3">' + p.photos.slice(0, 4).map(function(ph) { return '<div class="photo-thumb"><img src="' + ph.url + '" alt="Photo"></div>'; }).join('') + '</div>' : '') +
+                  (p.photos && p.photos.length > 0 ? '<div class="mt-3"><p class="text-[10px] text-slate-500 uppercase mb-1">Reported</p><div class="photo-grid">' + p.photos.slice(0, 4).map(function(ph) { return '<div class="photo-thumb"><img src="' + ph.url + '" alt="Photo"></div>'; }).join('') + '</div></div>' : '') +
+                  (p.resolutionPhotos && p.resolutionPhotos.length > 0 ? '<div class="mt-3"><p class="text-[10px] text-green-400 uppercase mb-1">Proof of fix</p><div class="photo-grid">' + p.resolutionPhotos.slice(0, 4).map(function(ph) { return '<div class="photo-thumb"><img src="' + ph.url + '" alt="Resolution photo"></div>'; }).join('') + '</div></div>' : '') +
+                  (state.punchResolvingId === p.id ?
+                    '<div class="mt-3 bg-slate-900/60 border border-green-500/40 rounded-lg p-3 space-y-3">' +
+                      '<p class="text-xs text-slate-300">Add a photo showing the fix before resolving this item.</p>' +
+                      renderPhotoCapture('punchresolve') +
+                      '<div class="flex gap-2">' +
+                        '<button onclick="confirmResolvePunch(\\'' + p.id + '\\')" ' + (state.punchResolveSubmitting || !state.punchResolvePhotos.length ? 'disabled' : '') + ' class="flex-1 py-2.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg font-bold text-xs flex items-center justify-center gap-2">' + (state.punchResolveSubmitting ? '<span class="spinner"></span><span>Resolving...</span>' : '<span>Confirm Resolve</span>') + '</button>' +
+                        '<button onclick="closeResolvePunch()" ' + (state.punchResolveSubmitting ? 'disabled' : '') + ' class="px-4 py-2.5 bg-slate-700 text-slate-300 rounded-lg font-medium text-xs disabled:opacity-50">Cancel</button>' +
+                      '</div>' +
+                    '</div>'
+                  :
                   '<div class="flex gap-2 mt-3">' +
-                    (p.status !== 'open' ? '<button onclick="setPunchStatus(\\'' + p.id + '\\', \\'open\\')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-700 text-slate-300">Reopen</button>' : '') +
+                    (p.status !== 'open' ? '<button onclick="setPunchStatus(\\'' + p.id + '\\', \\'open\\')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/20 text-blue-400 flex items-center gap-1.5">' + icon('rotate-ccw', 'w-3.5 h-3.5') + 'Reopen</button>' : '') +
                     (p.status !== 'in_progress' ? '<button onclick="setPunchStatus(\\'' + p.id + '\\', \\'in_progress\\')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-400">In Progress</button>' : '') +
-                    (p.status !== 'resolved' ? '<button onclick="setPunchStatus(\\'' + p.id + '\\', \\'resolved\\')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600 text-white">Resolve</button>' : '<span class="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600/20 text-green-400">Resolved</span>') +
-                  '</div>' +
+                    (p.status !== 'resolved' ? '<button onclick="openResolvePunch(\\'' + p.id + '\\')" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600 text-white">Resolve</button>' : '<span class="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-600/20 text-green-400">Resolved</span>') +
+                  '</div>') +
                 '</div>';
               }).join('') + '</div>') +
             '</div>';
@@ -7406,6 +7419,7 @@ export default async function SolTrendApp() {
                 dueDate: created.dueDate,
                 notes: created.notes,
                 photos: uploadedPhotos,
+                resolutionPhotos: [],
                 resolvedAt: created.resolvedAt,
                 createdBy: state.currentUser.name,
                 createdAt: created.createdAt
@@ -7420,6 +7434,10 @@ export default async function SolTrendApp() {
               showToast('Failed to save punch item - check your connection and try again.', 'error');
             }
           }
+          // Only for the open <-> in_progress transitions now - resolving
+          // requires a fix photo (see openResolvePunch/confirmResolvePunch
+          // below) and never goes through this function, so there's no path
+          // that marks something resolved without one.
           async function setPunchStatus(id, status) {
             hapticFeedback();
             const item = state.punchItems.find(function(p) { return p.id === id; });
@@ -7434,6 +7452,71 @@ export default async function SolTrendApp() {
                 body: JSON.stringify({ id, projectId: state.currentProject?.id || 'proj_001', status })
               });
             } catch (e) { console.error('Update punch status error:', e); }
+          }
+          // Resolving a punch item requires proof it was actually fixed -
+          // Glen's own words were "I'm only able to resolve the item and not
+          // provide photo documentation of the fix for proof." Tapping
+          // Resolve now opens an inline panel (same pattern as the Refusal
+          // List's inline resolve panel) instead of flipping status
+          // immediately; Confirm Resolve stays disabled until at least one
+          // photo is attached, and the server enforces the same rule so
+          // there's no path around it.
+          function openResolvePunch(id) {
+            hapticFeedback();
+            state.punchResolvingId = id;
+            state.punchResolvePhotos = [];
+            render();
+          }
+          function closeResolvePunch() {
+            state.punchResolvingId = null;
+            state.punchResolvePhotos = [];
+            render();
+          }
+          async function confirmResolvePunch(id) {
+            if (state.punchResolveSubmitting) return;
+            if (!state.punchResolvePhotos || state.punchResolvePhotos.length === 0) {
+              showToast('Add a photo of the fix before resolving.', 'error');
+              return;
+            }
+            hapticFeedback();
+            state.punchResolveSubmitting = true;
+            render();
+            try {
+              const uploaded = await uploadPendingPhotos(state.punchResolvePhotos, 'punchresolve', 'punch');
+              const res = await fetch('/api/punchlist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, projectId: state.currentProject?.id || 'proj_001', status: 'resolved', resolutionPhotos: uploaded })
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(function() { return {}; });
+                throw new Error(err.error || 'Failed to resolve punch item');
+              }
+              const updated = await res.json();
+              const item = state.punchItems.find(function(p) { return p.id === id; });
+              if (item) {
+                item.status = 'resolved';
+                item.resolvedAt = updated.resolvedAt;
+                item.resolutionPhotos = uploaded;
+              }
+              state.punchResolveSubmitting = false;
+              state.punchResolvingId = null;
+              state.punchResolvePhotos = [];
+              // Resolving used to drop the item straight out of view if you
+              // were on the Open filter (the default), which is exactly why
+              // Glen couldn't find a way back to it - Reopen has always
+              // existed, it just lived on a filter tab nothing pointed him
+              // to. Switching to the Resolved tab keeps the item (and its
+              // Reopen button) right where the resolve action just happened.
+              state.punchFilter = 'resolved';
+              render();
+              showToast('Punch item resolved.', 'success');
+            } catch (e) {
+              console.error('Resolve punch item error:', e);
+              state.punchResolveSubmitting = false;
+              render();
+              showToast(e.message === 'A photo is required to resolve a punch item.' ? e.message : 'Failed to resolve - check your connection and try again.', 'error');
+            }
           }
           async function deletePunchItem(id) {
             if (!confirm('Delete this punch item? This cannot be undone.')) return;

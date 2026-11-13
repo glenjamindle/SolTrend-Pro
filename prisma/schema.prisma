@@ -315,6 +315,7 @@ model PunchItem {
   assignedTo  String?   // free text name - not required to be a registered user
   dueDate     DateTime?
   photos      String?   // JSON string: Array of photo URLs
+  resolutionPhotos String? // JSON string: Array of photo URLs proving the fix - required to resolve, see /api/punchlist
   notes       String?
   resolvedAt  DateTime?
 

@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       dueDate: p.dueDate,
       notes: p.notes,
       photos: p.photos ? JSON.parse(p.photos) : [],
+      resolutionPhotos: p.resolutionPhotos ? JSON.parse(p.resolutionPhotos) : [],
       resolvedAt: p.resolvedAt,
       createdBy: p.user?.name || 'Unknown',
       createdAt: p.createdAt,
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { id, projectId, description, location, priority, assignedTo, dueDate, notes, photos, status, createdBy } = body
+    const { id, projectId, description, location, priority, assignedTo, dueDate, notes, photos, resolutionPhotos, status, createdBy } = body
 
     if (!projectId || (!id && !description)) {
       return NextResponse.json({ error: 'projectId and description are required' }, { status: 400 })
@@ -68,6 +69,18 @@ export async function POST(request: NextRequest) {
       if (!existing) {
         return NextResponse.json({ error: 'Punch item not found' }, { status: 404 })
       }
+      // Resolving requires proof-of-fix photos - enforced here, not just in
+      // the client, so there's no path (a stale client, a retried request,
+      // a future caller) that can mark something resolved without one. A
+      // re-resolve after being reopened is covered too: it only reuses the
+      // old photos if this request didn't bring new ones.
+      if (status === 'resolved' && existing.status !== 'resolved') {
+        const hasNewPhotos = Array.isArray(resolutionPhotos) && resolutionPhotos.length > 0
+        const hasExistingPhotos = !!existing.resolutionPhotos && JSON.parse(existing.resolutionPhotos).length > 0
+        if (!hasNewPhotos && !hasExistingPhotos) {
+          return NextResponse.json({ error: 'A photo is required to resolve a punch item.' }, { status: 400 })
+        }
+      }
       const resolvedAt = status
         ? (status === 'resolved' ? (existing.status === 'resolved' ? existing.resolvedAt : new Date()) : null)
         : undefined
@@ -81,6 +94,7 @@ export async function POST(request: NextRequest) {
           dueDate: dueDate ? new Date(dueDate) : dueDate === null ? null : undefined,
           notes: notes ?? undefined,
           photos: Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : undefined,
+          resolutionPhotos: Array.isArray(resolutionPhotos) && resolutionPhotos.length > 0 ? JSON.stringify(resolutionPhotos) : undefined,
           status: status ?? undefined,
           resolvedAt,
         },
