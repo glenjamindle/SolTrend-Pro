@@ -1113,6 +1113,11 @@ export default async function SolTrendApp() {
                 { id: 'inspection', label: 'QC Inspection', icon: 'clipboard-check' },
                 { id: 'refusal', label: 'Refusals', icon: 'alert-triangle' },
                 { id: 'delays', label: 'Delays', icon: 'cloud-rain' },
+                // Materials' main action is "+ Delivery" - logging a
+                // delivery that just arrived, a dated field event same as
+                // a Daily Log entry - not a passive BOM lookup, so it
+                // belongs here rather than in Site Reference.
+                { id: 'materials', label: 'Materials', icon: 'package' },
                 // Scanning modules is a field data-capture task, same as
                 // everything else in this section (fill something out,
                 // submit) - not a lookup. Module Map (the review/
@@ -1125,7 +1130,6 @@ export default async function SolTrendApp() {
                 { id: 'moduleScan', label: 'Module Scan', icon: 'scan-line' },
               ]},
               { title: 'Site Reference', items: [
-                { id: 'materials', label: 'Materials', icon: 'package' },
                 { id: 'heatmap', label: 'Pile Map', icon: 'map' },
                 { id: 'moduleMap', label: 'Module Map', icon: 'layout-grid' },
                 { id: 'gallery', label: 'Gallery', icon: 'images' },
