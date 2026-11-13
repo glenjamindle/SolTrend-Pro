@@ -1840,12 +1840,25 @@ export default async function SolTrendApp() {
             // reports, it's scoped to status. "All Statuses" is both a
             // one-click reset (turns every status back on) and an
             // indicator - lit up whenever all three already are.
+            // Option 1 from the mockups Glen reviewed - one segmented bar,
+            // same container/segment classes as the Punch List's own
+            // filter tabs (just teal instead of amber, and multi-select
+            // instead of single-select). "All" is both a shortcut (resets
+            // every status to on) and an indicator - lit only when all
+            // three already are.
             const punchSel = state.reportOptions.punchStatuses;
             const punchAllOn = punchSel.open && punchSel.in_progress && punchSel.resolved;
-            const punchStatusChip = function(key, label) {
-              const on = punchSel[key];
-              return '<button onclick="setPunchReportStatus(\\'' + key + '\\', ' + (!on) + ')" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ' + (on ? 'bg-teal-500 text-black' : 'bg-slate-700 text-slate-300') + '">' + label + '</button>';
+            const punchSeg = function(key, label, isAll) {
+              const on = isAll ? punchAllOn : punchSel[key];
+              const onClick = isAll ? 'setPunchReportStatusAll()' : ('setPunchReportStatus(\\'' + key + '\\', ' + !punchSel[key] + ')');
+              return '<button onclick="' + onClick + '" class="flex-1 px-2 py-2 rounded-lg text-xs ' + (isAll ? 'font-bold' : 'font-medium') + ' whitespace-nowrap transition-all ' + (on ? 'bg-teal-500 text-black' : 'text-slate-400 hover:text-white') + '">' + label + '</button>';
             };
+            const punchSegBar = '<div class="flex gap-1 p-1 bg-slate-800/50 rounded-xl mb-4">' +
+              punchSeg('open', 'Open', false) +
+              punchSeg('in_progress', 'In Progress', false) +
+              punchSeg('resolved', 'Resolved', false) +
+              punchSeg('all', 'All', true) +
+            '</div>';
             return '<div class="space-y-6 animate-fade-in">' +
               '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Reports</h1><p class="text-slate-400">Generate and export reports</p></div></div>' +
               '<p class="text-xs text-slate-500 flex items-center gap-1.5 -mt-3"><span class="w-1.5 h-1.5 rounded-full bg-green-400 inline-block"></span> on a calendar below marks a day with data already recorded</p>' +
@@ -1897,12 +1910,7 @@ export default async function SolTrendApp() {
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-center gap-3 mb-4">' + icon('list-checks', 'w-8 h-8 text-teal-400') + '<div><h3 class="font-display font-semibold text-white">Punch List Report</h3><p class="text-xs text-slate-400">Every item, fully detailed and numbered</p></div></div>' +
                 '<label class="text-xs text-slate-400 mb-2 block">Include statuses</label>' +
-                '<div class="flex flex-wrap gap-2 mb-4">' +
-                  punchStatusChip('open', 'Open') +
-                  punchStatusChip('in_progress', 'In Progress') +
-                  punchStatusChip('resolved', 'Resolved') +
-                  '<button onclick="setPunchReportStatusAll()" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all ' + (punchAllOn ? 'bg-teal-500 text-black' : 'bg-slate-700 text-slate-300') + '">All Statuses</button>' +
-                '</div>' +
+                punchSegBar +
                 '<button onclick="generatePunchListReport()" class="w-full py-2.5 bg-teal-500 hover:bg-teal-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
               '</div>' +
               '<div class="card rounded-xl p-5">' +
@@ -3791,12 +3799,13 @@ export default async function SolTrendApp() {
             openReportWindow(reportContent);
           }
 
-          // Punch List Report status-filter chips (Reports tab) - plain
-          // mutations, no render() needed on the single-status chips since
-          // nothing else on screen depends on them until Export PDF is
-          // clicked; setPunchReportStatusAll DOES render(), because it has
-          // to visually flip the three single chips (and itself) to "on".
-          function setPunchReportStatus(key, on) { state.reportOptions.punchStatuses[key] = on; }
+          // Punch List Report status-filter segments (Reports tab, Option
+          // 1 of the mockups) - unlike the old standalone chips, these all
+          // sit in one bar whose fourth segment ("All") visually reflects
+          // the other three combined, so toggling any single one has to
+          // render() to keep All's highlighted/not-highlighted state
+          // honest.
+          function setPunchReportStatus(key, on) { state.reportOptions.punchStatuses[key] = on; render(); }
           function setPunchReportStatusAll() {
             state.reportOptions.punchStatuses = { open: true, in_progress: true, resolved: true };
             render();
