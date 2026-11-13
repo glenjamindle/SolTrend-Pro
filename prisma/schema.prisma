@@ -136,6 +136,9 @@ model Project {
   submittals         Submittal[]
   galleryPhotos      GalleryPhoto[]
   dailyLogs          DailyLog[]
+  moduleRows         ModuleRow[]
+  spareModules       SpareModule[]
+  brokenModules      BrokenModule[]
 }
 
 // Crew - Work crews
@@ -332,6 +335,78 @@ model PunchItem {
 
   project   Project  @relation(fields: [projectId], references: [id])
   user      User     @relation(fields: [userId], references: [id])
+}
+
+// Module scanning + placement map - see
+// claude/module-barcode-scanning-design.md in the project. Replaces the
+// Excel-based field workflow (Bluetooth scanner + iPad into a spreadsheet)
+// with the same ROWTAG-{rowId} convention Glen's crews already use on
+// their printed/laminated tags: scanning a row tag starts/resumes that
+// row, then each module scan auto-increments position within it - no
+// manual position entry, ever. Mirrors Pile/Pile Map's "real layout,
+// built live" pattern rather than Pile Map's procedural-grid mode, since
+// every site's module layout is hand-laid-out like a custom pile layout
+// anyway (no two sites are the same - no fixed rows x columns rectangle).
+model ModuleRow {
+  id            String   @id @default(cuid())
+  rowId         String   // the row's real identity, from ROWTAG-{this} - whatever format a project's tags use (a bare number, "N-1", anything)
+  // Manual row-to-row alignment: how many blank placeholder cells lead
+  // this row in the Module Map, for sites where rows don't start evenly
+  // (mirrors Pile's `skip` gap-placeholder idea, but as a single leading
+  // count per row instead of per-cell, since within-row position is
+  // already fully derived from scan order and never needs gaps of its
+  // own).
+  offset        Int      @default(0)
+  expectedCount Int?     // optional, validation only - flags a short/over row, never blocks a scan
+  projectId     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project Project      @relation(fields: [projectId], references: [id])
+  slots   ModuleSlot[]
+
+  @@unique([projectId, rowId])
+}
+
+model ModuleSlot {
+  id          String    @id @default(cuid())
+  moduleRowId String
+  position    Int       // 1, 2, 3... in scan order within this row - fully auto-derived, never manually entered
+  barcode     String?   // null until scanned; a rescan here (or a barcode already recorded elsewhere) is always flagged, never silently overwritten - see /api/module-slots
+  scannedAt   DateTime?
+  scannedBy   String?   // free text name, same convention as PunchItem.assignedTo
+  notes       String?
+
+  moduleRow ModuleRow @relation(fields: [moduleRowId], references: [id])
+
+  @@unique([moduleRowId, position])
+}
+
+// Flat inventory logs - Glen: "I don't need tracking of them in the
+// field. Only need to record the serials for inventory use and potential
+// backcharging etc. I don't care where they came from." No slot/position
+// link at all, on purpose.
+model SpareModule {
+  id        String   @id @default(cuid())
+  barcode   String
+  notes     String?
+  loggedBy  String?
+  loggedAt  DateTime @default(now())
+  projectId String
+
+  project Project @relation(fields: [projectId], references: [id])
+}
+
+model BrokenModule {
+  id        String   @id @default(cuid())
+  barcode   String
+  reason    String   // "DOA" | "Damaged in Field" | "Broken During Install" - Glen's existing fixed categories
+  notes     String?
+  loggedBy  String?
+  loggedAt  DateTime @default(now())
+  projectId String
+
+  project Project @relation(fields: [projectId], references: [id])
 }
 
 // DelayLog - Non-productive day tracking (weather, permitting holds,

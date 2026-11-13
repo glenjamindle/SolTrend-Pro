@@ -80,6 +80,22 @@ export default async function SolTrendApp() {
         .heat-cell { width: 100%; aspect-ratio: 1; border-radius: 3px; transition: transform 0.15s ease; cursor: pointer; border: 1px solid rgba(0,0,0,0.2); }
         .heat-cell:hover { transform: scale(1.5); z-index: 10; box-shadow: 0 0 8px rgba(255,255,255,0.3); border-color: white; }
         .heat-cell.dimmed { opacity: 0.15; }
+        /* Module Map cells - same scale-on-hover/dimmed-search convention
+           as .heat-cell above, but only two real states (see
+           renderModuleMapTab): a scanned slot (.good) and everything else,
+           which is either an unscanned-but-expected placeholder (.unscanned,
+           shown only when a row has an expectedCount set) or a leading
+           row-offset gap (.module-cell-gap, not interactive, same idea as
+           .heat-cell-gap on the Pile Map). */
+        .module-cell { border-radius: 3px; transition: transform 0.15s ease; cursor: pointer; border: 1px solid rgba(0,0,0,0.2); flex-shrink: 0; }
+        .module-cell:hover { transform: scale(1.6); z-index: 10; box-shadow: 0 0 8px rgba(255,255,255,0.3); border-color: white; }
+        .module-cell.dimmed { opacity: 0.15; }
+        .module-cell.good { background: #35d399; }
+        .module-cell.good.selected { outline: 2px solid #f6a723; outline-offset: 1px; }
+        .module-cell-gap, .module-cell.unscanned { flex-shrink: 0; border-radius: 3px; }
+        .module-cell-gap { background: transparent; }
+        .module-cell.unscanned { background: #141d2e; border: 1px solid #2d3b52; cursor: default; }
+        .module-cell.unscanned:hover { transform: none; box-shadow: none; }
         .row-label { position: sticky; left: 0; background: linear-gradient(90deg, #111827 80%, transparent 100%); z-index: 5; padding-right: 4px; }
         .status-pass { background: #22c55e; }
         .status-fail { background: #ef4444; }
@@ -388,6 +404,43 @@ export default async function SolTrendApp() {
             punchItems: [], punchFilter: 'open', punchFormOpen: false,
             punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: [], punchSubmitting: false,
             punchResolvingId: null, punchResolvePhotos: [], punchResolveSubmitting: false,
+            // MODULE SCAN - see claude/module-barcode-scanning-design.md.
+            // moduleTab switches between the four sub-views on this one nav
+            // item (Scan Mode itself isn't one of them - it's a full-screen
+            // overlay toggled by moduleScanActive, same pattern as a modal).
+            moduleRows: [], moduleSpares: [], moduleBroken: [],
+            moduleTab: 'map',
+            moduleScanActive: false,
+            // 'module' | 'spare' | 'broken' - which inventory a scanned
+            // barcode is filed into while Scan Mode is open.
+            moduleScanKind: 'module',
+            // The ModuleRow currently being scanned into - set by a
+            // ROWTAG-{rowId} scan (find-or-create via POST /api/module-rows)
+            // and cleared only when the person explicitly ends the row.
+            // Position is never tracked separately in state: it's always
+            // derived from this row's own slots.length, both for the optimistic
+            // append below and for display, so there's exactly one source of
+            // truth for "what position is next."
+            moduleCurrentRowId: null,
+            moduleScanInput: '',
+            // Brief flash feedback after each scan - { ok: boolean, text }.
+            // Cleared by the next scan, not on a timer, so it never
+            // disappears mid-read on a slow connection.
+            moduleLastScan: null,
+            // Pending Skip/Move decision from a 409 conflict response -
+            // { barcode, conflict, rowId } - null when no conflict is open.
+            // While this is set, further scans are ignored (see
+            // submitModuleScan) until the person picks Skip or Move.
+            moduleConflict: null,
+            moduleScanSubmitting: false,
+            moduleBrokenReason: 'Damaged in Field',
+            moduleMapSearch: '', moduleMapZoom: 1,
+            // Clicked Module Map cell - { rowId, position, slot } - or null.
+            moduleDetailCell: null,
+            // id of the ModuleRow whose offset/expectedCount edit form is
+            // open (manager+ only, mirrors Pile Layout's edit gate), or null.
+            moduleRowSettingsId: null,
+            moduleRowOffsetDraft: '', moduleRowExpectedDraft: '',
             pendingSyncCount: 0,
             // SAFETY
             toolboxTalks: [], safetyObservations: [], safetyIncidents: [],
@@ -1062,6 +1115,7 @@ export default async function SolTrendApp() {
               { title: 'Site Reference', items: [
                 { id: 'materials', label: 'Materials', icon: 'package' },
                 { id: 'heatmap', label: 'Pile Map', icon: 'map' },
+                { id: 'moduleScan', label: 'Module Scan', icon: 'scan-line' },
                 { id: 'gallery', label: 'Gallery', icon: 'images' },
               ]},
               { title: 'Safety', items: [
@@ -4275,6 +4329,512 @@ export default async function SolTrendApp() {
           function zoomIn() { state.heatmap.zoom = Math.min(2, state.heatmap.zoom + 0.25); render(); }
           function zoomOut() { state.heatmap.zoom = Math.max(0.15, state.heatmap.zoom - 0.25); render(); }
 
+          // MODULE SCAN - see claude/module-barcode-scanning-design.md.
+          // Bluetooth scanners run in keyboard-wedge mode: each scan types
+          // the barcode into whatever has focus, then sends Enter. #module
+          // ScanInput stays focused the whole time Scan mode is open (see
+          // focusModuleScanInput, called after every render that happens
+          // while scanning) so a scan always lands there with no tapping.
+          function setModuleTab(tab) {
+            state.moduleTab = tab;
+            state.moduleDetailCell = null;
+            state.moduleRowSettingsId = null;
+            render();
+            if (tab === 'scan') focusModuleScanInput();
+          }
+          function setModuleScanKind(kind) {
+            state.moduleScanKind = kind;
+            state.moduleConflict = null;
+            render();
+            focusModuleScanInput();
+          }
+          function setModuleBrokenReason(reason) { state.moduleBrokenReason = reason; render(); focusModuleScanInput(); }
+          function focusModuleScanInput() {
+            const el = document.getElementById('moduleScanInput');
+            if (el) el.focus();
+          }
+          function moduleScanInputKeydown(event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            handleModuleScanInput(event.target.value);
+            event.target.value = '';
+          }
+          // Single entry point for every scan, regardless of which of the
+          // three kinds (Modules/Spare/Broken) is active. A ROWTAG- prefix
+          // only means anything in Modules mode - Spare/Broken never have a
+          // row context at all (confirmed decision - see design doc).
+          function handleModuleScanInput(raw) {
+            const code = (raw || '').trim();
+            state.moduleScanInput = '';
+            if (!code) { focusModuleScanInput(); return; }
+            // A conflict is awaiting Skip/Move - ignore further scans until
+            // it's resolved rather than silently processing past it.
+            if (state.moduleConflict || state.moduleScanSubmitting) { focusModuleScanInput(); return; }
+            if (state.moduleScanKind === 'module') {
+              if (/^rowtag-/i.test(code)) { startOrResumeModuleRow(code.replace(/^rowtag-/i, '')); return; }
+              if (!state.moduleCurrentRowId) {
+                state.moduleLastScan = { ok: false, text: 'Scan a ROWTAG- barcode first to start or resume a row.' };
+                render(); focusModuleScanInput();
+                return;
+              }
+              submitModuleSlotScan(code, false);
+            } else if (state.moduleScanKind === 'spare') {
+              submitModuleSpareScan(code, false);
+            } else {
+              submitModuleBrokenScan(code, false);
+            }
+          }
+          // Resuming a row that's already in state (the common case - a row
+          // tagged on a previous day, or earlier this session) never needs
+          // the network at all. Starting a genuinely NEW row does, and - on
+          // purpose - isn't made optimistic like every module scan after it
+          // is: a brand new row has no real id yet, and queuing that
+          // creation offline would leave every module scanned into it
+          // stuck behind a moduleRowId the server has never heard of,
+          // stalling the whole offline write queue (see flushPendingWrites
+          // - it stops at the first failure to keep the queue in order).
+          // One brief wait per physical row tag, never per module, is the
+          // tradeoff.
+          async function startOrResumeModuleRow(rowId) {
+            rowId = (rowId || '').trim();
+            if (!rowId) return;
+            const existing = state.moduleRows.find(function(r) { return r.rowId === rowId; });
+            if (existing) {
+              state.moduleCurrentRowId = existing.id;
+              state.moduleLastScan = { ok: true, text: 'Resumed row ' + rowId + ' - ' + existing.slots.length + ' scanned so far' };
+              render(); focusModuleScanInput();
+              return;
+            }
+            if (!state.isOnline) {
+              state.moduleLastScan = { ok: false, text: 'Can\\'t start a new row while offline. Reconnect and try again.' };
+              render(); focusModuleScanInput();
+              return;
+            }
+            state.moduleScanSubmitting = true; render();
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/module-rows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: projectId, rowId: rowId }) });
+              const data = await res.json();
+              if (!res.ok) {
+                state.moduleLastScan = { ok: false, text: data.error || ('Could not start row ' + rowId + '.') };
+              } else {
+                data.slots = data.slots || [];
+                state.moduleRows.push(data);
+                state.moduleCurrentRowId = data.id;
+                state.moduleLastScan = { ok: true, text: 'Started row ' + rowId };
+              }
+            } catch (e) {
+              console.error('Start module row error:', e);
+              state.moduleLastScan = { ok: false, text: 'Network error starting row ' + rowId + '.' };
+            } finally {
+              state.moduleScanSubmitting = false; render(); focusModuleScanInput();
+            }
+          }
+          function resumeModuleRowById(id) {
+            const row = state.moduleRows.find(function(r) { return r.id === id; });
+            if (!row) return;
+            state.moduleCurrentRowId = id;
+            state.moduleLastScan = { ok: true, text: 'Resumed row ' + row.rowId + ' - ' + row.slots.length + ' scanned so far' };
+            render(); focusModuleScanInput();
+          }
+          function endModuleRow() {
+            state.moduleCurrentRowId = null;
+            state.moduleLastScan = null;
+            render(); focusModuleScanInput();
+          }
+          // Checked locally before every scan, in addition to the server's
+          // own check on save - catches the common case instantly (no
+          // round trip), while the server-side findBarcodeConflict in
+          // src/lib/moduleBarcode.ts stays the real source of truth for
+          // whether a scan is actually allowed through.
+          function findLocalModuleBarcodeConflict(barcode) {
+            for (const row of state.moduleRows) {
+              const slot = (row.slots || []).find(function(s) { return s.barcode === barcode; });
+              if (slot) return { type: 'slot', rowId: row.rowId, position: slot.position, scannedAt: slot.scannedAt };
+            }
+            const spare = state.moduleSpares.find(function(s) { return s.barcode === barcode; });
+            if (spare) return { type: 'spare', loggedAt: spare.loggedAt };
+            const broken = state.moduleBroken.find(function(b) { return b.barcode === barcode; });
+            if (broken) return { type: 'broken', reason: broken.reason, loggedAt: broken.loggedAt };
+            return null;
+          }
+          // Mirrors clearBarcodeFrom in src/lib/moduleBarcode.ts, client
+          // side, so a forced "Move it here" doesn't leave the same barcode
+          // showing in two places in the UI until the next full reload.
+          function clearLocalModuleBarcode(barcode) {
+            state.moduleRows.forEach(function(row) {
+              row.slots = (row.slots || []).map(function(s) { return s.barcode === barcode ? Object.assign({}, s, { barcode: null, scannedAt: null, scannedBy: null }) : s; });
+            });
+            state.moduleSpares = state.moduleSpares.filter(function(s) { return s.barcode !== barcode; });
+            state.moduleBroken = state.moduleBroken.filter(function(b) { return b.barcode !== barcode; });
+          }
+          // Optimistic-first, same pattern used everywhere else in this app:
+          // the slot appears on screen the instant it's scanned, synced to
+          // the server in the background. Position is derived from
+          // row.slots.length, never sent by the caller, so there's exactly
+          // one source of truth for "what's next" (also matches how the
+          // server derives it in /api/module-slots).
+          async function submitModuleSlotScan(barcode, force) {
+            const row = state.moduleRows.find(function(r) { return r.id === state.moduleCurrentRowId; });
+            if (!row) return;
+            if (!force) {
+              const localConflict = findLocalModuleBarcodeConflict(barcode);
+              if (localConflict) {
+                state.moduleConflict = { kind: 'module', barcode: barcode, conflict: localConflict, rowId: row.id };
+                render(); focusModuleScanInput();
+                return;
+              }
+            } else {
+              clearLocalModuleBarcode(barcode);
+            }
+            const nextPosition = row.slots.length + 1;
+            const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            row.slots.push({ id: tempId, moduleRowId: row.id, position: nextPosition, barcode: barcode, scannedAt: new Date().toISOString(), scannedBy: state.currentUser.name || null });
+            state.moduleLastScan = { ok: true, text: barcode + ' - saved' };
+            render(); focusModuleScanInput();
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/module-slots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: projectId, moduleRowId: row.id, barcode: barcode, scannedBy: state.currentUser.name || null, force: !!force }) });
+              // 202 means the write got queued offline (see the window.fetch
+              // override above) - the optimistic slot above stays exactly as
+              // it is until flushPendingWrites() succeeds and reloads
+              // everything for real.
+              if (res.status === 202) return;
+              const data = await res.json();
+              if (!res.ok) {
+                row.slots = row.slots.filter(function(s) { return s.id !== tempId; });
+                if (res.status === 409 && data.conflict) {
+                  state.moduleConflict = { kind: 'module', barcode: barcode, conflict: data.conflict, rowId: row.id };
+                } else {
+                  state.moduleLastScan = { ok: false, text: data.error || ('Could not save ' + barcode + '.') };
+                }
+                render();
+                return;
+              }
+              const idx = row.slots.findIndex(function(s) { return s.id === tempId; });
+              if (idx !== -1) row.slots[idx] = data;
+            } catch (e) {
+              console.error('Module slot scan error:', e);
+            }
+          }
+          async function submitModuleSpareScan(barcode, force) {
+            if (!force) {
+              const localConflict = findLocalModuleBarcodeConflict(barcode);
+              if (localConflict) {
+                state.moduleConflict = { kind: 'spare', barcode: barcode, conflict: localConflict };
+                render(); focusModuleScanInput();
+                return;
+              }
+            } else {
+              clearLocalModuleBarcode(barcode);
+            }
+            const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            state.moduleSpares.unshift({ id: tempId, barcode: barcode, notes: null, loggedBy: state.currentUser.name || null, loggedAt: new Date().toISOString() });
+            state.moduleLastScan = { ok: true, text: barcode + ' - logged as spare' };
+            render(); focusModuleScanInput();
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/module-spares', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: projectId, barcode: barcode, loggedBy: state.currentUser.name || null, force: !!force }) });
+              if (res.status === 202) return;
+              const data = await res.json();
+              if (!res.ok) {
+                state.moduleSpares = state.moduleSpares.filter(function(s) { return s.id !== tempId; });
+                if (res.status === 409 && data.conflict) {
+                  state.moduleConflict = { kind: 'spare', barcode: barcode, conflict: data.conflict };
+                } else {
+                  state.moduleLastScan = { ok: false, text: data.error || ('Could not log ' + barcode + '.') };
+                }
+                render();
+                return;
+              }
+              const idx = state.moduleSpares.findIndex(function(s) { return s.id === tempId; });
+              if (idx !== -1) state.moduleSpares[idx] = data;
+            } catch (e) {
+              console.error('Module spare scan error:', e);
+            }
+          }
+          async function submitModuleBrokenScan(barcode, force) {
+            if (!force) {
+              const localConflict = findLocalModuleBarcodeConflict(barcode);
+              if (localConflict) {
+                state.moduleConflict = { kind: 'broken', barcode: barcode, conflict: localConflict };
+                render(); focusModuleScanInput();
+                return;
+              }
+            } else {
+              clearLocalModuleBarcode(barcode);
+            }
+            const reason = state.moduleBrokenReason || 'Damaged in Field';
+            const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            state.moduleBroken.unshift({ id: tempId, barcode: barcode, reason: reason, notes: null, loggedBy: state.currentUser.name || null, loggedAt: new Date().toISOString() });
+            state.moduleLastScan = { ok: true, text: barcode + ' - logged broken (' + reason + ')' };
+            render(); focusModuleScanInput();
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/module-broken', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: projectId, barcode: barcode, reason: reason, loggedBy: state.currentUser.name || null, force: !!force }) });
+              if (res.status === 202) return;
+              const data = await res.json();
+              if (!res.ok) {
+                state.moduleBroken = state.moduleBroken.filter(function(b) { return b.id !== tempId; });
+                if (res.status === 409 && data.conflict) {
+                  state.moduleConflict = { kind: 'broken', barcode: barcode, conflict: data.conflict };
+                } else {
+                  state.moduleLastScan = { ok: false, text: data.error || ('Could not log ' + barcode + '.') };
+                }
+                render();
+                return;
+              }
+              const idx = state.moduleBroken.findIndex(function(b) { return b.id === tempId; });
+              if (idx !== -1) state.moduleBroken[idx] = data;
+            } catch (e) {
+              console.error('Module broken scan error:', e);
+            }
+          }
+          function skipModuleConflict() {
+            state.moduleConflict = null;
+            state.moduleLastScan = { ok: false, text: 'Skipped - not saved.' };
+            render(); focusModuleScanInput();
+          }
+          async function moveModuleConflict() {
+            const pending = state.moduleConflict;
+            if (!pending) return;
+            state.moduleConflict = null;
+            state.moduleScanSubmitting = true; render();
+            try {
+              if (pending.kind === 'module') await submitModuleSlotScan(pending.barcode, true);
+              else if (pending.kind === 'spare') await submitModuleSpareScan(pending.barcode, true);
+              else await submitModuleBrokenScan(pending.barcode, true);
+            } finally {
+              state.moduleScanSubmitting = false; render(); focusModuleScanInput();
+            }
+          }
+          // Admin-only corrections - same delete policy as every other
+          // destructive action in this app. A deleted slot leaves its
+          // position open on the map (never renumbered), matching how the
+          // DELETE /api/module-slots route itself behaves.
+          async function deleteModuleSlot(id, rowId) {
+            if (!confirm('Delete this module scan? This cannot be undone.')) return;
+            try {
+              const res = await fetch('/api/module-slots?id=' + encodeURIComponent(id), { method: 'DELETE' });
+              if (!res.ok) { const err = await res.json().catch(function() { return {}; }); alert(err.error || 'Failed to delete. Please try again.'); return; }
+              const row = state.moduleRows.find(function(r) { return r.id === rowId; });
+              if (row) row.slots = row.slots.filter(function(s) { return s.id !== id; });
+              state.moduleDetailCell = null;
+              render();
+            } catch (e) { console.error('Delete module slot error:', e); alert('Failed to delete. Please try again.'); }
+          }
+          async function deleteModuleSpare(id) {
+            if (!confirm('Delete this spare module entry? This cannot be undone.')) return;
+            try {
+              const res = await fetch('/api/module-spares?id=' + encodeURIComponent(id), { method: 'DELETE' });
+              if (!res.ok) { const err = await res.json().catch(function() { return {}; }); alert(err.error || 'Failed to delete. Please try again.'); return; }
+              state.moduleSpares = state.moduleSpares.filter(function(s) { return s.id !== id; });
+              render();
+            } catch (e) { console.error('Delete spare module error:', e); alert('Failed to delete. Please try again.'); }
+          }
+          async function deleteModuleBroken(id) {
+            if (!confirm('Delete this broken module entry? This cannot be undone.')) return;
+            try {
+              const res = await fetch('/api/module-broken?id=' + encodeURIComponent(id), { method: 'DELETE' });
+              if (!res.ok) { const err = await res.json().catch(function() { return {}; }); alert(err.error || 'Failed to delete. Please try again.'); return; }
+              state.moduleBroken = state.moduleBroken.filter(function(b) { return b.id !== id; });
+              render();
+            } catch (e) { console.error('Delete broken module error:', e); alert('Failed to delete. Please try again.'); }
+          }
+
+          // MODULE MAP
+          function filterModuleMap(value) { state.moduleMapSearch = value; render(); }
+          function zoomModuleMapIn() { state.moduleMapZoom = Math.min(2, (state.moduleMapZoom || 1) + 0.25); render(); }
+          function zoomModuleMapOut() { state.moduleMapZoom = Math.max(0.4, (state.moduleMapZoom || 1) - 0.25); render(); }
+          function showModuleCellDetail(rowId, position) { state.moduleDetailCell = { rowId: rowId, position: position }; render(); }
+          function closeModuleCellDetail() { state.moduleDetailCell = null; render(); }
+          // Row offset/expected-count edit - manager+ only, mirrors Pile
+          // Layout's own edit gate. Offset is the only piece of row-to-row
+          // layout that needs manual entry at all - position within a row
+          // is always derived from scan order (see design doc).
+          function openModuleRowSettings(rowId) {
+            const row = state.moduleRows.find(function(r) { return r.id === rowId; });
+            if (!row) return;
+            state.moduleRowSettingsId = rowId;
+            state.moduleRowOffsetDraft = String(row.offset || 0);
+            state.moduleRowExpectedDraft = row.expectedCount != null ? String(row.expectedCount) : '';
+            render();
+          }
+          function closeModuleRowSettings() { state.moduleRowSettingsId = null; render(); }
+          async function saveModuleRowSettings() {
+            const id = state.moduleRowSettingsId;
+            if (!id) return;
+            const offset = parseInt(state.moduleRowOffsetDraft, 10) || 0;
+            const expectedRaw = (state.moduleRowExpectedDraft || '').trim();
+            const expectedCount = expectedRaw === '' ? null : (parseInt(expectedRaw, 10) || 0);
+            const row = state.moduleRows.find(function(r) { return r.id === id; });
+            if (row) { row.offset = offset; row.expectedCount = expectedCount; }
+            state.moduleRowSettingsId = null;
+            render();
+            try {
+              const res = await fetch('/api/module-rows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, offset: offset, expectedCount: expectedCount }) });
+              if (res.status === 202) return;
+              const data = await res.json();
+              if (res.ok && row) { row.offset = data.offset; row.expectedCount = data.expectedCount; render(); }
+            } catch (e) { console.error('Save module row settings error:', e); }
+          }
+
+          // MODULE SCAN - top-level view: a tab bar over four sub-views
+          // (Scan, Module Map, Reconciliation, Broken & Spares), in the
+          // order Glen would actually touch them in a day - field scan
+          // first, desk review after.
+          function renderModuleScan() {
+            const tabs = [
+              { id: 'scan', label: 'Scan' },
+              { id: 'map', label: 'Module Map' },
+              { id: 'reconcile', label: 'Reconciliation' },
+              { id: 'inventory', label: 'Broken & Spares' }
+            ];
+            let installed = 0;
+            state.moduleRows.forEach(function(row) { installed += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
+            const tabBar = '<div class="flex gap-2 mb-4 flex-wrap">' + tabs.map(function(t) { return '<button onclick="setModuleTab(\\'' + t.id + '\\')" class="mode-btn ' + (state.moduleTab === t.id ? 'mode-btn-active' : 'mode-btn-inactive') + '">' + t.label + '</button>'; }).join('') + '</div>';
+            const body = state.moduleTab === 'scan' ? renderModuleScanTab()
+              : state.moduleTab === 'reconcile' ? renderModuleReconcileTab()
+              : state.moduleTab === 'inventory' ? renderModuleInventoryTab()
+              : renderModuleMapTab();
+            return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Module Scan</h1><p class="text-slate-400">' + installed.toLocaleString() + ' module' + (installed === 1 ? '' : 's') + ' scanned so far</p></div></div>' + tabBar + body + '</div>';
+          }
+          function renderModuleScanTab() {
+            const row = state.moduleRows.find(function(r) { return r.id === state.moduleCurrentRowId; });
+            const kindTabs = [
+              { id: 'module', label: 'Scan Modules' },
+              { id: 'spare', label: 'Log Spare' },
+              { id: 'broken', label: 'Log Broken' }
+            ];
+            const kindRow = '<div class="grid grid-cols-3 gap-2">' + kindTabs.map(function(k) { return '<button onclick="setModuleScanKind(\\'' + k.id + '\\')" class="py-2 px-2 rounded-lg text-xs font-bold text-center border ' + (state.moduleScanKind === k.id ? 'bg-amber-500/10 border-amber-500 text-amber-400' : 'bg-slate-800 border-slate-700 text-slate-400') + '">' + k.label + '</button>'; }).join('') + '</div>';
+
+            let topHtml;
+            if (state.moduleScanKind === 'module') {
+              topHtml = row
+                ? ('<div class="text-center py-2"><p class="text-[10px] uppercase tracking-wider text-slate-400">Current row</p><p class="text-4xl font-display font-bold text-white">' + row.rowId + '</p><p class="text-xs text-slate-400 mt-1">' + row.slots.length + ' module' + (row.slots.length === 1 ? '' : 's') + ' scanned in this row</p></div>' +
+                  '<div class="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-lg px-4 py-2.5 mb-3"><div><p class="text-lg font-bold text-white font-mono">Module ' + (row.slots.length + 1) + '</p><p class="text-[11px] text-slate-400">next position in this row</p></div><button onclick="endModuleRow()" class="text-xs font-medium text-slate-400 hover:text-white px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg">End Row</button></div>')
+                : ('<div class="text-center py-6 px-4 bg-slate-800/40 border border-dashed border-slate-700 rounded-xl mb-3"><p class="text-sm text-slate-300 font-medium">Scan a ROWTAG- barcode to begin</p><p class="text-xs text-slate-400 mt-1">Or resume a row already started:</p>' +
+                  (state.moduleRows.length > 0 ? ('<select onchange="if (this.value) resumeModuleRowById(this.value); this.value=\\'\\';" class="mt-2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-56"><option value="">Choose a row...</option>' + state.moduleRows.slice().sort(function(a, b) { return (a.rowId + '').localeCompare(b.rowId + '', undefined, { numeric: true }); }).map(function(r) { return '<option value="' + r.id + '">Row ' + r.rowId + ' (' + r.slots.length + ' scanned)</option>'; }).join('') + '</select>') : '') +
+                  '</div>');
+            } else if (state.moduleScanKind === 'spare') {
+              topHtml = '<div class="text-center py-6 px-4 bg-slate-800/40 border border-slate-700 rounded-xl mb-3"><p class="text-sm text-slate-300 font-medium">Scan a spare module\\'s barcode</p><p class="text-xs text-slate-400 mt-1">Logged straight to inventory - no row or position needed.</p></div>';
+            } else {
+              const reasons = ['DOA', 'Damaged in Field', 'Broken During Install'];
+              topHtml = '<div class="text-center py-4 px-4 bg-slate-800/40 border border-slate-700 rounded-xl mb-3"><p class="text-sm text-slate-300 font-medium mb-3">Scan a broken module\\'s barcode</p><div class="flex gap-2 justify-center flex-wrap">' + reasons.map(function(r) { return '<button onclick="setModuleBrokenReason(\\'' + r + '\\')" class="text-xs font-bold px-3 py-1.5 rounded-full border ' + (state.moduleBrokenReason === r ? 'bg-amber-500 text-black border-amber-500' : 'bg-slate-800 text-slate-300 border-slate-700') + '">' + r + '</button>'; }).join('') + '</div></div>';
+            }
+
+            const lastScanHtml = state.moduleLastScan ? ('<div class="px-4 py-2.5 rounded-lg border mb-3 ' + (state.moduleLastScan.ok ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-red-500/10 border-red-500/40') + '"><span class="font-mono text-xs break-all ' + (state.moduleLastScan.ok ? 'text-emerald-400' : 'text-red-400') + '">' + state.moduleLastScan.text + '</span></div>') : '';
+
+            const conflictHtml = state.moduleConflict ? (function() {
+              const c = state.moduleConflict.conflict;
+              const where = c.type === 'slot' ? ('Row ' + c.rowId + ', position ' + c.position) : c.type === 'spare' ? 'the Spares list' : ('the Broken list (' + c.reason + ')');
+              const when = formatDate(c.scannedAt || c.loggedAt);
+              return '<div class="rounded-lg border p-3 space-y-2 mb-3" style="background: rgba(246,195,67,0.08); border-color: rgba(246,195,67,0.4);"><p class="text-xs font-bold text-amber-400">' + icon('alert-triangle', 'w-3.5 h-3.5 inline -mt-0.5') + ' Already recorded elsewhere</p><p class="text-xs text-slate-200">Barcode <span class="font-mono">' + state.moduleConflict.barcode + '</span> is already saved at ' + where + (when ? ' (' + when + ')' : '') + '.</p><div class="flex gap-2"><button onclick="skipModuleConflict()" class="flex-1 py-2 text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg">Skip this scan</button><button onclick="moveModuleConflict()" class="flex-1 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black rounded-lg">Move it here</button></div></div>';
+            })() : '';
+
+            const inputBlocked = !!state.moduleConflict || state.moduleScanSubmitting;
+            const scanInputHtml = '<div class="space-y-2"><input id="moduleScanInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="' + (inputBlocked ? 'Resolve the flag above to continue' : 'Ready - scan the next barcode') + '" onkeydown="moduleScanInputKeydown(event)" onblur="if (state.moduleTab === \\'scan\\' && !state.moduleConflict) setTimeout(focusModuleScanInput, 60);" ' + (inputBlocked ? 'disabled' : 'autofocus') + ' class="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-lg px-4 py-3 text-white text-sm font-mono"/><div class="flex items-center justify-center gap-2 text-xs text-slate-400"><span class="w-1.5 h-1.5 rounded-full bg-amber-400' + (inputBlocked ? '' : ' animate-pulse') + '"></span>' + (inputBlocked ? 'Paused' : 'Listening for the next scan') + '</div></div>';
+
+            return '<div class="max-w-md mx-auto">' + topHtml + lastScanHtml + conflictHtml + scanInputHtml + '<div class="mt-4">' + kindRow + '</div></div>';
+          }
+          // Mirrors renderHeatMap(): one cell per slot, a leading run of
+          // non-interactive gap cells per row for row.offset (the one
+          // piece of row-to-row layout that's entered by hand - position
+          // within a row is always derived from scan order), and an
+          // unscanned placeholder only once a row has an expectedCount set
+          // (otherwise a row that simply isn't finished yet would show as
+          // a wall of "missing" cells with no real meaning).
+          function renderModuleMapTab() {
+            const term = (state.moduleMapSearch || '').trim().toLowerCase();
+            const zoom = state.moduleMapZoom || 1;
+            const cellSize = Math.round(16 * zoom);
+            const rows = state.moduleRows.slice().sort(function(a, b) { return (a.rowId + '').localeCompare(b.rowId + '', undefined, { numeric: true }); });
+            let matchCount = 0;
+            const rowsHtml = rows.map(function(row) {
+              const offset = row.offset || 0;
+              const slots = row.slots || [];
+              let cells = '';
+              for (let i = 0; i < offset; i++) {
+                cells += '<span class="module-cell-gap" style="width:' + cellSize + 'px;height:' + cellSize + 'px" title="Gap / offset"></span>';
+              }
+              const cellCount = Math.max(slots.length, row.expectedCount || 0);
+              for (let pos = 1; pos <= cellCount; pos++) {
+                const slot = slots.find(function(s) { return s.position === pos; });
+                if (slot && slot.barcode) {
+                  const isMatch = !term || slot.barcode.toLowerCase().indexOf(term) !== -1;
+                  if (term && isMatch) matchCount++;
+                  const isSelected = state.moduleDetailCell && state.moduleDetailCell.rowId === row.id && state.moduleDetailCell.position === pos;
+                  cells += '<button onclick="showModuleCellDetail(\\'' + row.id + '\\',' + pos + ')" class="module-cell good' + (term && !isMatch ? ' dimmed' : '') + (isSelected ? ' selected' : '') + '" style="width:' + cellSize + 'px;height:' + cellSize + 'px" title="Row ' + row.rowId + ' pos ' + pos + ': ' + slot.barcode + '"></button>';
+                } else {
+                  cells += '<span class="module-cell unscanned" style="width:' + cellSize + 'px;height:' + cellSize + 'px" title="Row ' + row.rowId + ' pos ' + pos + ': not yet scanned"></span>';
+                }
+              }
+              const settingsBtn = hasRole('manager') ? ('<button onclick="openModuleRowSettings(\\'' + row.id + '\\')" class="text-slate-500 hover:text-amber-400 flex-shrink-0">' + icon('settings-2', 'w-3 h-3') + '</button>') : '';
+              return '<div class="flex items-center gap-1.5 mb-0.5"><span class="row-label w-14 text-slate-400 font-mono text-right pr-1 text-[10px] flex-shrink-0">' + row.rowId + '</span><div class="flex gap-[3px]">' + cells + '</div>' + settingsBtn + '</div>';
+            }).join('');
+
+            const rowSettings = state.moduleRowSettingsId ? (function() {
+              const row = state.moduleRows.find(function(r) { return r.id === state.moduleRowSettingsId; });
+              if (!row) return '';
+              return '<div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4 mb-3 space-y-3"><div class="flex items-center justify-between"><h3 class="text-sm font-bold text-white">Row ' + row.rowId + ' alignment</h3><button onclick="closeModuleRowSettings()" class="text-slate-400 hover:text-white">' + icon('x', 'w-4 h-4') + '</button></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-slate-400 block mb-1">Leading offset (cells)</label><input type="number" min="0" value="' + state.moduleRowOffsetDraft + '" oninput="state.moduleRowOffsetDraft=this.value" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm"/></div><div><label class="text-xs text-slate-400 block mb-1">Expected count (optional)</label><input type="number" min="0" value="' + state.moduleRowExpectedDraft + '" oninput="state.moduleRowExpectedDraft=this.value" placeholder="None" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm"/></div></div><button onclick="saveModuleRowSettings()" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-medium text-sm">Save</button></div>';
+            })() : '';
+
+            const detail = state.moduleDetailCell ? (function() {
+              const row = state.moduleRows.find(function(r) { return r.id === state.moduleDetailCell.rowId; });
+              const slot = row && (row.slots || []).find(function(s) { return s.position === state.moduleDetailCell.position; });
+              if (!row || !slot) return '';
+              return '<div class="flex flex-wrap items-center gap-4 bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-sm mt-3"><span class="text-slate-400">Row <span class="text-white font-mono">' + row.rowId + '</span> &middot; pos <span class="text-white font-mono">' + slot.position + '</span></span><span class="text-slate-400">Barcode <span class="text-white font-mono">' + slot.barcode + '</span></span>' + (slot.scannedBy ? ('<span class="text-slate-400">Scanned by <span class="text-white">' + slot.scannedBy + '</span></span>') : '') + (slot.scannedAt ? ('<span class="text-slate-400">Date <span class="text-white">' + formatDate(slot.scannedAt) + '</span></span>') : '') + (hasRole('admin') ? ('<button onclick="deleteModuleSlot(\\'' + slot.id + '\\',\\'' + row.id + '\\')" class="ml-auto text-red-400 hover:text-red-300">' + icon('trash-2', 'w-4 h-4') + '</button>') : '') + '</div>';
+            })() : '';
+
+            return '<div class="space-y-3">' +
+              '<div class="flex flex-wrap items-center gap-3 bg-slate-800/50 border border-slate-700 rounded-xl p-3">' +
+                '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded module-cell unscanned" style="width:12px;height:12px"></div><span class="text-xs text-slate-300">Unscanned</span></div>' +
+                '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded module-cell good" style="width:12px;height:12px"></div><span class="text-xs text-slate-300">Installed</span></div>' +
+                '<div class="flex items-center gap-2 ml-auto"><button onclick="zoomModuleMapOut()" class="p-1.5 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-out', 'w-3.5 h-3.5') + '</button><span class="text-xs text-slate-400 w-10 text-center">' + Math.round(zoom * 100) + '%</span><button onclick="zoomModuleMapIn()" class="p-1.5 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-in', 'w-3.5 h-3.5') + '</button></div>' +
+                '<input type="text" value="' + (state.moduleMapSearch || '') + '" oninput="filterModuleMap(this.value)" placeholder="Search barcode" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-40">' +
+                (term ? ('<span class="text-xs text-slate-400">' + matchCount + ' match' + (matchCount === 1 ? '' : 'es') + '</span>') : '') +
+              '</div>' +
+              rowSettings +
+              (rows.length === 0
+                ? '<div class="card rounded-xl p-8 text-center text-slate-400 text-sm">No rows scanned yet. Use the Scan tab to tag a row and start scanning modules into it.</div>'
+                : '<div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4 overflow-x-auto overflow-y-auto max-h-[calc(100vh-320px)] min-h-[160px]"><div class="inline-block">' + rowsHtml + '</div></div>') +
+              detail +
+            '</div>';
+          }
+          function renderModuleReconcileTab() {
+            const procured = (state.currentProject && state.currentProject.totalModules) || 0;
+            let installed = 0;
+            state.moduleRows.forEach(function(row) { installed += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
+            const spares = state.moduleSpares.length;
+            const broken = state.moduleBroken.length;
+            const unaccounted = procured - installed - spares - broken;
+            const pct = procured > 0 ? Math.min(100, Math.round((installed / procured) * 1000) / 10) : 0;
+            const stat = function(label, value, warn) {
+              return '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">' + label + '</p><p class="text-2xl font-display font-bold ' + (warn ? 'text-amber-400' : 'text-white') + '">' + value.toLocaleString() + '</p></div>';
+            };
+            return '<div class="space-y-4">' +
+              '<div class="grid grid-cols-2 lg:grid-cols-5 gap-3">' + stat('Procured', procured) + stat('Installed', installed) + stat('Spares', spares) + stat('Broken', broken) + stat('Unaccounted', unaccounted, unaccounted !== 0) + '</div>' +
+              '<div class="card rounded-xl p-4"><div class="flex items-center gap-3 text-sm"><span class="text-slate-400 whitespace-nowrap">Installed</span><div class="flex-1 h-2 rounded-full bg-slate-700 overflow-hidden"><div class="h-full bg-amber-500" style="width:' + Math.max(0, Math.min(100, pct)) + '%"></div></div><span class="text-white font-mono">' + pct + '%</span></div></div>' +
+              (procured === 0 ? '<p class="text-xs text-slate-400">Set this project\\'s total procured module count in Settings to see Unaccounted here.</p>' : '') +
+            '</div>';
+          }
+          function renderModuleInventoryTab() {
+            const reasonClass = { 'DOA': 'text-red-400 bg-red-500/10', 'Damaged in Field': 'text-amber-400 bg-amber-500/10', 'Broken During Install': 'text-red-400 bg-red-500/10' };
+            const broken = state.moduleBroken.slice().sort(function(a, b) { return new Date(b.loggedAt) - new Date(a.loggedAt); });
+            const spares = state.moduleSpares.slice().sort(function(a, b) { return new Date(b.loggedAt) - new Date(a.loggedAt); });
+            const canDelete = hasRole('admin');
+            const brokenRows = broken.length === 0 ? '<p class="text-sm text-slate-400 py-3">No broken modules logged.</p>' : broken.map(function(b) {
+              return '<div class="flex items-center justify-between gap-2 py-2 border-b border-slate-700/50 last:border-0"><span class="font-mono text-xs text-slate-200 break-all">' + b.barcode + '</span><div class="flex items-center gap-2 flex-shrink-0"><span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full whitespace-nowrap ' + (reasonClass[b.reason] || 'text-slate-300 bg-slate-500/10') + '">' + b.reason + '</span>' + (canDelete ? ('<button onclick="deleteModuleBroken(\\'' + b.id + '\\')" class="text-slate-500 hover:text-red-400">' + icon('trash-2', 'w-3.5 h-3.5') + '</button>') : '') + '</div></div>';
+            }).join('');
+            const spareRows = spares.length === 0 ? '<p class="text-sm text-slate-400 py-3">No spare modules logged.</p>' : spares.map(function(s) {
+              return '<div class="flex items-center justify-between gap-2 py-2 border-b border-slate-700/50 last:border-0"><span class="font-mono text-xs text-slate-200 break-all">' + s.barcode + '</span><div class="flex items-center gap-2 flex-shrink-0"><span class="text-[11px] text-slate-400 whitespace-nowrap">' + (s.loggedBy || 'Unknown') + ' &middot; ' + formatDate(s.loggedAt) + '</span>' + (canDelete ? ('<button onclick="deleteModuleSpare(\\'' + s.id + '\\')" class="text-slate-500 hover:text-red-400">' + icon('trash-2', 'w-3.5 h-3.5') + '</button>') : '') + '</div></div>';
+            }).join('');
+            return '<div class="grid lg:grid-cols-2 gap-4">' +
+              '<div class="card rounded-xl p-4"><div class="flex items-center justify-between mb-1"><h3 class="font-bold text-white text-sm">Broken</h3><span class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-red-500/10 text-red-400">' + broken.length + ' logged</span></div>' + brokenRows + '<button onclick="setModuleTab(\\'scan\\'); setModuleScanKind(\\'broken\\')" class="w-full mt-2 text-xs font-bold text-amber-400 text-center py-2 border border-dashed border-slate-700 rounded-lg hover:border-amber-500/50">+ Scan broken module</button></div>' +
+              '<div class="card rounded-xl p-4"><div class="flex items-center justify-between mb-1"><h3 class="font-bold text-white text-sm">Spares</h3><span class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400">' + spares.length + ' logged</span></div>' + spareRows + '<button onclick="setModuleTab(\\'scan\\'); setModuleScanKind(\\'spare\\')" class="w-full mt-2 text-xs font-bold text-amber-400 text-center py-2 border border-dashed border-slate-700 rounded-lg hover:border-amber-500/50">+ Scan spare module</button></div>' +
+            '</div>';
+          }
+
           // PHOTO GALLERY - one place to browse every photo on this project,
           // grouped by month, whether it came from a Production Entry, a QC
           // Inspection, a Refusal, or was added here directly with no
@@ -5643,6 +6203,9 @@ export default async function SolTrendApp() {
             state.piles = [];
             state.gallery = [];
             state.dailyLogs = [];
+            state.moduleRows = [];
+            state.moduleSpares = [];
+            state.moduleBroken = [];
             // Every one of these 18 loaders calls render() on its own as
             // soon as its own fetch resolves (see loadInspections etc.
             // below) - each independently useful when a loader runs on its
@@ -5666,7 +6229,8 @@ export default async function SolTrendApp() {
                 loadInspections(), loadRefusals(), loadProduction(), loadDelays(), loadPunchItems(),
                 loadToolboxTalks(), loadSafetyObservations(), loadSafetyIncidents(),
                 loadMilestones(), loadDocuments(), loadCois(), loadMaterials(), loadDeliveries(),
-                loadRfis(), loadSubmittals(), loadPiles(), loadGalleryPhotos(), loadDailyLogs()
+                loadRfis(), loadSubmittals(), loadPiles(), loadGalleryPhotos(), loadDailyLogs(),
+                loadModuleRows(), loadModuleSpares(), loadModuleBroken()
               ]);
             } finally {
               renderSuppressCount--;
@@ -5696,6 +6260,30 @@ export default async function SolTrendApp() {
               const data = await res.json();
               if (Array.isArray(data)) { state.piles = data; render(); }
             } catch (e) { console.error('Load piles error:', e); }
+          }
+          async function loadModuleRows() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/module-rows?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.moduleRows = data; render(); }
+            } catch (e) { console.error('Load module rows error:', e); }
+          }
+          async function loadModuleSpares() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/module-spares?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.moduleSpares = data; render(); }
+            } catch (e) { console.error('Load module spares error:', e); }
+          }
+          async function loadModuleBroken() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/module-broken?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.moduleBroken = data; render(); }
+            } catch (e) { console.error('Load module broken error:', e); }
           }
 
           async function loadToolboxTalks() {
@@ -9016,7 +9604,7 @@ export default async function SolTrendApp() {
               if (window.lucide) lucide.createIcons();
               return;
             }
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, refusalList: renderRefusalList, delays: renderDelays, dailylog: renderDailyLog, punchlist: renderPunchList, heatmap: renderHeatMap, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, refusalList: renderRefusalList, delays: renderDelays, dailylog: renderDailyLog, punchlist: renderPunchList, heatmap: renderHeatMap, moduleScan: renderModuleScan, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button>' + mobileHeaderBrand() + '<span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();
@@ -9196,7 +9784,7 @@ export default async function SolTrendApp() {
                 if (savedProject) state.currentProject = savedProject;
               }
               const savedView = localStorage.getItem('soltrend_lastView');
-              const validViews = ['company', 'dashboard', 'dailylog', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
+              const validViews = ['company', 'dashboard', 'dailylog', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'moduleScan', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
               const projectIndependentViews = ['company', 'settings'];
               if (savedView && validViews.indexOf(savedView) !== -1 && (projectIndependentViews.indexOf(savedView) !== -1 || state.currentProject)) {
                 state.currentView = savedView;
