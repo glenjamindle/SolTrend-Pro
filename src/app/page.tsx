@@ -405,12 +405,14 @@ export default async function SolTrendApp() {
             punchDescription: '', punchLocation: '', punchPriority: 'medium', punchAssignedTo: '', punchDueDate: '', punchNotes: '', punchPhotos: [], punchSubmitting: false,
             punchResolvingId: null, punchResolvePhotos: [], punchResolveSubmitting: false,
             // MODULE SCAN - see claude/module-barcode-scanning-design.md.
-            // moduleTab switches between the four sub-views on this one nav
-            // item (Scan Mode itself isn't one of them - it's a full-screen
-            // overlay toggled by moduleScanActive, same pattern as a modal).
+            // Two separate nav items share this state: "Module Scan"
+            // (Field Logging - the capture screen, renderModuleScan) and
+            // "Module Map" (Site Reference - the desk-review side,
+            // renderModuleMap). moduleTab only switches between Module
+            // Map's three sub-tabs (map/reconcile/inventory); Scan has no
+            // tab of its own since it's reached as its own nav item.
             moduleRows: [], moduleSpares: [], moduleBroken: [],
             moduleTab: 'map',
-            moduleScanActive: false,
             // 'module' | 'spare' | 'broken' - which inventory a scanned
             // barcode is filed into while Scan Mode is open.
             moduleScanKind: 'module',
@@ -1111,11 +1113,21 @@ export default async function SolTrendApp() {
                 { id: 'inspection', label: 'QC Inspection', icon: 'clipboard-check' },
                 { id: 'refusal', label: 'Refusals', icon: 'alert-triangle' },
                 { id: 'delays', label: 'Delays', icon: 'cloud-rain' },
+                // Scanning modules is a field data-capture task, same as
+                // everything else in this section (fill something out,
+                // submit) - not a lookup. Module Map (the review/
+                // reconciliation side of the same feature) sits in Site
+                // Reference instead, next to Pile Map, on purpose: that's
+                // exactly the split this app already uses everywhere else
+                // - capture goes in Field Logging, reviewing what was
+                // captured goes in Site Reference (QC Inspection/Refusals
+                // vs. Pile Map is the same pattern).
+                { id: 'moduleScan', label: 'Module Scan', icon: 'scan-line' },
               ]},
               { title: 'Site Reference', items: [
                 { id: 'materials', label: 'Materials', icon: 'package' },
                 { id: 'heatmap', label: 'Pile Map', icon: 'map' },
-                { id: 'moduleScan', label: 'Module Scan', icon: 'scan-line' },
+                { id: 'moduleMap', label: 'Module Map', icon: 'layout-grid' },
                 { id: 'gallery', label: 'Gallery', icon: 'images' },
               ]},
               { title: 'Safety', items: [
@@ -4348,12 +4360,14 @@ export default async function SolTrendApp() {
           // ScanInput stays focused the whole time Scan mode is open (see
           // focusModuleScanInput, called after every render that happens
           // while scanning) so a scan always lands there with no tapping.
+          // Switches between Module Map's three sub-tabs (map/reconcile/
+          // inventory). Scan is its own nav item now, reached via
+          // navigateTo('moduleScan') instead of a tab value here.
           function setModuleTab(tab) {
             state.moduleTab = tab;
             state.moduleDetailCell = null;
             state.moduleRowSettingsId = null;
             render();
-            if (tab === 'scan') focusModuleScanInput();
           }
           function setModuleScanKind(kind) {
             state.moduleScanKind = kind;
@@ -4692,13 +4706,25 @@ export default async function SolTrendApp() {
             } catch (e) { console.error('Save module row settings error:', e); }
           }
 
-          // MODULE SCAN - top-level view: a tab bar over four sub-views
-          // (Scan, Module Map, Reconciliation, Broken & Spares), in the
-          // order Glen would actually touch them in a day - field scan
-          // first, desk review after.
+          // MODULE SCAN - Field Logging's entry point: the field capture
+          // screen on its own, same as every other Field Logging nav item
+          // (Daily Log, QC Inspection, etc. are each a single screen, not
+          // a tab set) - no tab bar needed here anymore now that Map/
+          // Reconciliation/Inventory live under their own nav item
+          // (renderModuleMap, in Site Reference) instead of as sibling
+          // tabs on this same page.
           function renderModuleScan() {
+            let installed = 0;
+            state.moduleRows.forEach(function(row) { installed += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
+            return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Module Scan</h1><p class="text-slate-400">' + installed.toLocaleString() + ' module' + (installed === 1 ? '' : 's') + ' scanned so far</p></div></div>' + renderModuleScanTab() + '</div>';
+          }
+          // MODULE MAP - Site Reference's entry point: the desk-review side
+          // of the same feature (Map / Reconciliation / Broken & Spares),
+          // mirroring how Pile Map sits in Site Reference while the
+          // capture screens that feed it (QC Inspection, Refusals) sit in
+          // Field Logging.
+          function renderModuleMap() {
             const tabs = [
-              { id: 'scan', label: 'Scan' },
               { id: 'map', label: 'Module Map' },
               { id: 'reconcile', label: 'Reconciliation' },
               { id: 'inventory', label: 'Broken & Spares' }
@@ -4706,11 +4732,10 @@ export default async function SolTrendApp() {
             let installed = 0;
             state.moduleRows.forEach(function(row) { installed += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
             const tabBar = '<div class="flex gap-2 mb-4 flex-wrap">' + tabs.map(function(t) { return '<button onclick="setModuleTab(\\'' + t.id + '\\')" class="mode-btn ' + (state.moduleTab === t.id ? 'mode-btn-active' : 'mode-btn-inactive') + '">' + t.label + '</button>'; }).join('') + '</div>';
-            const body = state.moduleTab === 'scan' ? renderModuleScanTab()
-              : state.moduleTab === 'reconcile' ? renderModuleReconcileTab()
+            const body = state.moduleTab === 'reconcile' ? renderModuleReconcileTab()
               : state.moduleTab === 'inventory' ? renderModuleInventoryTab()
               : renderModuleMapTab();
-            return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Module Scan</h1><p class="text-slate-400">' + installed.toLocaleString() + ' module' + (installed === 1 ? '' : 's') + ' scanned so far</p></div></div>' + tabBar + body + '</div>';
+            return '<div class="space-y-4 animate-fade-in"><div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Module Map</h1><p class="text-slate-400">' + installed.toLocaleString() + ' module' + (installed === 1 ? '' : 's') + ' scanned so far</p></div></div>' + tabBar + body + '</div>';
           }
           function renderModuleScanTab() {
             const row = state.moduleRows.find(function(r) { return r.id === state.moduleCurrentRowId; });
@@ -4746,7 +4771,7 @@ export default async function SolTrendApp() {
             })() : '';
 
             const inputBlocked = !!state.moduleConflict || state.moduleScanSubmitting;
-            const scanInputHtml = '<div class="space-y-2"><input id="moduleScanInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="' + (inputBlocked ? 'Resolve the flag above to continue' : 'Ready - scan the next barcode') + '" onkeydown="moduleScanInputKeydown(event)" onblur="if (state.moduleTab === \\'scan\\' && !state.moduleConflict) setTimeout(focusModuleScanInput, 60);" ' + (inputBlocked ? 'disabled' : 'autofocus') + ' class="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-lg px-4 py-3 text-white text-sm font-mono"/><div class="flex items-center justify-center gap-2 text-xs text-slate-400"><span class="w-1.5 h-1.5 rounded-full bg-amber-400' + (inputBlocked ? '' : ' animate-pulse') + '"></span>' + (inputBlocked ? 'Paused' : 'Listening for the next scan') + '</div></div>';
+            const scanInputHtml = '<div class="space-y-2"><input id="moduleScanInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="' + (inputBlocked ? 'Resolve the flag above to continue' : 'Ready - scan the next barcode') + '" onkeydown="moduleScanInputKeydown(event)" onblur="if (state.currentView === \\'moduleScan\\' && !state.moduleConflict) setTimeout(focusModuleScanInput, 60);" ' + (inputBlocked ? 'disabled' : 'autofocus') + ' class="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-lg px-4 py-3 text-white text-sm font-mono"/><div class="flex items-center justify-center gap-2 text-xs text-slate-400"><span class="w-1.5 h-1.5 rounded-full bg-amber-400' + (inputBlocked ? '' : ' animate-pulse') + '"></span>' + (inputBlocked ? 'Paused' : 'Listening for the next scan') + '</div></div>';
 
             return '<div class="max-w-md mx-auto">' + topHtml + lastScanHtml + conflictHtml + scanInputHtml + '<div class="mt-4">' + kindRow + '</div></div>';
           }
@@ -4843,8 +4868,8 @@ export default async function SolTrendApp() {
               return '<div class="flex items-center justify-between gap-2 py-2 border-b border-slate-700/50 last:border-0"><span class="font-mono text-xs text-slate-200 break-all">' + s.barcode + '</span><div class="flex items-center gap-2 flex-shrink-0"><span class="text-[11px] text-slate-400 whitespace-nowrap">' + (s.loggedBy || 'Unknown') + ' &middot; ' + formatDate(s.loggedAt) + '</span>' + (canDelete ? ('<button onclick="deleteModuleSpare(\\'' + s.id + '\\')" class="text-slate-500 hover:text-red-400">' + icon('trash-2', 'w-3.5 h-3.5') + '</button>') : '') + '</div></div>';
             }).join('');
             return '<div class="grid lg:grid-cols-2 gap-4">' +
-              '<div class="card rounded-xl p-4"><div class="flex items-center justify-between mb-1"><h3 class="font-bold text-white text-sm">Broken</h3><span class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-red-500/10 text-red-400">' + broken.length + ' logged</span></div>' + brokenRows + '<button onclick="setModuleTab(\\'scan\\'); setModuleScanKind(\\'broken\\')" class="w-full mt-2 text-xs font-bold text-amber-400 text-center py-2 border border-dashed border-slate-700 rounded-lg hover:border-amber-500/50">+ Scan broken module</button></div>' +
-              '<div class="card rounded-xl p-4"><div class="flex items-center justify-between mb-1"><h3 class="font-bold text-white text-sm">Spares</h3><span class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400">' + spares.length + ' logged</span></div>' + spareRows + '<button onclick="setModuleTab(\\'scan\\'); setModuleScanKind(\\'spare\\')" class="w-full mt-2 text-xs font-bold text-amber-400 text-center py-2 border border-dashed border-slate-700 rounded-lg hover:border-amber-500/50">+ Scan spare module</button></div>' +
+              '<div class="card rounded-xl p-4"><div class="flex items-center justify-between mb-1"><h3 class="font-bold text-white text-sm">Broken</h3><span class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-red-500/10 text-red-400">' + broken.length + ' logged</span></div>' + brokenRows + '<button onclick="navigateTo(\\'moduleScan\\'); setModuleScanKind(\\'broken\\')" class="w-full mt-2 text-xs font-bold text-amber-400 text-center py-2 border border-dashed border-slate-700 rounded-lg hover:border-amber-500/50">+ Scan broken module</button></div>' +
+              '<div class="card rounded-xl p-4"><div class="flex items-center justify-between mb-1"><h3 class="font-bold text-white text-sm">Spares</h3><span class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400">' + spares.length + ' logged</span></div>' + spareRows + '<button onclick="navigateTo(\\'moduleScan\\'); setModuleScanKind(\\'spare\\')" class="w-full mt-2 text-xs font-bold text-amber-400 text-center py-2 border border-dashed border-slate-700 rounded-lg hover:border-amber-500/50">+ Scan spare module</button></div>' +
             '</div>';
           }
 
@@ -9617,7 +9642,7 @@ export default async function SolTrendApp() {
               if (window.lucide) lucide.createIcons();
               return;
             }
-            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, refusalList: renderRefusalList, delays: renderDelays, dailylog: renderDailyLog, punchlist: renderPunchList, heatmap: renderHeatMap, moduleScan: renderModuleScan, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
+            const views = { company: renderCompanyDashboard, dashboard: renderProjectDashboard, production: renderProduction, inspection: renderInspection, refusal: renderRefusal, refusalList: renderRefusalList, delays: renderDelays, dailylog: renderDailyLog, punchlist: renderPunchList, heatmap: renderHeatMap, moduleScan: renderModuleScan, moduleMap: renderModuleMap, gallery: renderGallery, analytics: renderAnalytics, reports: renderReports, settings: renderSettings, safety: renderSafety, schedule: renderSchedule, documents: renderDocuments, materials: renderMaterials, rfiSubmittals: renderRfiSubmittals };
             const content = renderOfflineBanner() + (views[state.currentView] ? views[state.currentView]() : '<p>View not found</p>');
             document.getElementById('app').innerHTML = renderSidebar() + '<header class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur border-b border-slate-700/50 px-4 py-3"><div class="flex items-center justify-between"><button onclick="toggleSidebar()" class="p-2 -ml-2 text-slate-300">' + icon('menu', 'w-5 h-5') + '</button>' + mobileHeaderBrand() + '<span class="notif-bell-slot">' + renderNotifBell() + '</span></div></header><main class="lg:ml-60 min-h-screen pt-16 lg:pt-0 pb-6"><div class="p-4 lg:p-6 max-w-6xl mx-auto">' + content + '</div></main>' + (state.sidebarOpen ? '<div onclick="toggleSidebar()" class="lg:hidden fixed inset-0 z-40 bg-black/50"></div>' : '') + '<div id="notifPanelHost">' + (state.notifPanelOpen ? '<div onclick="toggleNotifPanel()" class="fixed inset-0 z-[55]"></div>' + renderNotifPanel() : '') + '</div>';
             if (window.lucide) lucide.createIcons();
@@ -9674,7 +9699,14 @@ export default async function SolTrendApp() {
               }
             } catch (e) {}
           }
-          function navigateTo(view) { state.currentView = view; state.sidebarOpen = false; render(); window.scrollTo(0, 0); saveNavState(); }
+          function navigateTo(view) {
+            state.currentView = view; state.sidebarOpen = false; render(); window.scrollTo(0, 0); saveNavState();
+            // Module Scan's input needs to be grabbed the instant the
+            // screen is up, same as switching into it from the Inventory
+            // tab's "+ Scan ... module" shortcuts (see setModuleScanKind) -
+            // a scanner can start firing before anything else gets clicked.
+            if (view === 'moduleScan') focusModuleScanInput();
+          }
           function toggleSidebar() { state.sidebarOpen = !state.sidebarOpen; render(); }
           // Switching projects previously never reloaded inspections/
           // refusals/production or the heatmap's row/column dimensions for
@@ -9797,7 +9829,7 @@ export default async function SolTrendApp() {
                 if (savedProject) state.currentProject = savedProject;
               }
               const savedView = localStorage.getItem('soltrend_lastView');
-              const validViews = ['company', 'dashboard', 'dailylog', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'moduleScan', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
+              const validViews = ['company', 'dashboard', 'dailylog', 'inspection', 'refusal', 'delays', 'punchlist', 'heatmap', 'moduleScan', 'moduleMap', 'analytics', 'reports', 'settings', 'safety', 'schedule', 'documents', 'materials', 'rfiSubmittals'];
               const projectIndependentViews = ['company', 'settings'];
               if (savedView && validViews.indexOf(savedView) !== -1 && (projectIndependentViews.indexOf(savedView) !== -1 || state.currentProject)) {
                 state.currentView = savedView;
