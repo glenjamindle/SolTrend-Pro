@@ -416,15 +416,24 @@ export default async function SolTrendApp() {
             // 'module' | 'spare' | 'broken' - which inventory a scanned
             // barcode is filed into while Scan Mode is open.
             moduleScanKind: 'module',
-            // The ModuleRow currently being scanned into - set by a
-            // ROWTAG-{rowId} scan (find-or-create via POST /api/module-rows)
-            // and cleared only when the person explicitly ends the row.
-            // Position is never tracked separately in state: it's always
-            // derived from this row's own slots.length, both for the optimistic
-            // append below and for display, so there's exactly one source of
-            // truth for "what position is next."
+            // The ModuleRow currently being scanned into - set by tapping
+            // it from the pre-built row list in Scan Mode (renderModuleScanTab's
+            // row picker) and cleared only when the person explicitly ends
+            // the row. Rows are never created from Scan Mode itself (that
+            // used to happen via a ROWTAG-{rowId} scan, dropped per Glen's
+            // call - same lesson as Pile Layout's "never auto-create from
+            // field logging," see claude/module-barcode-scanning-design.md)
+            // - they only ever come from Settings -> Module Rows. Position
+            // is never tracked separately in state: it's always derived
+            // from this row's own slots.length, both for the optimistic
+            // append below and for display, so there's exactly one source
+            // of truth for "what position is next."
             moduleCurrentRowId: null,
             moduleScanInput: '',
+            // Search box filtering the row-picker list in Scan Mode when
+            // no row is currently selected (state.moduleRows can run into
+            // the hundreds on a big site).
+            moduleScanRowSearch: '',
             // Brief flash feedback after each scan - { ok: boolean, text }.
             // Cleared by the next scan, not on a timer, so it never
             // disappears mid-read on a slow connection.
@@ -443,6 +452,16 @@ export default async function SolTrendApp() {
             // open (manager+ only, mirrors Pile Layout's edit gate), or null.
             moduleRowSettingsId: null,
             moduleRowOffsetDraft: '', moduleRowExpectedDraft: '',
+            // Settings -> Module Rows: pre-building the project's expected
+            // rows ahead of time (manual paste/type for now - see design
+            // doc) so Scan Mode never has to create one on the fly.
+            moduleRowBulkInput: '', moduleRowBulkSubmitting: false,
+            moduleRowBulkResult: null,
+            // Settings -> Module Rows: bulk CSV import for a crew that
+            // keeps scanning into their own spreadsheet instead of this
+            // app's Scan Mode.
+            moduleScanCsvPreview: null, moduleScanCsvSubmitting: false,
+            moduleScanCsvResult: null,
             pendingSyncCount: 0,
             // SAFETY
             toolboxTalks: [], safetyObservations: [], safetyIncidents: [],
@@ -4391,9 +4410,12 @@ export default async function SolTrendApp() {
             event.target.value = '';
           }
           // Single entry point for every scan, regardless of which of the
-          // three kinds (Modules/Spare/Broken) is active. A ROWTAG- prefix
-          // only means anything in Modules mode - Spare/Broken never have a
-          // row context at all (confirmed decision - see design doc).
+          // three kinds (Modules/Spare/Broken) is active. No ROWTAG-
+          // handling here anymore - rows are picked by tapping them from
+          // the pre-built list (renderModuleScanTab), never created from a
+          // scan, so this is purely "is a row selected yet or not."
+          // Spare/Broken never have a row context at all (confirmed
+          // decision - see design doc).
           function handleModuleScanInput(raw) {
             const code = (raw || '').trim();
             state.moduleScanInput = '';
@@ -4402,9 +4424,8 @@ export default async function SolTrendApp() {
             // it's resolved rather than silently processing past it.
             if (state.moduleConflict || state.moduleScanSubmitting) { focusModuleScanInput(); return; }
             if (state.moduleScanKind === 'module') {
-              if (/^rowtag-/i.test(code)) { startOrResumeModuleRow(code.replace(/^rowtag-/i, '')); return; }
               if (!state.moduleCurrentRowId) {
-                state.moduleLastScan = { ok: false, text: 'Scan a ROWTAG- barcode first to start or resume a row.' };
+                state.moduleLastScan = { ok: false, text: 'Pick a row above before scanning modules.' };
                 render(); focusModuleScanInput();
                 return;
               }
@@ -4413,52 +4434,6 @@ export default async function SolTrendApp() {
               submitModuleSpareScan(code, false);
             } else {
               submitModuleBrokenScan(code, false);
-            }
-          }
-          // Resuming a row that's already in state (the common case - a row
-          // tagged on a previous day, or earlier this session) never needs
-          // the network at all. Starting a genuinely NEW row does, and - on
-          // purpose - isn't made optimistic like every module scan after it
-          // is: a brand new row has no real id yet, and queuing that
-          // creation offline would leave every module scanned into it
-          // stuck behind a moduleRowId the server has never heard of,
-          // stalling the whole offline write queue (see flushPendingWrites
-          // - it stops at the first failure to keep the queue in order).
-          // One brief wait per physical row tag, never per module, is the
-          // tradeoff.
-          async function startOrResumeModuleRow(rowId) {
-            rowId = (rowId || '').trim();
-            if (!rowId) return;
-            const existing = state.moduleRows.find(function(r) { return r.rowId === rowId; });
-            if (existing) {
-              state.moduleCurrentRowId = existing.id;
-              state.moduleLastScan = { ok: true, text: 'Resumed row ' + rowId + ' - ' + existing.slots.length + ' scanned so far' };
-              render(); focusModuleScanInput();
-              return;
-            }
-            if (!state.isOnline) {
-              state.moduleLastScan = { ok: false, text: 'Can\\'t start a new row while offline. Reconnect and try again.' };
-              render(); focusModuleScanInput();
-              return;
-            }
-            state.moduleScanSubmitting = true; render();
-            try {
-              const projectId = state.currentProject?.id || 'proj_001';
-              const res = await fetch('/api/module-rows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: projectId, rowId: rowId }) });
-              const data = await res.json();
-              if (!res.ok) {
-                state.moduleLastScan = { ok: false, text: data.error || ('Could not start row ' + rowId + '.') };
-              } else {
-                data.slots = data.slots || [];
-                state.moduleRows.push(data);
-                state.moduleCurrentRowId = data.id;
-                state.moduleLastScan = { ok: true, text: 'Started row ' + rowId };
-              }
-            } catch (e) {
-              console.error('Start module row error:', e);
-              state.moduleLastScan = { ok: false, text: 'Network error starting row ' + rowId + '.' };
-            } finally {
-              state.moduleScanSubmitting = false; render(); focusModuleScanInput();
             }
           }
           function resumeModuleRowById(id) {
@@ -4471,7 +4446,76 @@ export default async function SolTrendApp() {
           function endModuleRow() {
             state.moduleCurrentRowId = null;
             state.moduleLastScan = null;
+            state.moduleScanRowSearch = '';
             render(); focusModuleScanInput();
+          }
+          function filterModuleScanRows(value) { state.moduleScanRowSearch = value; render(); }
+          // Settings -> Module Rows (manager+). Pre-building the project's
+          // expected rows here is what Scan Mode's row picker shows -
+          // rows are never created from the scan screen itself (see
+          // handleModuleScanInput). Find-or-create on the server, same
+          // call Scan Mode's old ROWTAG- flow used to make, just invoked
+          // from Settings instead of from a barcode scan - existing rows
+          // are a no-op, never an error, so pasting an overlapping list
+          // twice is always safe.
+          async function addModuleRow(rowId) {
+            rowId = (rowId || '').trim();
+            if (!rowId) return { ok: false, rowId: rowId, error: 'Blank row ID' };
+            const existing = state.moduleRows.find(function(r) { return r.rowId === rowId; });
+            if (existing) return { ok: true, rowId: rowId, skipped: true };
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/module-rows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: projectId, rowId: rowId }) });
+              const data = await res.json();
+              if (!res.ok) return { ok: false, rowId: rowId, error: data.error || 'Could not add row.' };
+              data.slots = data.slots || [];
+              state.moduleRows.push(data);
+              return { ok: true, rowId: rowId };
+            } catch (e) {
+              console.error('Add module row error:', e);
+              return { ok: false, rowId: rowId, error: 'Network error.' };
+            }
+          }
+          // Parses a paste/typed list (commas or newlines, either works)
+          // into unique row IDs and adds each one in turn. Sequential
+          // rather than parallel on purpose - this is a rare, one-time
+          // setup action (dozens to a couple hundred rows at most), and
+          // keeping it simple and easy to reason about matters more here
+          // than shaving a few seconds off a Settings-page submit.
+          async function submitModuleRowBulkAdd() {
+            const raw = state.moduleRowBulkInput || '';
+            const ids = raw.split(/[,\\n]/).map(function(s) { return s.trim(); }).filter(Boolean);
+            const seen = {};
+            const uniqueIds = ids.filter(function(id) { if (seen[id]) return false; seen[id] = true; return true; });
+            if (uniqueIds.length === 0) { alert('Enter at least one row ID.'); return; }
+            state.moduleRowBulkSubmitting = true; state.moduleRowBulkResult = null; render();
+            const results = [];
+            for (const id of uniqueIds) { results.push(await addModuleRow(id)); }
+            state.moduleRowBulkSubmitting = false;
+            state.moduleRowBulkInput = '';
+            state.moduleRowBulkResult = {
+              added: results.filter(function(r) { return r.ok && !r.skipped; }).length,
+              skipped: results.filter(function(r) { return r.ok && r.skipped; }).length,
+              failed: results.filter(function(r) { return !r.ok; }),
+            };
+            render();
+          }
+          // admin-only, mirrors Pile Layout's Clear/delete gate and the
+          // DELETE /api/module-rows route's own role check.
+          function deleteModuleRowSettings(id, rowId) {
+            if (!hasRole('admin')) return;
+            if (!confirm('Delete row ' + rowId + '? This also deletes every module slot scanned into it. This cannot be undone.')) return;
+            fetch('/api/module-rows?id=' + encodeURIComponent(id), { method: 'DELETE' })
+              .then(function(res) { return res.json(); })
+              .then(function(data) {
+                if (data && data.success) {
+                  state.moduleRows = state.moduleRows.filter(function(r) { return r.id !== id; });
+                  render();
+                } else {
+                  alert((data && data.error) || 'Could not delete row.');
+                }
+              })
+              .catch(function(e) { console.error('Delete module row error:', e); alert('Network error deleting row.'); });
           }
           // Checked locally before every scan, in addition to the server's
           // own check on save - catches the common case instantly (no
@@ -4751,13 +4795,33 @@ export default async function SolTrendApp() {
             const kindRow = '<div class="grid grid-cols-3 gap-2">' + kindTabs.map(function(k) { return '<button onclick="setModuleScanKind(\\'' + k.id + '\\')" class="py-2 px-2 rounded-lg text-xs font-bold text-center border ' + (state.moduleScanKind === k.id ? 'bg-amber-500/10 border-amber-500 text-amber-400' : 'bg-slate-800 border-slate-700 text-slate-400') + '">' + k.label + '</button>'; }).join('') + '</div>';
 
             let topHtml;
+            // Hidden while Modules mode has no row picked yet - there's
+            // nothing to scan into, and picking a row happens by tapping
+            // it below, never by scanning (see handleModuleScanInput).
+            let showScanInput = true;
             if (state.moduleScanKind === 'module') {
-              topHtml = row
-                ? ('<div class="text-center py-2"><p class="text-[10px] uppercase tracking-wider text-slate-400">Current row</p><p class="text-4xl font-display font-bold text-white">' + row.rowId + '</p><p class="text-xs text-slate-400 mt-1">' + row.slots.length + ' module' + (row.slots.length === 1 ? '' : 's') + ' scanned in this row</p></div>' +
-                  '<div class="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-lg px-4 py-2.5 mb-3"><div><p class="text-lg font-bold text-white font-mono">Module ' + (row.slots.length + 1) + '</p><p class="text-[11px] text-slate-400">next position in this row</p></div><button onclick="endModuleRow()" class="text-xs font-medium text-slate-400 hover:text-white px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg">End Row</button></div>')
-                : ('<div class="text-center py-6 px-4 bg-slate-800/40 border border-dashed border-slate-700 rounded-xl mb-3"><p class="text-sm text-slate-300 font-medium">Scan a ROWTAG- barcode to begin</p><p class="text-xs text-slate-400 mt-1">Or resume a row already started:</p>' +
-                  (state.moduleRows.length > 0 ? ('<select onchange="if (this.value) resumeModuleRowById(this.value); this.value=\\'\\';" class="mt-2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-56"><option value="">Choose a row...</option>' + state.moduleRows.slice().sort(function(a, b) { return (a.rowId + '').localeCompare(b.rowId + '', undefined, { numeric: true }); }).map(function(r) { return '<option value="' + r.id + '">Row ' + r.rowId + ' (' + r.slots.length + ' scanned)</option>'; }).join('') + '</select>') : '') +
-                  '</div>');
+              if (row) {
+                topHtml = '<div class="text-center py-2"><p class="text-[10px] uppercase tracking-wider text-slate-400">Current row</p><p class="text-4xl font-display font-bold text-white">' + row.rowId + '</p><p class="text-xs text-slate-400 mt-1">' + row.slots.length + ' module' + (row.slots.length === 1 ? '' : 's') + ' scanned in this row</p></div>' +
+                  '<div class="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-lg px-4 py-2.5 mb-3"><div><p class="text-lg font-bold text-white font-mono">Module ' + (row.slots.length + 1) + '</p><p class="text-[11px] text-slate-400">next position in this row</p></div><button onclick="endModuleRow()" class="text-xs font-medium text-slate-400 hover:text-white px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg">End Row</button></div>';
+              } else {
+                showScanInput = false;
+                if (state.moduleRows.length === 0) {
+                  topHtml = '<div class="text-center py-6 px-4 bg-slate-800/40 border border-dashed border-slate-700 rounded-xl mb-3"><p class="text-sm text-slate-300 font-medium">No rows set up for this project yet</p><p class="text-xs text-slate-400 mt-1 mb-3">Pre-build the rows to scan into in Settings - no printed tags needed.</p><button onclick="state.settingsTab=\\'moduleRows\\'; navigateTo(\\'settings\\')" class="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-xs font-bold inline-flex items-center gap-1.5">' + icon('list-ordered', 'w-3.5 h-3.5') + ' Set Up Rows</button></div>';
+                } else {
+                  const search = (state.moduleScanRowSearch || '').trim().toLowerCase();
+                  const sortedRows = state.moduleRows.slice().sort(function(a, b) { return (a.rowId + '').localeCompare(b.rowId + '', undefined, { numeric: true }); });
+                  const filteredRows = search ? sortedRows.filter(function(r) { return (r.rowId + '').toLowerCase().indexOf(search) !== -1; }) : sortedRows;
+                  const rowList = filteredRows.length > 0
+                    ? ('<div class="max-h-64 overflow-y-auto space-y-1.5 mt-2">' + filteredRows.map(function(r) {
+                        return '<button onclick="resumeModuleRowById(\\'' + r.id + '\\')" class="w-full flex items-center justify-between px-4 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-left"><span class="text-white font-display font-bold">Row ' + r.rowId + '</span><span class="text-xs text-slate-400">' + r.slots.length + ' scanned' + (r.expectedCount ? ' / ' + r.expectedCount : '') + '</span></button>';
+                      }).join('') + '</div>')
+                    : ('<p class="text-xs text-slate-400 text-center py-4">' + (search ? 'No rows match "' + search + '".' : 'No rows yet.') + '</p>');
+                  topHtml = '<div class="px-1"><p class="text-sm text-slate-300 font-medium text-center mb-2">Pick a row to scan into</p>' +
+                    '<input type="text" value="' + (state.moduleScanRowSearch || '') + '" oninput="filterModuleScanRows(this.value)" placeholder="Search rows" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">' +
+                    rowList +
+                  '</div>';
+                }
+              }
             } else if (state.moduleScanKind === 'spare') {
               topHtml = '<div class="text-center py-6 px-4 bg-slate-800/40 border border-slate-700 rounded-xl mb-3"><p class="text-sm text-slate-300 font-medium">Scan a spare module\\'s barcode</p><p class="text-xs text-slate-400 mt-1">Logged straight to inventory - no row or position needed.</p></div>';
             } else {
@@ -4775,7 +4839,7 @@ export default async function SolTrendApp() {
             })() : '';
 
             const inputBlocked = !!state.moduleConflict || state.moduleScanSubmitting;
-            const scanInputHtml = '<div class="space-y-2"><input id="moduleScanInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="' + (inputBlocked ? 'Resolve the flag above to continue' : 'Ready - scan the next barcode') + '" onkeydown="moduleScanInputKeydown(event)" onblur="if (state.currentView === \\'moduleScan\\' && !state.moduleConflict) setTimeout(focusModuleScanInput, 60);" ' + (inputBlocked ? 'disabled' : 'autofocus') + ' class="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-lg px-4 py-3 text-white text-sm font-mono"/><div class="flex items-center justify-center gap-2 text-xs text-slate-400"><span class="w-1.5 h-1.5 rounded-full bg-amber-400' + (inputBlocked ? '' : ' animate-pulse') + '"></span>' + (inputBlocked ? 'Paused' : 'Listening for the next scan') + '</div></div>';
+            const scanInputHtml = !showScanInput ? '' : '<div class="space-y-2"><input id="moduleScanInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="' + (inputBlocked ? 'Resolve the flag above to continue' : 'Ready - scan the next barcode') + '" onkeydown="moduleScanInputKeydown(event)" onblur="if (state.currentView === \\'moduleScan\\' && !state.moduleConflict) setTimeout(focusModuleScanInput, 60);" ' + (inputBlocked ? 'disabled' : 'autofocus') + ' class="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-lg px-4 py-3 text-white text-sm font-mono"/><div class="flex items-center justify-center gap-2 text-xs text-slate-400"><span class="w-1.5 h-1.5 rounded-full bg-amber-400' + (inputBlocked ? '' : ' animate-pulse') + '"></span>' + (inputBlocked ? 'Paused' : 'Listening for the next scan') + '</div></div>';
 
             return '<div class="max-w-md mx-auto">' + topHtml + lastScanHtml + conflictHtml + scanInputHtml + '<div class="mt-4">' + kindRow + '</div></div>';
           }
@@ -5462,6 +5526,114 @@ export default async function SolTrendApp() {
             } catch (e) { console.error('Pile import error:', e); alert('Failed to import the pile layout.'); }
           }
 
+          // MODULE SCAN CSV IMPORT - for a crew that doesn't use the app's
+          // own Scan Mode and keeps doing everything in Excel: lets that
+          // same spreadsheet (Bluetooth scanner -> keyboard-wedge -> a
+          // column of scans, exactly the format this whole feature was
+          // modeled on - see claude/module-barcode-scanning-design.md)
+          // get uploaded wholesale instead of re-keyed by hand.
+          //
+          // Columns: "Modules" (required) - the scan log in order, mixing
+          // ROWTAG-{rowId} markers with module barcodes exactly like a
+          // live scan would read them off a scanner; a barcode before the
+          // first ROWTAG- marker is skipped with a warning rather than
+          // guessed into a row. "Broken" and "Spares" (both optional) -
+          // flat barcode lists, independent of the Modules column and of
+          // each other, same as those two inventories already work
+          // live - no row/position context, read down their own column
+          // regardless of how many rows the Modules column needs.
+          // Every barcode is still checked for a conflict against
+          // anything already in the project - the server does this with
+          // one in-memory set rather than a round trip per barcode (see
+          // /api/module-scan-import) since this can be a full field
+          // season's worth of scans, not a handful.
+          function parseModuleScanCsvText(text) {
+            const lines = text.split(/\\r?\\n/);
+            if (lines.length < 2) return { rows: [], spares: [], broken: [], totalModules: 0, warnings: ['The file needs a header row plus at least one data row.'] };
+            const header = parseCsvLine(lines[0]).map(function(h) { return h.trim().toLowerCase(); });
+            const modulesIdx = header.indexOf('modules');
+            const brokenIdx = header.indexOf('broken');
+            const sparesIdx = header.indexOf('spares');
+            if (modulesIdx === -1) {
+              return { rows: [], spares: [], broken: [], totalModules: 0, warnings: ['The CSV must include a "Modules" column - the scan log, with ROWTAG- markers and module barcodes in order.'] };
+            }
+            const warnings = [];
+            const rows = []; // { rowId, barcodes: [] }, in first-seen order
+            const spares = []; const broken = [];
+            let currentRow = null;
+            let totalModules = 0;
+            for (let li = 1; li < lines.length; li++) {
+              if (!lines[li] || !lines[li].trim()) continue;
+              const cells = parseCsvLine(lines[li]);
+              const code = (modulesIdx !== -1 ? (cells[modulesIdx] || '') : '').trim();
+              if (code) {
+                if (/^rowtag-/i.test(code)) {
+                  const rowId = code.replace(/^rowtag-/i, '').trim();
+                  if (rowId) {
+                    currentRow = rows.find(function(r) { return r.rowId === rowId; });
+                    if (!currentRow) { currentRow = { rowId: rowId, barcodes: [] }; rows.push(currentRow); }
+                  }
+                } else if (!currentRow) {
+                  warnings.push('Line ' + (li + 1) + ': module barcode "' + code + '" appears before any ROWTAG- marker - skipped.');
+                } else {
+                  currentRow.barcodes.push(code);
+                  totalModules++;
+                }
+              }
+              if (brokenIdx !== -1) { const b = (cells[brokenIdx] || '').trim(); if (b) broken.push(b); }
+              if (sparesIdx !== -1) { const s = (cells[sparesIdx] || '').trim(); if (s) spares.push(s); }
+            }
+            return { rows: rows, spares: spares, broken: broken, totalModules: totalModules, warnings: warnings };
+          }
+          function downloadModuleScanCsvTemplate() {
+            const sample = [
+              { Modules: 'ROWTAG-40', Broken: 'F01230801318934', Spares: 'F01231001208745' },
+              { Modules: 'F0123100100001', Broken: '', Spares: '' },
+              { Modules: 'F0123100100002', Broken: '', Spares: '' },
+              { Modules: 'ROWTAG-41', Broken: '', Spares: '' },
+              { Modules: 'F0123100100101', Broken: '', Spares: '' },
+            ];
+            downloadCSV('module-scan-template.csv', toCSV(sample, ['Modules', 'Broken', 'Spares']));
+          }
+          function triggerModuleScanCsvInput() { document.getElementById('moduleScanCsvInput').click(); }
+          function handleModuleScanCsvSelect(event) {
+            const file = event.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+              const parsed = parseModuleScanCsvText(String(e.target.result || ''));
+              state.moduleScanCsvPreview = Object.assign({ fileName: file.name }, parsed);
+              render();
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+          }
+          function cancelModuleScanCsvImport() { state.moduleScanCsvPreview = null; render(); }
+          async function confirmModuleScanCsvImport() {
+            const preview = state.moduleScanCsvPreview;
+            if (!preview) return;
+            state.moduleScanCsvSubmitting = true; render();
+            try {
+              const res = await fetch('/api/module-scan-import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: state.currentProject.id, rows: preview.rows, spares: preview.spares, broken: preview.broken }),
+              });
+              const data = await res.json();
+              if (res.ok) {
+                state.moduleScanCsvPreview = null;
+                state.moduleScanCsvResult = data;
+                await Promise.all([loadModuleRows(), loadModuleSpares(), loadModuleBroken()]);
+              } else {
+                alert(data.error || 'Failed to import the module scan data.');
+              }
+            } catch (e) {
+              console.error('Module scan import error:', e);
+              alert('Failed to import the module scan data.');
+            } finally {
+              state.moduleScanCsvSubmitting = false; render();
+            }
+          }
+
           // PILE QA/QC BULK IMPORT - takes a field master sheet (pile id,
           // predrilled depth, stickup height, post angle N/S + E/W, drive
           // time, refusal Y/N, final-interval length, comments - the shape
@@ -5949,6 +6121,83 @@ export default async function SolTrendApp() {
               console.error('Resync pile stats error:', e);
               alert('Failed to resync. Please try again.');
             }
+          }
+
+          // MODULE ROWS SETTINGS - pre-building a project's expected rows
+          // ahead of time, manual paste/type for now (see
+          // claude/module-barcode-scanning-design.md), so Scan Mode's row
+          // picker never has to create a row on the fly. Mirrors Pile
+          // Layout's edit/delete gates (manager+ to add, admin to delete)
+          // and its "never auto-create from field logging" lesson -
+          // rows only ever come from here.
+          function renderModuleRowSettings() {
+            const canEdit = hasRole('manager');
+            const canDelete = hasRole('admin');
+            const rows = state.moduleRows.slice().sort(function(a, b) { return (a.rowId + '').localeCompare(b.rowId + '', undefined, { numeric: true }); });
+
+            const statusBanner = '<div class="card rounded-xl p-4 flex items-center gap-3">' +
+              '<div class="w-10 h-10 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center">' + icon('list-ordered', 'w-5 h-5') + '</div>' +
+              '<div class="flex-1"><p class="text-sm font-semibold text-white">' + rows.length + ' row' + (rows.length === 1 ? '' : 's') + ' set up</p>' +
+              '<p class="text-xs text-slate-400">These are exactly the rows that show up to pick from in Module Scan - no printed ROWTAG- tags needed anymore.</p></div>' +
+              '</div>';
+
+            const result = state.moduleRowBulkResult;
+            const resultBanner = !result ? '' : '<div class="px-4 py-3 rounded-xl text-xs ' + (result.failed.length > 0 ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300' : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300') + '">' +
+              'Added ' + result.added + ', already existed ' + result.skipped +
+              (result.failed.length > 0 ? ', failed: ' + result.failed.map(function(f) { return f.rowId + ' (' + f.error + ')'; }).join(', ') : '') +
+              '.</div>';
+
+            const addCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
+              '<h3 class="font-display font-semibold text-white text-sm">Add Rows</h3>' +
+              '<p class="text-xs text-slate-400">Paste or type the row IDs for this project - one per line, or comma-separated. Whatever format the project\\'s own tags/drawing use (plain numbers, N-1/S-28, anything else) - same free-text identity as before, just entered here instead of scanned.</p>' +
+              '<textarea id="moduleRowBulkTextarea" oninput="state.moduleRowBulkInput=this.value" placeholder="40\\n41\\n42\\n43\\n44" rows="4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm font-mono">' + (state.moduleRowBulkInput || '') + '</textarea>' +
+              resultBanner +
+              '<button onclick="submitModuleRowBulkAdd()" ' + (state.moduleRowBulkSubmitting ? 'disabled' : '') + ' class="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black rounded-lg font-medium text-sm flex items-center gap-2">' + (state.moduleRowBulkSubmitting ? (icon('loader-2', 'w-4 h-4 animate-spin') + ' Adding...') : (icon('plus', 'w-4 h-4') + ' Add Rows')) + '</button>' +
+              '</div>';
+
+            const csvPreview = state.moduleScanCsvPreview;
+            const csvResult = state.moduleScanCsvResult;
+            const csvResultBanner = !csvResult ? '' : (function() {
+              const skippedTotal = csvResult.slotsSkippedTotal + csvResult.sparesSkippedTotal + csvResult.brokenSkippedTotal;
+              return '<div class="border-t border-slate-700/50 pt-3"><p class="text-xs text-emerald-400">Imported: ' + csvResult.rowsCreated + ' new row' + (csvResult.rowsCreated === 1 ? '' : 's') + ' (' + csvResult.rowsFound + ' already existed), ' + csvResult.slotsCreated + ' module' + (csvResult.slotsCreated === 1 ? '' : 's') + ', ' + csvResult.sparesCreated + ' spare' + (csvResult.sparesCreated === 1 ? '' : 's') + ', ' + csvResult.brokenCreated + ' broken.' + (skippedTotal > 0 ? ' Skipped ' + skippedTotal + ' barcode' + (skippedTotal === 1 ? '' : 's') + ' already recorded elsewhere in this project.' : '') + '</p></div>';
+            })();
+            const csvCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
+              '<div class="flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Import from CSV (crews not using the app)</h3>' +
+              '<button onclick="downloadModuleScanCsvTemplate()" class="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">' + icon('download', 'w-3.5 h-3.5') + ' Download template</button></div>' +
+              '<p class="text-xs text-slate-400">For a crew still scanning into their own spreadsheet. Columns: Modules (required - the scan log in order, ROWTAG-{row} markers mixed with module barcodes, same as a live scan would read them), Broken and Spares (both optional flat barcode lists, no row/position needed). A barcode already recorded anywhere in this project is skipped, never overwritten.</p>' +
+              '<input type="file" id="moduleScanCsvInput" accept=".csv,text/csv" class="hidden" onchange="handleModuleScanCsvSelect(event)">' +
+              '<button onclick="triggerModuleScanCsvInput()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('upload', 'w-3.5 h-3.5') + ' Choose CSV file</button>' +
+              (csvPreview ? (
+                '<div class="border-t border-slate-700/50 pt-3 space-y-2">' +
+                '<p class="text-xs text-slate-400"><span class="text-white font-medium">' + csvPreview.fileName + '</span> - ' + csvPreview.rows.length + ' row' + (csvPreview.rows.length === 1 ? '' : 's') + ', ' + csvPreview.totalModules + ' module' + (csvPreview.totalModules === 1 ? '' : 's') + (csvPreview.broken.length > 0 ? ', ' + csvPreview.broken.length + ' broken' : '') + (csvPreview.spares.length > 0 ? ', ' + csvPreview.spares.length + ' spare' + (csvPreview.spares.length === 1 ? '' : 's') : '') + ' ready to import.</p>' +
+                (csvPreview.warnings.length > 0 ? '<div class="max-h-28 overflow-y-auto space-y-1">' + csvPreview.warnings.slice(0, 15).map(function(w) { return '<p class="text-xs text-amber-400/90">' + w + '</p>'; }).join('') + (csvPreview.warnings.length > 15 ? '<p class="text-xs text-slate-400">+ ' + (csvPreview.warnings.length - 15) + ' more</p>' : '') + '</div>' : '') +
+                (csvPreview.rows.length > 0 ? '<div class="max-h-40 overflow-y-auto rounded-lg border border-slate-700/50"><table class="w-full text-xs"><thead class="bg-slate-800/70 text-slate-400"><tr><th class="text-left px-2 py-1.5">Row</th><th class="text-left px-2 py-1.5">Modules</th></tr></thead><tbody>' +
+                  csvPreview.rows.slice(0, 25).map(function(r) { return '<tr class="border-t border-slate-800"><td class="px-2 py-1 text-slate-300 font-mono">' + r.rowId + '</td><td class="px-2 py-1 text-slate-400">' + r.barcodes.length + '</td></tr>'; }).join('') +
+                '</tbody></table>' + (csvPreview.rows.length > 25 ? '<p class="text-xs text-slate-400 px-2 py-1.5">+ ' + (csvPreview.rows.length - 25) + ' more row' + (csvPreview.rows.length - 25 === 1 ? '' : 's') + ' not shown</p>' : '') + '</div>' : '') +
+                '<div class="flex gap-2 pt-1">' +
+                  '<button onclick="cancelModuleScanCsvImport()" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium">Cancel</button>' +
+                  ((csvPreview.rows.length > 0 || csvPreview.spares.length > 0 || csvPreview.broken.length > 0) ? '<button onclick="confirmModuleScanCsvImport()" ' + (state.moduleScanCsvSubmitting ? 'disabled' : '') + ' class="flex-1 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black rounded-lg text-sm font-semibold">' + (state.moduleScanCsvSubmitting ? 'Importing...' : 'Import') + '</button>' : '') +
+                '</div>' +
+                '</div>'
+              ) : '') +
+              csvResultBanner +
+              '</div>';
+
+            const listCard = '<div class="card rounded-xl p-4 space-y-3">' +
+              '<h3 class="font-display font-semibold text-white text-sm">Rows (' + rows.length + ')</h3>' +
+              (rows.length === 0 ? '<p class="text-sm text-slate-400 text-center py-6">No rows yet. Add some above to start scanning.</p>' :
+                '<div class="max-h-96 overflow-y-auto rounded-lg border border-slate-700/50"><table class="w-full text-xs"><thead class="bg-slate-800/70 text-slate-400 sticky top-0"><tr><th class="text-left px-2 py-1.5">Row</th><th class="text-left px-2 py-1.5">Scanned</th><th class="text-left px-2 py-1.5">Offset</th><th class="text-left px-2 py-1.5">Expected</th><th class="text-right px-2 py-1.5">Actions</th></tr></thead><tbody>' +
+                rows.map(function(r) {
+                  return '<tr class="border-t border-slate-800"><td class="px-2 py-1.5 text-slate-200 font-mono">' + r.rowId + '</td><td class="px-2 py-1.5 text-slate-400">' + (r.slots || []).length + '</td><td class="px-2 py-1.5 text-slate-400">' + (r.offset || 0) + '</td><td class="px-2 py-1.5 text-slate-400">' + (r.expectedCount || '-') + '</td><td class="px-2 py-1.5 text-right">' + (canDelete ? '<button onclick="deleteModuleRowSettings(\\'' + r.id + '\\',\\'' + r.rowId + '\\')" class="text-red-400 hover:text-red-300 p-1">' + icon('trash-2', 'w-3.5 h-3.5') + '</button>' : '') + '</td></tr>';
+                }).join('') +
+              '</tbody></table></div>') +
+              (rows.length > 0 ? '<p class="text-xs text-slate-500">Offset and Expected are set per-row from the gear icon on the Module Map tab, once a row exists here.</p>' : '') +
+              '</div>';
+
+            return '<div class="space-y-4 max-w-3xl">' +
+              '<p class="text-sm text-slate-400">Pre-build the rows this project will scan into, so field crews pick a row by tapping it in Module Scan instead of scanning a printed tag.</p>' +
+              statusBanner + addCard + csvCard + listCard +
+            '</div>';
           }
 
           // PILE QA/QC IMPORT SETTINGS - uploads a field QA/QC master sheet
@@ -8785,6 +9034,7 @@ export default async function SolTrendApp() {
               { id: 'subcontractors', label: 'Subcontractors', icon: 'hard-hat' },
               { id: 'racking', label: 'Racking', icon: 'sliders-horizontal' },
               { id: 'pileLayout', label: 'Pile Layout', icon: 'layout-grid' },
+              { id: 'moduleRows', label: 'Module Rows', icon: 'list-ordered' },
               { id: 'qaqcImport', label: 'QA/QC Import', icon: 'upload' },
               { id: 'users', label: 'Users', icon: 'user' },
             ];
@@ -8807,6 +9057,7 @@ export default async function SolTrendApp() {
               case 'subcontractors': return renderSubcontractorsSettings();
               case 'racking': return renderRackingSettings();
               case 'pileLayout': return renderPileLayoutSettings();
+              case 'moduleRows': return renderModuleRowSettings();
               case 'qaqcImport': return renderQaqcImportSettings();
               case 'users': return renderUsersSettings();
               default: return renderCompanySettings();
