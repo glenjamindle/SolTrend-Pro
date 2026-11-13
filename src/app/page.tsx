@@ -1892,26 +1892,30 @@ export default async function SolTrendApp() {
             // filtering done via toggle chips rather than a date range -
             // this list isn't scoped to a time window like the other
             // reports, it's scoped to status. "All Statuses" is both a
-            // one-click reset (turns every status back on) and an
-            // indicator - lit up whenever all three already are.
-            // Option 1 from the mockups Glen reviewed - one segmented bar,
-            // same container/segment classes as the Punch List's own
-            // filter tabs (just teal instead of amber, and multi-select
-            // instead of single-select). "All" is both a shortcut (resets
-            // every status to on) and an indicator - lit only when all
-            // three already are.
+            // Replaced the segmented-bar version (Option 1 from the
+            // mockups) after Glen tried it for real and flagged exactly
+            // the ambiguity that design risked: a row of pills that are
+            // ALL lit by default reads as "pick one," not "everything
+            // checked, click to exclude one" - there's no visual cue a
+            // highlighted pill means "included" rather than "available to
+            // select." Checkboxes carry that meaning on their own (checked
+            // = included in the report, the universal filter convention),
+            // so there's nothing to learn. "Select all" is a plain text
+            // button, deliberately NOT styled as a fourth option in the
+            // same group, so it can't be mistaken for a status toggle the
+            // way the old "All" segment was.
             const punchSel = state.reportOptions.punchStatuses;
             const punchAllOn = punchSel.open && punchSel.in_progress && punchSel.resolved;
-            const punchSeg = function(key, label, isAll) {
-              const on = isAll ? punchAllOn : punchSel[key];
-              const onClick = isAll ? 'setPunchReportStatusAll()' : ('setPunchReportStatus(\\'' + key + '\\', ' + !punchSel[key] + ')');
-              return '<button onclick="' + onClick + '" class="flex-1 px-2 py-2 rounded-lg text-xs ' + (isAll ? 'font-bold' : 'font-medium') + ' whitespace-nowrap transition-all ' + (on ? 'bg-teal-500 text-black' : 'text-slate-400 hover:text-white') + '">' + label + '</button>';
+            const punchCheckbox = function(key, label) {
+              return '<label class="flex items-center gap-2.5 text-sm text-slate-200 bg-slate-800/50 hover:bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 cursor-pointer transition-colors">' +
+                '<input type="checkbox" ' + (punchSel[key] ? 'checked' : '') + ' onchange="setPunchReportStatus(\\'' + key + '\\', this.checked)" class="rounded border-slate-600 bg-slate-800 text-teal-500 focus:ring-teal-500">' +
+                label +
+              '</label>';
             };
-            const punchSegBar = '<div class="flex gap-1 p-1 bg-slate-800/50 rounded-xl mb-4">' +
-              punchSeg('open', 'Open', false) +
-              punchSeg('in_progress', 'In Progress', false) +
-              punchSeg('resolved', 'Resolved', false) +
-              punchSeg('all', 'All', true) +
+            const punchCheckboxGroup = '<div class="flex flex-col gap-2 mb-4">' +
+              punchCheckbox('open', 'Open') +
+              punchCheckbox('in_progress', 'In Progress') +
+              punchCheckbox('resolved', 'Resolved') +
             '</div>';
             return '<div class="space-y-6 animate-fade-in">' +
               '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Reports</h1><p class="text-slate-400">Generate and export reports</p></div></div>' +
@@ -1963,8 +1967,8 @@ export default async function SolTrendApp() {
               '</div>' +
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-center gap-3 mb-4">' + icon('list-checks', 'w-8 h-8 text-teal-400') + '<div><h3 class="font-display font-semibold text-white">Punch List Report</h3><p class="text-xs text-slate-400">Every item, fully detailed and numbered</p></div></div>' +
-                '<label class="text-xs text-slate-400 mb-2 block">Include statuses</label>' +
-                punchSegBar +
+                '<div class="flex items-center justify-between mb-2"><label class="text-xs text-slate-400">Include statuses</label>' + (punchAllOn ? '' : '<button onclick="setPunchReportStatusAll()" class="text-xs font-medium text-teal-400 hover:text-teal-300">Select all</button>') + '</div>' +
+                punchCheckboxGroup +
                 '<button onclick="generatePunchListReport()" class="w-full py-2.5 bg-teal-500 hover:bg-teal-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
               '</div>' +
               '<div class="card rounded-xl p-5">' +
@@ -2475,7 +2479,16 @@ export default async function SolTrendApp() {
               const downloadUrl = URL.createObjectURL(blob);
               const a = document.createElement('a');
               a.href = downloadUrl;
-              a.download = 'report.html';
+              // Same project-name-collision problem as the "Save as PDF"
+              // filename below, just for this one iOS-standalone-PWA
+              // fallback path, which downloads a plain .html file instead
+              // of going through the print dialog at all: derive the name
+              // from the report's own <title> (already project-specific -
+              // see each generate*Report()) instead of the old hardcoded
+              // "report.html" every report produced here.
+              const titleMatch = /<title>([^<]*)<\\/title>/.exec(html);
+              const safeName = (titleMatch ? titleMatch[1] : 'Report').replace(/[\\\\/:*?"<>|]/g, '-').replace(/\\s+/g, ' ').trim();
+              a.download = (safeName || 'Report') + '.html';
               document.body.appendChild(a);
               a.click();
               document.body.removeChild(a);
@@ -2693,7 +2706,7 @@ export default async function SolTrendApp() {
               <!DOCTYPE html>
               <html>
               <head>
-                <title>Daily Report - \${date}</title>
+                <title>\${project?.name || 'Project'} - Daily Report - \${date}</title>
                 <style>
                   * { margin: 0; padding: 0; box-sizing: border-box; }
                   body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
@@ -2889,7 +2902,7 @@ export default async function SolTrendApp() {
               <!DOCTYPE html>
               <html>
               <head>
-                <title>Weekly Report</title>
+                <title>\${project?.name || 'Project'} - Weekly Report - \${startStr} to \${endStr}</title>
                 <style>
                   * { margin: 0; padding: 0; box-sizing: border-box; }
                   body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
@@ -3141,7 +3154,7 @@ export default async function SolTrendApp() {
               <!DOCTYPE html>
               <html>
               <head>
-                <title>Monthly Report</title>
+                <title>\${project?.name || 'Project'} - Monthly Report - \${monthStr}</title>
                 <style>
                   * { margin: 0; padding: 0; box-sizing: border-box; }
                   body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
@@ -3405,7 +3418,7 @@ export default async function SolTrendApp() {
               <!DOCTYPE html>
               <html>
               <head>
-                <title>QC Report</title>
+                <title>\${project?.name || 'Project'} - QC Report - \${startDate} to \${endDate}</title>
                 <style>
                   body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
                   .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #a855f7; padding-bottom: 20px; }
@@ -3564,7 +3577,7 @@ export default async function SolTrendApp() {
               <!DOCTYPE html>
               <html>
               <head>
-                <title>Pile Status Report</title>
+                <title>\${project?.name || 'Project'} - Pile Status Report - \${localDateStr(Date.now())}</title>
                 <style>
                   body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
                   .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #06b6d4; padding-bottom: 20px; }
@@ -3762,7 +3775,7 @@ export default async function SolTrendApp() {
               <!DOCTYPE html>
               <html>
               <head>
-                <title>Refusal Report</title>
+                <title>\${project?.name || 'Project'} - Refusal Report - \${startDate} to \${endDate}</title>
                 <style>
                   body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
                   .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #f97316; padding-bottom: 20px; }
@@ -3951,7 +3964,7 @@ export default async function SolTrendApp() {
               <!DOCTYPE html>
               <html>
               <head>
-                <title>Punch List Report</title>
+                <title>\${project?.name || 'Project'} - Punch List Report - \${localDateStr(Date.now())}</title>
                 <style>
                   body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
                   .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #14b8a6; padding-bottom: 20px; }
@@ -4068,7 +4081,7 @@ export default async function SolTrendApp() {
               <!DOCTYPE html>
               <html>
               <head>
-                <title>Portfolio Report</title>
+                <title>\${state.company?.name || 'Apex Solar Construction'} - Portfolio Report - \${localDateStr(now)}</title>
                 <style>
                   * { margin: 0; padding: 0; box-sizing: border-box; }
                   body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
