@@ -245,7 +245,10 @@ export default async function SolTrendApp() {
             // Refusal always include their own scoped photos automatically -
             // see generateQCReport/generateRefusalReport - so there's
             // nothing to toggle there).
-            reportOptions: { weeklyPhotos: false, monthlyPhotos: false },
+            // punchStatuses defaults to every status on, so the Punch List
+            // Report's first run is already "all items regardless of
+            // status" with no setup required.
+            reportOptions: { weeklyPhotos: false, monthlyPhotos: false, punchStatuses: { open: true, in_progress: true, resolved: true } },
             companyId: null,
             company: null,
             // Set true only when the initial loadSettings() call itself
@@ -1829,6 +1832,20 @@ export default async function SolTrendApp() {
 
           // REPORTS - FULL IMPLEMENTATION WITH WORKING PDF GENERATION
           function renderReports() {
+            // Glen's request: a Punch List report that always lists every
+            // item in full detail (number, status, priority, location,
+            // assignedTo, dates, notes, both photo sets) with status
+            // filtering done via toggle chips rather than a date range -
+            // this list isn't scoped to a time window like the other
+            // reports, it's scoped to status. "All Statuses" is both a
+            // one-click reset (turns every status back on) and an
+            // indicator - lit up whenever all three already are.
+            const punchSel = state.reportOptions.punchStatuses;
+            const punchAllOn = punchSel.open && punchSel.in_progress && punchSel.resolved;
+            const punchStatusChip = function(key, label) {
+              const on = punchSel[key];
+              return '<button onclick="setPunchReportStatus(\\'' + key + '\\', ' + (!on) + ')" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ' + (on ? 'bg-teal-500 text-black' : 'bg-slate-700 text-slate-300') + '">' + label + '</button>';
+            };
             return '<div class="space-y-6 animate-fade-in">' +
               '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">Reports</h1><p class="text-slate-400">Generate and export reports</p></div></div>' +
               '<p class="text-xs text-slate-500 flex items-center gap-1.5 -mt-3"><span class="w-1.5 h-1.5 rounded-full bg-green-400 inline-block"></span> on a calendar below marks a day with data already recorded</p>' +
@@ -1876,6 +1893,17 @@ export default async function SolTrendApp() {
                   '</div>' +
                   '<button onclick="generateRefusalReport()" class="w-full py-2.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
+              '</div>' +
+              '<div class="card rounded-xl p-5">' +
+                '<div class="flex items-center gap-3 mb-4">' + icon('list-checks', 'w-8 h-8 text-teal-400') + '<div><h3 class="font-display font-semibold text-white">Punch List Report</h3><p class="text-xs text-slate-400">Every item, fully detailed and numbered</p></div></div>' +
+                '<label class="text-xs text-slate-400 mb-2 block">Include statuses</label>' +
+                '<div class="flex flex-wrap gap-2 mb-4">' +
+                  punchStatusChip('open', 'Open') +
+                  punchStatusChip('in_progress', 'In Progress') +
+                  punchStatusChip('resolved', 'Resolved') +
+                  '<button onclick="setPunchReportStatusAll()" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all ' + (punchAllOn ? 'bg-teal-500 text-black' : 'bg-slate-700 text-slate-300') + '">All Statuses</button>' +
+                '</div>' +
+                '<button onclick="generatePunchListReport()" class="w-full py-2.5 bg-teal-500 hover:bg-teal-400 text-black rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
               '</div>' +
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-center gap-3 mb-4">' + icon('table', 'w-8 h-8 text-slate-400') + '<div><h3 class="font-display font-semibold text-white">Data Export</h3><p class="text-xs text-slate-400">Raw data as CSV, for Excel or Sheets</p></div></div>' +
@@ -3753,6 +3781,162 @@ export default async function SolTrendApp() {
                   <h2>Photo Documentation</h2>
                   <div class="photo-gallery">\${refusalPhotos.length > 0 ? refusalPhotos.map(function(p) { return '<div class="photo-item"><img src="' + p.url + '" alt="' + p.label + '" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No refusal photos in this range</div>'}</div>
                   <p class="note">Photos attached to a refusal only, in the date range above - not inspection, production, or Gallery photos.</p>
+                </div>
+                <div class="footer">
+                  <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
+                </div>
+              </body>
+              </html>
+            \`;
+            openReportWindow(reportContent);
+          }
+
+          // Punch List Report status-filter chips (Reports tab) - plain
+          // mutations, no render() needed on the single-status chips since
+          // nothing else on screen depends on them until Export PDF is
+          // clicked; setPunchReportStatusAll DOES render(), because it has
+          // to visually flip the three single chips (and itself) to "on".
+          function setPunchReportStatus(key, on) { state.reportOptions.punchStatuses[key] = on; }
+          function setPunchReportStatusAll() {
+            state.reportOptions.punchStatuses = { open: true, in_progress: true, resolved: true };
+            render();
+          }
+          // Punch List Report - unlike every other report here, this one
+          // isn't a date-ranged summary with aggregate stats; Glen wants
+          // the opposite: every single item (all statuses by default),
+          // fully detailed - number, status, priority, location, who it's
+          // assigned to, who logged it and when, due date, resolved date,
+          // notes, and BOTH photo sets - one item per numbered block
+          // instead of a condensed table row, since a table can't hold
+          // full notes text and two photo galleries per item. Filtered by
+          // status via the chips above, not by date.
+          function generatePunchListReport() {
+            const project = state.currentProject;
+            const sel = state.reportOptions.punchStatuses;
+            const STATUS_LABEL = { open: 'Open', in_progress: 'In Progress', resolved: 'Resolved' };
+            const selectedKeys = Object.keys(STATUS_LABEL).filter(function(k) { return sel[k]; });
+            const scopeText = selectedKeys.length === 3 ? 'All Statuses' : (selectedKeys.length === 0 ? 'No statuses selected' : selectedKeys.map(function(k) { return STATUS_LABEL[k]; }).join(', '));
+
+            // Sort numerically by the PI-### number (not string order, so
+            // PI-010 doesn't sort before PI-002) - falls back to createdAt
+            // for the rare pre-numbering item that somehow still has none.
+            const items = state.punchItems
+              .filter(function(p) { return sel[p.status]; })
+              .slice()
+              .sort(function(a, b) {
+                const an = a.number ? parseInt(a.number.replace(/\\D/g, ''), 10) : null;
+                const bn = b.number ? parseInt(b.number.replace(/\\D/g, ''), 10) : null;
+                if (an !== null && bn !== null) return an - bn;
+                if (an !== null) return -1;
+                if (bn !== null) return 1;
+                return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+              });
+
+            const counts = {
+              open: state.punchItems.filter(function(p) { return p.status === 'open'; }).length,
+              in_progress: state.punchItems.filter(function(p) { return p.status === 'in_progress'; }).length,
+              resolved: state.punchItems.filter(function(p) { return p.status === 'resolved'; }).length,
+            };
+
+            const statusBadge = function(status) {
+              const map = {
+                open: { bg: '#fee2e2', fg: '#b91c1c', label: 'Open' },
+                in_progress: { bg: '#fef3c7', fg: '#92400e', label: 'In Progress' },
+                resolved: { bg: '#dcfce7', fg: '#15803d', label: 'Resolved' },
+              };
+              const m = map[status] || map.open;
+              return '<span class="badge" style="background:' + m.bg + ';color:' + m.fg + ';">' + m.label + '</span>';
+            };
+            const priorityBadge = function(priority) {
+              const map = { high: { bg: '#fee2e2', fg: '#b91c1c' }, medium: { bg: '#fef3c7', fg: '#92400e' }, low: { bg: '#e2e8f0', fg: '#475569' } };
+              const m = map[priority] || map.medium;
+              return '<span class="badge capitalize" style="background:' + m.bg + ';color:' + m.fg + ';">' + (priority || 'medium') + '</span>';
+            };
+            const photoStrip = function(photos, label, labelColor) {
+              if (!photos || photos.length === 0) return '';
+              return '<div class="item-photos"><span class="meta-label" style="color:' + labelColor + ';">' + label + '</span><div class="photo-gallery">' +
+                photos.map(function(ph) { return '<div class="photo-item"><img src="' + toAbsolutePhotoUrl(ph.url) + '" alt="' + label + '"></div>'; }).join('') +
+                '</div></div>';
+            };
+
+            const itemBlocks = items.map(function(p) {
+              const overdue = p.dueDate && p.status !== 'resolved' && parseLocalDate(p.dueDate).getTime() < Date.now();
+              return '' +
+                '<div class="item">' +
+                  '<div class="item-head">' +
+                    '<div class="item-num">' + (p.number || '—') + '</div>' +
+                    '<div class="item-title">' +
+                      '<p class="item-desc">' + p.description + '</p>' +
+                      '<div class="item-badges">' + statusBadge(p.status) + priorityBadge(p.priority) + '</div>' +
+                    '</div>' +
+                  '</div>' +
+                  '<div class="item-meta">' +
+                    '<div><span class="meta-label">Location</span><span>' + (p.location || '—') + '</span></div>' +
+                    '<div><span class="meta-label">Assigned To</span><span>' + (p.assignedTo || '—') + '</span></div>' +
+                    '<div><span class="meta-label">Logged By</span><span>' + (p.createdBy || '—') + '</span></div>' +
+                    '<div><span class="meta-label">Logged</span><span>' + (p.createdAt ? formatDate(p.createdAt) : '—') + '</span></div>' +
+                    '<div><span class="meta-label">Due</span><span' + (overdue ? ' style="color:#dc2626;font-weight:700;"' : '') + '>' + (p.dueDate ? formatDate(p.dueDate) + (overdue ? ' (overdue)' : '') : '—') + '</span></div>' +
+                    '<div><span class="meta-label">Resolved</span><span>' + (p.resolvedAt ? formatDate(p.resolvedAt) : '—') + '</span></div>' +
+                  '</div>' +
+                  (p.notes ? '<div class="item-notes"><span class="meta-label">Notes</span><p>' + p.notes + '</p></div>' : '') +
+                  photoStrip(p.photos, 'Reported', '#64748b') +
+                  photoStrip(p.resolutionPhotos, 'Proof of Fix', '#15803d') +
+                '</div>';
+            }).join('');
+
+            const reportContent = \`
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <title>Punch List Report</title>
+                <style>
+                  body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
+                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #14b8a6; padding-bottom: 20px; }
+                  .header h1 { color: #0f172a; margin: 0; font-size: 28px; }
+                  .header p { color: #64748b; margin: 5px 0; }
+                  .section { margin-bottom: 25px; }
+                  .section h2 { color: #0d9488; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+                  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 15px 0; }
+                  .stat-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; text-align: center; }
+                  .stat-box .value { font-size: 28px; font-weight: bold; color: #0d9488; }
+                  .stat-box .label { font-size: 11px; color: #64748b; text-transform: uppercase; }
+                  .note { color: #94a3b8; font-size: 11px; margin-top: 8px; }
+                  .footer { margin-top: 40px; text-align: center; color: #94a3b8; font-size: 12px; }
+                  .item { border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 14px; page-break-inside: avoid; }
+                  .item-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
+                  .item-num { background: #0f172a; color: white; font-weight: 700; font-size: 12px; padding: 6px 10px; border-radius: 8px; white-space: nowrap; font-family: 'Courier New', monospace; }
+                  .item-title { flex: 1; }
+                  .item-desc { font-size: 14px; font-weight: 600; margin: 0 0 6px; }
+                  .item-badges { display: flex; gap: 6px; }
+                  .badge { padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+                  .item-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px; font-size: 12px; margin-bottom: 8px; padding-top: 4px; }
+                  .meta-label { display: block; font-size: 10px; text-transform: uppercase; color: #94a3b8; margin-bottom: 2px; }
+                  .item-notes { margin-top: 6px; }
+                  .item-notes p { font-size: 12px; color: #334155; margin: 2px 0 0; white-space: pre-wrap; }
+                  .item-photos { margin-top: 10px; }
+                  .photo-gallery { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 4px; }
+                  .photo-item { aspect-ratio: 4/3; background: #e2e8f0; border-radius: 6px; overflow: hidden; }
+                  .photo-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+                </style>
+              </head>
+              <body>
+                <div class="header">
+                  <h1>Punch List Report</h1>
+                  <p>\${project?.name || 'SolTrend Pro'} | \${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                  <p style="font-size:12px;color:#0d9488;font-weight:600;">Showing: \${scopeText}</p>
+                </div>
+                <div class="section">
+                  <h2>Summary</h2>
+                  <div class="stats">
+                    <div class="stat-box"><div class="value">\${items.length}</div><div class="label">Items in this report</div></div>
+                    <div class="stat-box"><div class="value">\${counts.open}</div><div class="label">Open (all time)</div></div>
+                    <div class="stat-box"><div class="value">\${counts.in_progress}</div><div class="label">In Progress (all time)</div></div>
+                    <div class="stat-box"><div class="value">\${counts.resolved}</div><div class="label">Resolved (all time)</div></div>
+                  </div>
+                </div>
+                <div class="section">
+                  <h2>Items (\${items.length})</h2>
+                  \${itemBlocks || '<p class="note">No punch items match the selected statuses.</p>'}
                 </div>
                 <div class="footer">
                   <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
@@ -7328,7 +7512,7 @@ export default async function SolTrendApp() {
                 const overdue = p.dueDate && p.status !== 'resolved' && parseLocalDate(p.dueDate).getTime() < Date.now();
                 return '<div class="card rounded-xl p-4">' +
                   '<div class="flex items-start justify-between gap-3">' +
-                    '<div class="flex-1 min-w-0"><p class="text-white text-sm">' + p.description + '</p>' +
+                    '<div class="flex-1 min-w-0"><p class="text-white text-sm"><span class="font-mono text-[11px] text-slate-500 mr-1.5">' + (p.number || '—') + '</span>' + p.description + '</p>' +
                     '<div class="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-xs text-slate-400">' +
                       (p.location ? '<span>' + p.location + '</span>' : '') +
                       (p.assignedTo ? '<span>' + p.assignedTo + '</span>' : '') +
@@ -7411,6 +7595,7 @@ export default async function SolTrendApp() {
               if (!created || !created.id) throw new Error('Punch item create failed');
               state.punchItems.unshift({
                 id: created.id,
+                number: created.number,
                 description: created.description,
                 location: created.location,
                 status: created.status,

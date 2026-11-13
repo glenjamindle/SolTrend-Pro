@@ -8,6 +8,32 @@ function hasRole(role: string | undefined, min: keyof typeof ROLE_RANK): boolean
   return (ROLE_RANK[role || ''] || 0) >= ROLE_RANK[min]
 }
 
+// Punch items get a stable PI-001, PI-002, ... number per project, the
+// same convention Rfi.number/Submittal.number already use. Older items
+// predate this field and have number === null; this assigns the next
+// number to every null one for a project, oldest-first, so PI-001 really
+// is the first item ever logged there. Called from both GET (so existing
+// data gets numbered the first time anyone loads the list, with no
+// separate migration script) and the create branch in POST (so a
+// brand-new item never has to wait for a GET to pick up a number, and
+// can't collide with one an overdue backfill is about to assign).
+async function backfillPunchNumbers(projectId: string): Promise<void> {
+  const unnumbered = await prisma.punchItem.findMany({
+    where: { projectId, number: null },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  })
+  if (unnumbered.length === 0) return
+  let next = (await prisma.punchItem.count({ where: { projectId, number: { not: null } } })) + 1
+  for (const item of unnumbered) {
+    await prisma.punchItem.update({
+      where: { id: item.id },
+      data: { number: `PI-${String(next).padStart(3, '0')}` },
+    })
+    next++
+  }
+}
+
 // GET /api/punchlist?projectId=...
 export async function GET(request: NextRequest) {
   try {
@@ -15,6 +41,8 @@ export async function GET(request: NextRequest) {
     if (!projectId) {
       return NextResponse.json({ error: 'projectId is required' }, { status: 400 })
     }
+
+    await backfillPunchNumbers(projectId)
 
     const items = await prisma.punchItem.findMany({
       where: { projectId },
@@ -24,6 +52,7 @@ export async function GET(request: NextRequest) {
 
     const shaped = items.map((p) => ({
       id: p.id,
+      number: p.number,
       description: p.description,
       location: p.location,
       status: p.status,
@@ -112,9 +141,17 @@ export async function POST(request: NextRequest) {
       userId = fallbackUser.id
     }
 
+    // Backfill first so a brand-new item's number is always based on the
+    // true count of already-numbered items for this project, never on a
+    // stale count that a not-yet-run backfill would later collide with.
+    await backfillPunchNumbers(projectId)
+    const numberedCount = await prisma.punchItem.count({ where: { projectId, number: { not: null } } })
+    const punchNumber = `PI-${String(numberedCount + 1).padStart(3, '0')}`
+
     const created = await prisma.punchItem.create({
       data: {
         projectId,
+        number: punchNumber,
         description,
         location: location || undefined,
         priority: priority || 'medium',

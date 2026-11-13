@@ -308,6 +308,12 @@ model Notification {
 // free text rather than the strict row/pile pair the field-entry models use.
 model PunchItem {
   id          String    @id @default(cuid())
+  // Auto-numbered PI-001, PI-002, ... per project, same convention as
+  // Rfi.number/Submittal.number - nullable only because existing items
+  // predate this field; /api/punchlist backfills any null one it finds
+  // on the next GET, oldest-first, so every item gets one without a
+  // manual migration.
+  number      String?
   description String
   location    String?   // free text - pile id, row, or general area
   status      String    @default("open")   // open, in_progress, resolved
