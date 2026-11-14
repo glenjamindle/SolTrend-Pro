@@ -461,7 +461,7 @@ export default async function SolTrendApp() {
             // keeps scanning into their own spreadsheet instead of this
             // app's Scan Mode.
             moduleScanCsvPreview: null, moduleScanCsvSubmitting: false,
-            moduleScanCsvResult: null,
+            moduleScanCsvResult: null, moduleScanCsvParsing: false,
             pendingSyncCount: 0,
             // SAFETY
             toolboxTalks: [], safetyObservations: [], safetyIncidents: [],
@@ -5607,21 +5607,47 @@ export default async function SolTrendApp() {
           // /api/module-scan-import) since this can be a full field
           // season's worth of scans, not a handful.
           function parseModuleScanCsvText(text) {
+            // Strip a UTF-8 BOM - Excel/Numbers/Google Sheets exports
+            // routinely lead with one, and it silently breaks an exact
+            // string match like header.indexOf('modules') (the cell reads
+            // "﻿modules", not "modules") without ever showing up as
+            // a visible difference in a preview.
+            text = text.replace(/^\\ufeff/, '');
             const lines = text.split(/\\r?\\n/);
-            if (lines.length < 2) return { rows: [], spares: [], broken: [], totalModules: 0, warnings: ['The file needs a header row plus at least one data row.'] };
-            const header = parseCsvLine(lines[0]).map(function(h) { return h.trim().toLowerCase(); });
-            const modulesIdx = header.indexOf('modules');
-            const brokenIdx = header.indexOf('broken');
-            const sparesIdx = header.indexOf('spares');
-            if (modulesIdx === -1) {
-              return { rows: [], spares: [], broken: [], totalModules: 0, warnings: ['The CSV must include a "Modules" column - the scan log, with ROWTAG- markers and module barcodes in order.'] };
+            if (!lines.some(function(l) { return l.trim(); })) {
+              return { rows: [], spares: [], broken: [], totalModules: 0, warnings: ['The file is empty.'] };
+            }
+            const firstCells = parseCsvLine(lines[0]);
+            // A real header cell is never itself a ROWTAG- marker. A crew
+            // that scans straight into a spreadsheet and exports it as-is
+            // has no header row at all - column A starts immediately with
+            // ROWTAG-{row} markers and barcodes in scan order. Support
+            // that directly instead of making every crew add a header
+            // first: treat the whole file as the Modules log, column A,
+            // starting at line 1. There's no way to guess which (if any)
+            // other column holds Broken/Spares without a label, so a
+            // headerless file only ever imports modules - add those
+            // separately afterward if needed.
+            const headerless = /^rowtag-/i.test((firstCells[0] || '').trim());
+            let modulesIdx, brokenIdx, sparesIdx, startLine;
+            if (headerless) {
+              modulesIdx = 0; brokenIdx = -1; sparesIdx = -1; startLine = 0;
+            } else {
+              const header = firstCells.map(function(h) { return h.trim().toLowerCase(); });
+              modulesIdx = header.indexOf('modules');
+              brokenIdx = header.indexOf('broken');
+              sparesIdx = header.indexOf('spares');
+              startLine = 1;
+              if (modulesIdx === -1) {
+                return { rows: [], spares: [], broken: [], totalModules: 0, warnings: ['Couldn\\'t find a "Modules" column header, and the first row doesn\\'t look like a ROWTAG- marker either - so this doesn\\'t look like a scan log. Either add a "Modules" header (see the template), or if the file has no header at all, make sure column A starts right away with a ROWTAG- marker.'] };
+              }
             }
             const warnings = [];
             const rows = []; // { rowId, barcodes: [] }, in first-seen order
             const spares = []; const broken = [];
             let currentRow = null;
             let totalModules = 0;
-            for (let li = 1; li < lines.length; li++) {
+            for (let li = startLine; li < lines.length; li++) {
               if (!lines[li] || !lines[li].trim()) continue;
               const cells = parseCsvLine(lines[li]);
               const code = (modulesIdx !== -1 ? (cells[modulesIdx] || '') : '').trim();
@@ -5657,10 +5683,24 @@ export default async function SolTrendApp() {
           function triggerModuleScanCsvInput() { document.getElementById('moduleScanCsvInput').click(); }
           function handleModuleScanCsvSelect(event) {
             const file = event.target.files[0]; if (!file) return;
+            // A big field-export CSV (thousands of lines) still parses in
+            // well under a second, but with no visual change between
+            // picking the file and the preview appearing it can look like
+            // nothing happened - show a brief "Reading..." state so a tap
+            // on a slow phone doesn't get mistaken for a no-op and retried.
+            state.moduleScanCsvParsing = true;
+            state.moduleScanCsvPreview = null;
+            render();
             const reader = new FileReader();
             reader.onload = function(e) {
               const parsed = parseModuleScanCsvText(String(e.target.result || ''));
+              state.moduleScanCsvParsing = false;
               state.moduleScanCsvPreview = Object.assign({ fileName: file.name }, parsed);
+              render();
+            };
+            reader.onerror = function() {
+              state.moduleScanCsvParsing = false;
+              state.moduleScanCsvPreview = { fileName: file.name, rows: [], spares: [], broken: [], totalModules: 0, warnings: ['Couldn\\'t read that file.'] };
               render();
             };
             reader.readAsText(file);
@@ -6223,12 +6263,15 @@ export default async function SolTrendApp() {
             const csvCard = !canEdit ? '' : '<div class="card rounded-xl p-4 space-y-3">' +
               '<div class="flex items-center justify-between"><h3 class="font-display font-semibold text-white text-sm">Import from CSV (crews not using the app)</h3>' +
               '<button onclick="downloadModuleScanCsvTemplate()" class="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">' + icon('download', 'w-3.5 h-3.5') + ' Download template</button></div>' +
-              '<p class="text-xs text-slate-400">For a crew still scanning into their own spreadsheet. Columns: Modules (required - the scan log in order, ROWTAG-{row} markers mixed with module barcodes, same as a live scan would read them), Broken and Spares (both optional flat barcode lists, no row/position needed). A barcode already recorded anywhere in this project is skipped, never overwritten.</p>' +
+              '<p class="text-xs text-slate-400">For a crew still scanning into their own spreadsheet. Columns: Modules (required - the scan log in order, ROWTAG-{row} markers mixed with module barcodes, same as a live scan would read them), Broken and Spares (both optional flat barcode lists, no row/position needed). No header row at all also works, as long as column A starts right away with a ROWTAG- marker - just drop the raw sheet in as-is. A barcode already recorded anywhere in this project is skipped, never overwritten.</p>' +
               '<input type="file" id="moduleScanCsvInput" accept=".csv,text/csv" class="hidden" onchange="handleModuleScanCsvSelect(event)">' +
-              '<button onclick="triggerModuleScanCsvInput()" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5">' + icon('upload', 'w-3.5 h-3.5') + ' Choose CSV file</button>' +
-              (csvPreview ? (
-                '<div class="border-t border-slate-700/50 pt-3 space-y-2">' +
-                '<p class="text-xs text-slate-400"><span class="text-white font-medium">' + csvPreview.fileName + '</span> - ' + csvPreview.rows.length + ' row' + (csvPreview.rows.length === 1 ? '' : 's') + ', ' + csvPreview.totalModules + ' module' + (csvPreview.totalModules === 1 ? '' : 's') + (csvPreview.broken.length > 0 ? ', ' + csvPreview.broken.length + ' broken' : '') + (csvPreview.spares.length > 0 ? ', ' + csvPreview.spares.length + ' spare' + (csvPreview.spares.length === 1 ? '' : 's') : '') + ' ready to import.</p>' +
+              '<button onclick="triggerModuleScanCsvInput()" ' + (state.moduleScanCsvParsing ? 'disabled' : '') + ' class="px-3 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5">' + (state.moduleScanCsvParsing ? (icon('loader-2', 'w-3.5 h-3.5 animate-spin') + ' Reading file...') : (icon('upload', 'w-3.5 h-3.5') + ' Choose CSV file')) + '</button>' +
+              (csvPreview ? (function() {
+                const nothingFound = csvPreview.rows.length === 0 && csvPreview.spares.length === 0 && csvPreview.broken.length === 0;
+                return '<div class="border-t border-slate-700/50 pt-3 space-y-2">' +
+                (nothingFound
+                  ? '<p class="text-xs text-red-400"><span class="text-white font-medium">' + csvPreview.fileName + '</span> - couldn\\'t find anything to import. See below.</p>'
+                  : '<p class="text-xs text-slate-400"><span class="text-white font-medium">' + csvPreview.fileName + '</span> - ' + csvPreview.rows.length + ' row' + (csvPreview.rows.length === 1 ? '' : 's') + ', ' + csvPreview.totalModules + ' module' + (csvPreview.totalModules === 1 ? '' : 's') + (csvPreview.broken.length > 0 ? ', ' + csvPreview.broken.length + ' broken' : '') + (csvPreview.spares.length > 0 ? ', ' + csvPreview.spares.length + ' spare' + (csvPreview.spares.length === 1 ? '' : 's') : '') + ' ready to import.</p>') +
                 (csvPreview.warnings.length > 0 ? '<div class="max-h-28 overflow-y-auto space-y-1">' + csvPreview.warnings.slice(0, 15).map(function(w) { return '<p class="text-xs text-amber-400/90">' + w + '</p>'; }).join('') + (csvPreview.warnings.length > 15 ? '<p class="text-xs text-slate-400">+ ' + (csvPreview.warnings.length - 15) + ' more</p>' : '') + '</div>' : '') +
                 (csvPreview.rows.length > 0 ? '<div class="max-h-40 overflow-y-auto rounded-lg border border-slate-700/50"><table class="w-full text-xs"><thead class="bg-slate-800/70 text-slate-400"><tr><th class="text-left px-2 py-1.5">Row</th><th class="text-left px-2 py-1.5">Modules</th></tr></thead><tbody>' +
                   csvPreview.rows.slice(0, 25).map(function(r) { return '<tr class="border-t border-slate-800"><td class="px-2 py-1 text-slate-300 font-mono">' + r.rowId + '</td><td class="px-2 py-1 text-slate-400">' + r.barcodes.length + '</td></tr>'; }).join('') +
@@ -6237,8 +6280,8 @@ export default async function SolTrendApp() {
                   '<button onclick="cancelModuleScanCsvImport()" class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm font-medium">Cancel</button>' +
                   ((csvPreview.rows.length > 0 || csvPreview.spares.length > 0 || csvPreview.broken.length > 0) ? '<button onclick="confirmModuleScanCsvImport()" ' + (state.moduleScanCsvSubmitting ? 'disabled' : '') + ' class="flex-1 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black rounded-lg text-sm font-semibold">' + (state.moduleScanCsvSubmitting ? 'Importing...' : 'Import') + '</button>' : '') +
                 '</div>' +
-                '</div>'
-              ) : '') +
+                '</div>';
+              })() : '') +
               csvResultBanner +
               '</div>';
 
