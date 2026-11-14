@@ -1214,7 +1214,15 @@ export default async function SolTrendApp() {
             ];
             return '<aside class="fixed inset-y-0 left-0 z-50 w-60 bg-slate-900/95 border-r border-slate-700/50 transform transition-transform duration-300 ' + (state.sidebarOpen ? 'translate-x-0' : '-translate-x-full') + ' lg:translate-x-0 flex flex-col">' +
               '<div class="p-5 border-b border-slate-700/50"><div class="flex items-center justify-between"><div class="flex items-center gap-3"><img src="/logo-mark.png" alt="SolTrend Pro" class="w-9 h-9 rounded-lg shadow-lg shadow-amber-500/20"><div><h1 class="font-display font-bold text-lg text-white">SolTrend</h1><p class="text-[10px] text-slate-400 uppercase tracking-wider">Pro v2.1</p></div></div><span class="notif-bell-slot">' + renderNotifBell() + '</span></div></div>' +
-              (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" onchange="var v=this.value; switchToProject(state.projects.find(function(p) { return p.id === v; }));" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + '</option>').join('') + '</select></div>' : '') +
+              // Completed projects stay in this switcher (labeled, not
+              // hidden) so finishing a project never makes it unreachable -
+              // see buildCompanyDashboardWidgets()/renderActiveProjectsTable()
+              // below for the other half of this: completed projects stay
+              // navigable here but drop out of every company-wide rollup.
+              // on_hold projects are still filtered out on purpose - that
+              // status has no "resume" affordance elsewhere yet, so
+              // surfacing it here would be a dead end.
+              (state.projects.length > 0 ? '<div class="p-3 border-b border-slate-700/50"><label class="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1.5 block">Active Project</label><select id="projectSelect" onchange="var v=this.value; switchToProject(state.projects.find(function(p) { return p.id === v; }));" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">' + state.projects.filter(p => p.status === 'active' || p.status === 'completed').map(p => '<option value="' + p.id + '"' + (state.currentProject?.id === p.id ? ' selected' : '') + '>' + p.name + (p.status === 'completed' ? ' (Completed)' : '') + '</option>').join('') + '</select></div>' : '') +
               '<nav class="flex-1 py-3 overflow-y-auto">' + navSections.map(section => '<div class="mb-4"><h3 class="px-5 mb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">' + section.title + '</h3>' + section.items.map(item => '<button onclick="navigateTo(\\'' + item.id + '\\')" class="nav-item w-full flex items-center gap-3 px-5 py-2.5 text-left text-sm ' + (state.currentView === item.id ? 'active' : 'text-slate-400 hover:text-slate-200') + '">' + icon(item.icon, 'w-4 h-4') + '<span>' + item.label + '</span></button>').join('') + '</div>').join('') + '</nav>' +
               '<div class="p-4 border-t border-slate-700/50 space-y-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-bold">' + (state.currentUser.name || '?').split(' ').map(function(n){return n[0]||'';}).join('').slice(0,2).toUpperCase() + '</div><div class="flex-1 min-w-0"><p class="text-sm font-medium text-white truncate">' + state.currentUser.name + '</p><p class="text-xs text-slate-400 capitalize">' + state.currentUser.role + '</p></div><a href="/api/auth/signout" title="Sign out" class="text-slate-400 hover:text-red-400 transition-colors p-1">' + icon('log-out', 'w-4 h-4') + '</a></div></div>' +
             '</aside>';
@@ -1386,14 +1394,26 @@ export default async function SolTrendApp() {
           // refreshDashboardWidgetGrid can rebuild just this list without
           // re-running the rest of renderCompanyDashboard.
           function buildCompanyDashboardWidgets() {
-            const totalPiles = state.projects.reduce((sum, p) => sum + p.totalPiles, 0);
-            const installedPiles = state.projects.reduce((sum, p) => sum + p.installedPiles, 0);
+            // Completed projects stay fully visible/editable everywhere
+            // else (Settings, the sidebar switcher, their own dashboard),
+            // but a finished site's piles/tables/modules/pass-fail numbers
+            // shouldn't keep inflating the COMPANY-wide rollup forever -
+            // Glen's call, since a growing pile of completed projects would
+            // otherwise make this dashboard's totals less meaningful over
+            // time, not more. metricsProjects is every reduce below's input
+            // instead of state.projects directly, so a finished project's
+            // historical numbers simply drop out of these cards the moment
+            // its status flips to 'completed' - they still exist, they just
+            // don't count here.
+            const metricsProjects = state.projects.filter(p => p.status !== 'completed');
+            const totalPiles = metricsProjects.reduce((sum, p) => sum + p.totalPiles, 0);
+            const installedPiles = metricsProjects.reduce((sum, p) => sum + p.installedPiles, 0);
             // Tables/Modules mirror the Piles rollup - cached totals on each
             // project, kept in sync by /api/production's delta update.
-            const totalTables = state.projects.reduce((sum, p) => sum + (p.totalTables || 0), 0);
-            const tablesInstalled = state.projects.reduce((sum, p) => sum + (p.tablesInstalled || 0), 0);
-            const totalModules = state.projects.reduce((sum, p) => sum + (p.totalModules || 0), 0);
-            const modulesInstalled = state.projects.reduce((sum, p) => sum + (p.modulesInstalled || 0), 0);
+            const totalTables = metricsProjects.reduce((sum, p) => sum + (p.totalTables || 0), 0);
+            const tablesInstalled = metricsProjects.reduce((sum, p) => sum + (p.tablesInstalled || 0), 0);
+            const totalModules = metricsProjects.reduce((sum, p) => sum + (p.totalModules || 0), 0);
+            const modulesInstalled = metricsProjects.reduce((sum, p) => sum + (p.modulesInstalled || 0), 0);
             const tablesPct = totalTables > 0 ? Math.round((tablesInstalled / totalTables) * 100) : 0;
             const modulesPct = totalModules > 0 ? Math.round((modulesInstalled / totalModules) * 100) : 0;
             const pilesPct = totalPiles > 0 ? Math.round((installedPiles / totalPiles) * 100) : 0;
@@ -1411,8 +1431,8 @@ export default async function SolTrendApp() {
             const monthProd = monthProdEntries.reduce((s, p) => s + p.piles, 0);
             // Was a hardcoded "94.2%" / "+2.1% from last month" literal -
             // now computed from the real pass/fail counts across projects.
-            const totalPassed = state.projects.reduce((sum, p) => sum + (p.passedInspections || 0), 0);
-            const totalFailed = state.projects.reduce((sum, p) => sum + (p.failedInspections || 0), 0);
+            const totalPassed = metricsProjects.reduce((sum, p) => sum + (p.passedInspections || 0), 0);
+            const totalFailed = metricsProjects.reduce((sum, p) => sum + (p.failedInspections || 0), 0);
             const companyPassRate = (totalPassed + totalFailed) > 0 ? Math.round((totalPassed / (totalPassed + totalFailed)) * 100) : 0;
             return [
               {
@@ -1420,7 +1440,7 @@ export default async function SolTrendApp() {
                 html: '<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">' +
                   '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Total Piles</span>' + icon('database', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-white">' + formatNumber(installedPiles) + '</p><p class="text-xs text-slate-400 mt-1">of ' + formatNumber(totalPiles) + ' planned</p></div>' +
                   '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Pass Rate</span>' + icon('check-circle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-blue-400">' + companyPassRate + '%</p><p class="text-xs text-slate-400 mt-1"><span class="text-green-400 font-medium">' + formatNumber(totalPassed) + ' passed</span> · <span class="text-red-400 font-medium">' + formatNumber(totalFailed) + ' failed</span></p></div>' +
-                  '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Refusals</span>' + icon('alert-triangle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-orange-400">' + state.projects.reduce((sum, p) => sum + (p.refusalCount || 0), 0) + '</p><p class="text-xs text-slate-400 mt-1">total logged</p></div>' +
+                  '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Refusals</span>' + icon('alert-triangle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-orange-400">' + metricsProjects.reduce((sum, p) => sum + (p.refusalCount || 0), 0) + '</p><p class="text-xs text-slate-400 mt-1">total logged</p></div>' +
                   '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Active Crews</span>' + icon('users', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-green-400">' + state.crews.length + '</p><p class="text-xs text-slate-400 mt-1">' + (state.crews.length * 8) + ' workers</p></div>' +
                 '</div>'
               },
@@ -1462,7 +1482,14 @@ export default async function SolTrendApp() {
           // for every project company-wide (see the route for why it's
           // filtered server-side rather than here).
           function renderActiveProjectsTable() {
-            const projects = state.projects.filter(p => p.status !== 'archived');
+            // 'archived' is a leftover guard (nothing in Settings can set it
+            // today) - 'completed' is the status that actually needs
+            // excluding here: this card is titled "Active Projects" and
+            // rolls up schedule/RFI/submittal/punch data company-wide, so a
+            // finished project's numbers shouldn't keep sitting in it. It's
+            // still fully visible - just in Settings > Projects, or via the
+            // sidebar switcher - this only drops it from this one rollup.
+            const projects = state.projects.filter(p => p.status !== 'archived' && p.status !== 'completed');
             if (projects.length === 0) return '';
             const now = Date.now();
 
@@ -4489,7 +4516,11 @@ export default async function SolTrendApp() {
           // markup. It's a current-state snapshot, not a date-ranged
           // report, so unlike the others it has no date picker.
           function generatePortfolioReport() {
-            const projects = state.projects.filter(function(p) { return p.status !== 'archived'; });
+            // Same company-wide-rollup reasoning as renderActiveProjectsTable()
+            // above (which this report's per-project rows otherwise mirror):
+            // a completed project's numbers shouldn't keep padding the
+            // portfolio totals. Still fully visible elsewhere - just not here.
+            const projects = state.projects.filter(function(p) { return p.status !== 'archived' && p.status !== 'completed'; });
             const now = Date.now();
 
             const rows = projects.map(function(project) {
