@@ -221,6 +221,22 @@ export default async function SolTrendApp() {
       <Script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" strategy="afterInteractive" />
       <Script id="soltrend-app" strategy="afterInteractive">
         {`
+          // Company + Project Dashboard customizable tiles - the fixed
+          // widget-id registry for each dashboard. Declared here, ahead of
+          // \`const state = {...}\` below, on purpose: state's own
+          // initializer calls loadDashboardLayout() (defined further down,
+          // near the dashboard renderers - plain function declarations are
+          // hoisted, so that part's fine wherever it lives), which reads
+          // this constant - and a const is NOT hoisted the way a function
+          // is, so DEFAULT_DASHBOARD_LAYOUT has to already be initialized
+          // by the time that call runs, not just declared later in the
+          // file. See loadDashboardLayout/normalizeDashboardLayout near
+          // renderCompanyDashboard for how it's actually used.
+          const DEFAULT_DASHBOARD_LAYOUT = {
+            company: { order: ['stats', 'progress', 'periods', 'activeProjects'], hidden: [] },
+            project: { order: ['today', 'installProgress', 'refusalRemediation', 'qualityAndActivity'], hidden: [] }
+          };
+
           // STATE MANAGEMENT
           const state = {
             currentView: 'company',
@@ -500,6 +516,17 @@ export default async function SolTrendApp() {
             // currently expanded (keyed by project id so it survives a
             // re-sort/re-filter instead of collapsing every row).
             companyTableFilter: 'all', companyTableSortCol: 'name', companyTableSortDir: 1, companyTableExpanded: {},
+            // Company + Project Dashboard customizable tiles - which
+            // widgets are shown, and in what order, per dashboard. Loaded
+            // from localStorage (loadDashboardLayout, defined near the
+            // dashboard renderers below) so a person's arrangement
+            // survives a refresh; nothing here syncs to the server, so
+            // it's local to whatever browser they set it up in.
+            // dashboardCustomizing is just which dashboard currently has
+            // its drag-handles/hide-buttons showing - never persisted,
+            // always starts closed.
+            dashboardLayout: loadDashboardLayout(),
+            dashboardCustomizing: { company: false, project: false },
             subSpecSection: '', subType: 'product_data', subMaterialId: '', subDueDate: '', subPendingFile: null
           };
 
@@ -1193,12 +1220,172 @@ export default async function SolTrendApp() {
             '</aside>';
           }
 
+          // DASHBOARD CUSTOM LAYOUT (Company + Project Dashboard tiles)
+          // Glen's "free feedback on what tiles people actually use" idea,
+          // scoped down per his own call: per-browser only (localStorage,
+          // not synced to the server or visible company-wide), covering
+          // both the Company Dashboard and Project Dashboard, dashboard
+          // first with no analytics view yet on what people do with it.
+          //
+          // Each dashboard has a fixed set of widget ids
+          // (DEFAULT_DASHBOARD_LAYOUT, declared up near \`const state\` -
+          // see the comment there for why it has to live before state's
+          // own initializer) and a person's chosen order + hidden set,
+          // loaded once at startup (see dashboardLayout in state) and
+          // written back to localStorage on every change. A widget id
+          // added in a later release just gets appended to the end of a
+          // saved order that doesn't already have it
+          // (normalizeDashboardLayout) rather than silently vanishing for
+          // someone who'd already customized.
+          function cloneDefaultDashboardLayout() {
+            return JSON.parse(JSON.stringify(DEFAULT_DASHBOARD_LAYOUT));
+          }
+          function normalizeDashboardLayout(dashKey, saved) {
+            const validIds = DEFAULT_DASHBOARD_LAYOUT[dashKey].order;
+            const savedOrder = (saved && Array.isArray(saved.order)) ? saved.order.filter(function(id) { return validIds.indexOf(id) !== -1; }) : [];
+            const order = savedOrder.concat(validIds.filter(function(id) { return savedOrder.indexOf(id) === -1; }));
+            const hidden = (saved && Array.isArray(saved.hidden)) ? saved.hidden.filter(function(id) { return validIds.indexOf(id) !== -1; }) : [];
+            return { order: order, hidden: hidden };
+          }
+          function loadDashboardLayout() {
+            const result = cloneDefaultDashboardLayout();
+            try {
+              const raw = localStorage.getItem('soltrend_dashboardLayout');
+              if (raw) {
+                const parsed = JSON.parse(raw);
+                result.company = normalizeDashboardLayout('company', parsed.company);
+                result.project = normalizeDashboardLayout('project', parsed.project);
+              }
+            } catch (e) {}
+            return result;
+          }
+          function saveDashboardLayout() {
+            try { localStorage.setItem('soltrend_dashboardLayout', JSON.stringify(state.dashboardLayout)); } catch (e) {}
+          }
+          // Renders one dashboard's widgets in the person's saved order.
+          // Outside customize mode, a hidden widget is simply left out;
+          // inside it, every widget stays in place (so reordering doesn't
+          // jump around) but a hidden one renders dimmed with a "Show"
+          // button instead of "Hide" - no separate tray to keep track of.
+          // widgetDefs is only the widgets that actually apply THIS render
+          // (buildProjectDashboardWidgets leaves Refusal Remediation out
+          // entirely when a project has no refusals yet) - an id that's in
+          // the saved order/hidden list but not in widgetDefs this time is
+          // just skipped, never dropped from the saved layout itself.
+          function renderDashboardWidgetGrid(dashKey, widgetDefs) {
+            const layout = state.dashboardLayout[dashKey];
+            const customizing = !!state.dashboardCustomizing[dashKey];
+            const byId = {};
+            widgetDefs.forEach(function(w) { byId[w.id] = w; });
+            const presentIds = widgetDefs.map(function(w) { return w.id; });
+            const orderedPresent = layout.order.filter(function(id) { return presentIds.indexOf(id) !== -1; });
+            const shownIds = orderedPresent.filter(function(id) { return customizing || layout.hidden.indexOf(id) === -1; });
+            const cards = shownIds.map(function(id) {
+              const w = byId[id];
+              const isHidden = layout.hidden.indexOf(id) !== -1;
+              const dragAttrs = customizing ? (' draggable="true" ondragstart="handleWidgetDragStart(event,\\'' + dashKey + '\\',\\'' + id + '\\')" ondragover="handleWidgetDragOver(event)" ondrop="handleWidgetDrop(event,\\'' + dashKey + '\\',\\'' + id + '\\')" ondragend="handleWidgetDragEnd(event)"') : '';
+              const toolbar = customizing ? ('<div class="flex items-center gap-2 mb-2 pb-2 border-b border-slate-700/50">' +
+                  '<span class="text-slate-500 cursor-grab" title="Drag to reorder">' + icon('grip-vertical', 'w-4 h-4') + '</span>' +
+                  '<span class="text-xs font-semibold text-slate-300 flex-1">' + w.title + (isHidden ? ' (hidden)' : '') + '</span>' +
+                  (isHidden ?
+                    '<button onclick="showDashboardWidget(\\'' + dashKey + '\\',\\'' + id + '\\')" class="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1" title="Show this widget">' + icon('eye', 'w-3.5 h-3.5') + 'Show</button>' :
+                    '<button onclick="hideDashboardWidget(\\'' + dashKey + '\\',\\'' + id + '\\')" class="text-xs text-slate-400 hover:text-white flex items-center gap-1" title="Hide this widget">' + icon('eye-off', 'w-3.5 h-3.5') + 'Hide</button>') +
+                '</div>') : '';
+              return '<div class="dash-widget' + (isHidden ? ' opacity-40' : '') + '" data-widget-id="' + id + '"' + dragAttrs + '>' + toolbar + w.html + '</div>';
+            }).join('');
+            const toolbarBar = '<div class="flex items-center justify-end gap-2 mb-3">' +
+                (customizing ? '<button onclick="resetDashboardLayout(\\'' + dashKey + '\\')" class="text-xs text-slate-400 hover:text-white">Reset to default</button>' : '') +
+                '<button onclick="toggleDashboardCustomize(\\'' + dashKey + '\\')" class="text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-1.5 ' + (customizing ? 'bg-amber-400 text-slate-900' : 'bg-slate-800 border border-slate-700 text-slate-300 hover:text-white') + '">' + icon(customizing ? 'check' : 'layout-grid', 'w-3.5 h-3.5') + (customizing ? 'Done' : 'Customize') + '</button>' +
+              '</div>';
+            return '<div id="dashWidgetGrid-' + dashKey + '">' + toolbarBar + '<div class="space-y-6">' + cards + '</div></div>';
+          }
+          // Surgical re-render of just the widget grid on drag/hide/show/
+          // customize-toggle - same reasoning as updateActiveProjectsTable
+          // above: a full render() replaces sidebar/header/everything via
+          // one big innerHTML swap, which would blink the whole screen for
+          // what's otherwise a small in-place change.
+          function refreshDashboardWidgetGrid(dashKey) {
+            const host = document.getElementById('dashWidgetGrid-' + dashKey);
+            if (!host) { render(); return; }
+            const widgetDefs = dashKey === 'company' ? buildCompanyDashboardWidgets() : buildProjectDashboardWidgets();
+            host.outerHTML = renderDashboardWidgetGrid(dashKey, widgetDefs);
+            if (window.lucide) lucide.createIcons();
+          }
+          function toggleDashboardCustomize(dashKey) {
+            state.dashboardCustomizing[dashKey] = !state.dashboardCustomizing[dashKey];
+            refreshDashboardWidgetGrid(dashKey);
+          }
+          function hideDashboardWidget(dashKey, id) {
+            const layout = state.dashboardLayout[dashKey];
+            if (layout.hidden.indexOf(id) === -1) layout.hidden.push(id);
+            saveDashboardLayout();
+            refreshDashboardWidgetGrid(dashKey);
+          }
+          function showDashboardWidget(dashKey, id) {
+            const layout = state.dashboardLayout[dashKey];
+            const idx = layout.hidden.indexOf(id);
+            if (idx !== -1) layout.hidden.splice(idx, 1);
+            saveDashboardLayout();
+            refreshDashboardWidgetGrid(dashKey);
+          }
+          function resetDashboardLayout(dashKey) {
+            state.dashboardLayout[dashKey] = normalizeDashboardLayout(dashKey, null);
+            saveDashboardLayout();
+            refreshDashboardWidgetGrid(dashKey);
+          }
+          // Native HTML5 drag and drop - draggedWidget tracks what's being
+          // dragged across the dragover/drop events (dataTransfer.getData
+          // doesn't reliably read back mid-drag in every browser, so this
+          // module-level variable is the real source of truth; the
+          // dataTransfer.setData call below is just there so the drag
+          // still shows the OS's own drag affordance).
+          let draggedWidget = null;
+          function handleWidgetDragStart(e, dashKey, id) {
+            draggedWidget = { dashKey: dashKey, id: id };
+            try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); } catch (err) {}
+            e.currentTarget.classList.add('opacity-50');
+          }
+          function handleWidgetDragOver(e) {
+            e.preventDefault();
+            try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+          }
+          function handleWidgetDrop(e, dashKey, targetId) {
+            e.preventDefault();
+            if (!draggedWidget || draggedWidget.dashKey !== dashKey || draggedWidget.id === targetId) return;
+            const layout = state.dashboardLayout[dashKey];
+            const from = layout.order.indexOf(draggedWidget.id);
+            const to = layout.order.indexOf(targetId);
+            if (from === -1 || to === -1) return;
+            layout.order.splice(from, 1);
+            layout.order.splice(to, 0, draggedWidget.id);
+            saveDashboardLayout();
+            refreshDashboardWidgetGrid(dashKey);
+          }
+          function handleWidgetDragEnd(e) {
+            e.currentTarget.classList.remove('opacity-50');
+            draggedWidget = null;
+          }
+
           // COMPANY DASHBOARD
           function renderCompanyDashboard() {
             if (!state.company) {
               return '<div class="flex items-center justify-center min-h-[50vh]"><div class="text-center"><div class="animate-pulse text-amber-400 mb-2">' + icon('loader', 'w-6 h-6 mx-auto') + '</div><p class="text-slate-400 text-sm">Loading SolTrend Pro...</p></div></div>';
             }
             const activeProjects = state.projects.filter(p => p.status === 'active');
+            return '<div class="space-y-6 stagger-children">' +
+              '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">' + state.company.name + '</h1><p class="text-slate-400 text-sm">' + activeProjects.length + ' active projects · ' + state.users.length + ' team members</p></div></div>' +
+              renderDashboardWidgetGrid('company', buildCompanyDashboardWidgets()) +
+            '</div>';
+          }
+          // Builds the Company Dashboard's customizable widgets - the same
+          // numbers/markup that used to sit directly inside
+          // renderCompanyDashboard() in a fixed order, just cut into the 4
+          // pieces a person can show/hide/reorder (see
+          // renderDashboardWidgetGrid above). Kept self-contained (reads
+          // straight off state, same inputs as before) so
+          // refreshDashboardWidgetGrid can rebuild just this list without
+          // re-running the rest of renderCompanyDashboard.
+          function buildCompanyDashboardWidgets() {
             const totalPiles = state.projects.reduce((sum, p) => sum + p.totalPiles, 0);
             const installedPiles = state.projects.reduce((sum, p) => sum + p.installedPiles, 0);
             // Tables/Modules mirror the Piles rollup - cached totals on each
@@ -1227,30 +1414,41 @@ export default async function SolTrendApp() {
             const totalPassed = state.projects.reduce((sum, p) => sum + (p.passedInspections || 0), 0);
             const totalFailed = state.projects.reduce((sum, p) => sum + (p.failedInspections || 0), 0);
             const companyPassRate = (totalPassed + totalFailed) > 0 ? Math.round((totalPassed / (totalPassed + totalFailed)) * 100) : 0;
-            return '<div class="space-y-6 stagger-children">' +
-              '<div class="flex items-center justify-between"><div><h1 class="font-display text-2xl font-bold text-white">' + state.company.name + '</h1><p class="text-slate-400 text-sm">' + activeProjects.length + ' active projects · ' + state.users.length + ' team members</p></div></div>' +
-              '<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Total Piles</span>' + icon('database', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-white">' + formatNumber(installedPiles) + '</p><p class="text-xs text-slate-400 mt-1">of ' + formatNumber(totalPiles) + ' planned</p></div>' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Pass Rate</span>' + icon('check-circle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-blue-400">' + companyPassRate + '%</p><p class="text-xs text-slate-400 mt-1"><span class="text-green-400 font-medium">' + formatNumber(totalPassed) + ' passed</span> · <span class="text-red-400 font-medium">' + formatNumber(totalFailed) + ' failed</span></p></div>' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Refusals</span>' + icon('alert-triangle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-orange-400">' + state.projects.reduce((sum, p) => sum + (p.refusalCount || 0), 0) + '</p><p class="text-xs text-slate-400 mt-1">total logged</p></div>' +
-                '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Active Crews</span>' + icon('users', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-green-400">' + state.crews.length + '</p><p class="text-xs text-slate-400 mt-1">' + (state.crews.length * 8) + ' workers</p></div>' +
-              '</div>' +
-              '<div class="card rounded-xl p-5">' +
-                '<h3 class="font-display font-semibold text-white mb-4">Installation Progress</h3>' +
-                '<div class="space-y-4">' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(installedPiles) + ' / ' + formatNumber(totalPiles) + ' <span class="text-slate-400 font-normal">· ' + pilesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + pilesPct + '%"></div></div></div>' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(tablesInstalled) + ' / ' + formatNumber(totalTables) + ' <span class="text-slate-400 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(modulesInstalled) + ' / ' + formatNumber(totalModules) + ' <span class="text-slate-400 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
-                (totalTables === 0 && totalModules === 0 ? '<p class="text-xs text-slate-400 pt-1">Set planned Tables/Modules totals per project in Settings to see progress here.</p>' : '') +
-                '</div>' +
-              '</div>' +
-              '<div class="grid grid-cols-3 gap-4">' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Today</p><p class="font-display text-2xl font-bold text-white">' + (todayProd?.piles || 0) + ' <span class="text-sm font-normal text-slate-400">piles</span></p><p class="text-xs text-slate-400 mt-1">' + (todayProd?.tables || 0) + ' tables · ' + (todayProd?.modules || 0) + ' modules</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase tracking-wider mb-1">This Week</p><p class="font-display text-2xl font-bold text-white">' + weekProd + ' <span class="text-sm font-normal text-slate-400">piles</span></p><p class="text-xs text-slate-400 mt-1">' + weekProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + weekProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
-                '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase tracking-wider mb-1">This Month</p><p class="font-display text-2xl font-bold text-white">' + monthProd + ' <span class="text-sm font-normal text-slate-400">piles</span></p><p class="text-xs text-slate-400 mt-1">' + monthProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + monthProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
-              '</div>' +
-              renderActiveProjectsTable() +
-            '</div>';
+            return [
+              {
+                id: 'stats', title: 'Key Stats',
+                html: '<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">' +
+                  '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Total Piles</span>' + icon('database', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-white">' + formatNumber(installedPiles) + '</p><p class="text-xs text-slate-400 mt-1">of ' + formatNumber(totalPiles) + ' planned</p></div>' +
+                  '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Pass Rate</span>' + icon('check-circle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-blue-400">' + companyPassRate + '%</p><p class="text-xs text-slate-400 mt-1"><span class="text-green-400 font-medium">' + formatNumber(totalPassed) + ' passed</span> · <span class="text-red-400 font-medium">' + formatNumber(totalFailed) + ' failed</span></p></div>' +
+                  '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Refusals</span>' + icon('alert-triangle', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-orange-400">' + state.projects.reduce((sum, p) => sum + (p.refusalCount || 0), 0) + '</p><p class="text-xs text-slate-400 mt-1">total logged</p></div>' +
+                  '<div class="card rounded-xl p-5"><div class="flex items-center justify-between mb-3"><span class="text-slate-400 text-sm">Active Crews</span>' + icon('users', 'w-4 h-4 text-slate-400') + '</div><p class="font-display text-3xl font-bold text-green-400">' + state.crews.length + '</p><p class="text-xs text-slate-400 mt-1">' + (state.crews.length * 8) + ' workers</p></div>' +
+                '</div>'
+              },
+              {
+                id: 'progress', title: 'Installation Progress',
+                html: '<div class="card rounded-xl p-5">' +
+                  '<h3 class="font-display font-semibold text-white mb-4">Installation Progress</h3>' +
+                  '<div class="space-y-4">' +
+                    '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(installedPiles) + ' / ' + formatNumber(totalPiles) + ' <span class="text-slate-400 font-normal">· ' + pilesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + pilesPct + '%"></div></div></div>' +
+                    '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(tablesInstalled) + ' / ' + formatNumber(totalTables) + ' <span class="text-slate-400 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
+                    '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(modulesInstalled) + ' / ' + formatNumber(totalModules) + ' <span class="text-slate-400 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
+                  (totalTables === 0 && totalModules === 0 ? '<p class="text-xs text-slate-400 pt-1">Set planned Tables/Modules totals per project in Settings to see progress here.</p>' : '') +
+                  '</div>' +
+                '</div>'
+              },
+              {
+                id: 'periods', title: 'Production Snapshot',
+                html: '<div class="grid grid-cols-3 gap-4">' +
+                  '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Today</p><p class="font-display text-2xl font-bold text-white">' + (todayProd?.piles || 0) + ' <span class="text-sm font-normal text-slate-400">piles</span></p><p class="text-xs text-slate-400 mt-1">' + (todayProd?.tables || 0) + ' tables · ' + (todayProd?.modules || 0) + ' modules</p></div>' +
+                  '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase tracking-wider mb-1">This Week</p><p class="font-display text-2xl font-bold text-white">' + weekProd + ' <span class="text-sm font-normal text-slate-400">piles</span></p><p class="text-xs text-slate-400 mt-1">' + weekProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + weekProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
+                  '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase tracking-wider mb-1">This Month</p><p class="font-display text-2xl font-bold text-white">' + monthProd + ' <span class="text-sm font-normal text-slate-400">piles</span></p><p class="text-xs text-slate-400 mt-1">' + monthProdEntries.reduce((s, p) => s + (p.tables || 0), 0) + ' tables · ' + monthProdEntries.reduce((s, p) => s + (p.modules || 0), 0) + ' modules</p></div>' +
+                '</div>'
+              },
+              {
+                id: 'activeProjects', title: 'Active Projects',
+                html: renderActiveProjectsTable()
+              }
+            ];
           }
           // ACTIVE PROJECTS TABLE (Company Dashboard) - replaced both the
           // old project-cards grid and a separate Site Schedule panel
@@ -1508,13 +1706,39 @@ export default async function SolTrendApp() {
             const totalUnits = project.totalPiles + (project.totalTables || 0) + (project.totalModules || 0);
             const installedUnits = project.installedPiles + (project.tablesInstalled || 0) + (project.modulesInstalled || 0);
             const completionPct = scheduleCompletionPct !== null ? scheduleCompletionPct : (totalUnits > 0 ? Math.round((installedUnits / totalUnits) * 100) : 0);
-            const passRate = project.passedInspections > 0 ? Math.round((project.passedInspections / (project.passedInspections + project.failedInspections)) * 100) : 0;
             // Was a hardcoded "45 days remaining" regardless of actual
             // progress - now derived from the real installedPiles count and
             // the project's actual startDate (avg piles/day so far,
             // extrapolated forward). Shows "—" rather than a fake number
             // when there's not yet enough data (no installs logged yet).
             const daysRemainingEst = estimateDaysRemaining(project);
+            return '<div class="space-y-6 stagger-children">' +
+              '<div class="card rounded-xl p-5">' +
+                '<div class="flex items-start justify-between mb-4"><div><div class="flex items-center gap-2"><h1 class="font-display text-2xl font-bold text-white">' + project.name + '</h1><span class="px-2 py-0.5 text-xs font-medium rounded bg-green-500/10 text-green-400">' + project.status + '</span></div><p class="text-slate-400 text-sm">' + project.client + ' · ' + project.location + '</p></div><div class="text-right"><p class="text-xs text-slate-400">Project Manager</p><p class="text-sm text-white font-medium">' + project.projectManager + '</p></div></div>' +
+                '<div class="h-2 bg-slate-700 rounded-full overflow-hidden mt-4"><div class="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full transition-all" style="width: ' + completionPct + '%"></div></div>' +
+                // estimateDaysRemaining() is pile-install-pace only (see
+                // its own comment), so now that the % to its left covers
+                // all three phases, a finished-piles project showed the
+                // confusing pairing "15% Complete ... Complete". Labeled
+                // explicitly as piles so the two numbers stop looking like
+                // they contradict each other.
+                '<div class="flex justify-between mt-1 text-xs"><span class="text-green-400">' + completionPct + '% Complete</span><span class="text-slate-400">' + (daysRemainingEst === null ? 'Not enough data yet' : daysRemainingEst === 0 ? 'Piles complete' : daysRemainingEst + ' days to finish piles (est.)') + '</span></div>' +
+              '</div>' +
+              renderDashboardWidgetGrid('project', buildProjectDashboardWidgets()) +
+            '</div>';
+          }
+          // Builds the Project Dashboard's customizable widgets - same
+          // numbers/markup that used to sit directly inside
+          // renderProjectDashboard() in a fixed order, cut into 4 pieces
+          // (3 when there are no refusals logged yet - Refusal Remediation
+          // is left out of the returned list entirely, same as the
+          // conditional rendering this replaced) that a person can show/
+          // hide/reorder. Kept self-contained so refreshDashboardWidgetGrid
+          // can rebuild just this list without re-running the rest of
+          // renderProjectDashboard.
+          function buildProjectDashboardWidgets() {
+            const project = state.currentProject; if (!project) return [];
+            const pilesPct = Math.round((project.installedPiles / project.totalPiles) * 100);
             // Was a hardcoded "28" - now the real total logged for today
             // via Production Entry (0 if nothing's been logged yet today).
             // localDateStr(), not .toISOString() - see the matching note on
@@ -1525,6 +1749,7 @@ export default async function SolTrendApp() {
             const todayStr = localDateStr(Date.now());
             const todayActual = state.production.find(p => p.date === todayStr)?.piles || 0;
             const todayTarget = project.dailyTarget || 35;
+            const passRate = project.passedInspections > 0 ? Math.round((project.passedInspections / (project.passedInspections + project.failedInspections)) * 100) : 0;
             // Was project.refusals - the real field the API returns is
             // refusalCount (state.refusals is a separate local array of
             // refusal records). The typo made this NaN on every real
@@ -1546,66 +1771,71 @@ export default async function SolTrendApp() {
             // the Company Dashboard rollup, just not summed across projects.
             const tablesPct = project.totalTables > 0 ? Math.round(((project.tablesInstalled || 0) / project.totalTables) * 100) : 0;
             const modulesPct = project.totalModules > 0 ? Math.round(((project.modulesInstalled || 0) / project.totalModules) * 100) : 0;
-            return '<div class="space-y-6 stagger-children">' +
-              '<div class="card rounded-xl p-5">' +
-                '<div class="flex items-start justify-between mb-4"><div><div class="flex items-center gap-2"><h1 class="font-display text-2xl font-bold text-white">' + project.name + '</h1><span class="px-2 py-0.5 text-xs font-medium rounded bg-green-500/10 text-green-400">' + project.status + '</span></div><p class="text-slate-400 text-sm">' + project.client + ' · ' + project.location + '</p></div><div class="text-right"><p class="text-xs text-slate-400">Project Manager</p><p class="text-sm text-white font-medium">' + project.projectManager + '</p></div></div>' +
-                '<div class="h-2 bg-slate-700 rounded-full overflow-hidden mt-4"><div class="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full transition-all" style="width: ' + completionPct + '%"></div></div>' +
-                // estimateDaysRemaining() is pile-install-pace only (see
-                // its own comment), so now that the % to its left covers
-                // all three phases, a finished-piles project showed the
-                // confusing pairing "15% Complete ... Complete". Labeled
-                // explicitly as piles so the two numbers stop looking like
-                // they contradict each other.
-                '<div class="flex justify-between mt-1 text-xs"><span class="text-green-400">' + completionPct + '% Complete</span><span class="text-slate-400">' + (daysRemainingEst === null ? 'Not enough data yet' : daysRemainingEst === 0 ? 'Piles complete' : daysRemainingEst + ' days to finish piles (est.)') + '</span></div>' +
-              '</div>' +
-              '<div class="grid lg:grid-cols-3 gap-4">' +
-                '<div class="lg:col-span-2 card rounded-xl p-5">' +
-                  '<div class="flex items-center justify-between mb-4"><h3 class="font-display font-semibold text-white">Today\\'s Progress</h3></div>' +
-                  '<div class="grid grid-cols-2 gap-4">' +
-                    '<div class="bg-slate-800/50 rounded-lg p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Target</p><p class="font-display text-3xl font-bold text-white">' + todayTarget + '</p></div>' +
-                    '<div class="bg-slate-800/50 rounded-lg p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Actual</p><p class="font-display text-3xl font-bold text-amber-400">' + todayActual + '</p></div>' +
+            const widgets = [
+              {
+                id: 'today', title: "Today's Progress & Quick Actions",
+                html: '<div class="grid lg:grid-cols-3 gap-4">' +
+                  '<div class="lg:col-span-2 card rounded-xl p-5">' +
+                    '<div class="flex items-center justify-between mb-4"><h3 class="font-display font-semibold text-white">Today\\'s Progress</h3></div>' +
+                    '<div class="grid grid-cols-2 gap-4">' +
+                      '<div class="bg-slate-800/50 rounded-lg p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Target</p><p class="font-display text-3xl font-bold text-white">' + todayTarget + '</p></div>' +
+                      '<div class="bg-slate-800/50 rounded-lg p-4 text-center"><p class="text-xs text-slate-400 uppercase mb-1">Actual</p><p class="font-display text-3xl font-bold text-amber-400">' + todayActual + '</p></div>' +
+                    '</div>' +
+                    // Height was uncapped - (piles/50)*100 - so a bulk
+                    // catch-up entry (e.g. backfilling hundreds of piles in
+                    // one day from a QA/QC import) produced a bar several
+                    // hundred percent tall with nothing to stop it, blowing
+                    // out of the card. Clamped to 100% and labeled with the
+                    // real count on hover so an outlier day still reads as
+                    // "pegged at max", not a missing/broken bar.
+                    '<div class="mt-4"><p class="text-xs text-slate-400 mb-2">Last 7 Days</p><div class="sparkline">' + state.production.slice(-7).map(p => { const h = Math.min(100, Math.max(20, (p.piles / 50) * 100)); return '<div class="sparkline-bar" style="height: ' + h + '%" title="' + p.date + ': ' + p.piles + ' piles"></div>'; }).join('') + '</div></div>' +
                   '</div>' +
-                  // Height was uncapped - (piles/50)*100 - so a bulk
-                  // catch-up entry (e.g. backfilling hundreds of piles in
-                  // one day from a QA/QC import) produced a bar several
-                  // hundred percent tall with nothing to stop it, blowing
-                  // out of the card. Clamped to 100% and labeled with the
-                  // real count on hover so an outlier day still reads as
-                  // "pegged at max", not a missing/broken bar.
-                  '<div class="mt-4"><p class="text-xs text-slate-400 mb-2">Last 7 Days</p><div class="sparkline">' + state.production.slice(-7).map(p => { const h = Math.min(100, Math.max(20, (p.piles / 50) * 100)); return '<div class="sparkline-bar" style="height: ' + h + '%" title="' + p.date + ': ' + p.piles + ' piles"></div>'; }).join('') + '</div></div>' +
-                '</div>' +
-                '<div class="card rounded-xl p-5 flex flex-col justify-center gap-3">' +
-                  '<button onclick="navigateTo(\\'inspection\\')" class="w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('clipboard-check', 'w-5 h-5') + ' Start QC</button>' +
-                  '<button onclick="navigateTo(\\'refusal\\')" class="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('alert-triangle', 'w-5 h-5') + ' Log Refusal</button>' +
-                  '<button onclick="navigateTo(\\'dailylog\\')" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('truck', 'w-5 h-5') + ' Daily Log</button>' +
-                  '<button onclick="navigateTo(\\'heatmap\\')" class="w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('map', 'w-5 h-5') + ' View Map</button>' +
-                '</div>' +
-              '</div>' +
-              '<div class="card rounded-xl p-5">' +
-                '<h3 class="font-display font-semibold text-white mb-3">Installation Progress</h3>' +
-                '<div class="space-y-4">' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(project.installedPiles) + ' / ' + formatNumber(project.totalPiles) + ' <span class="text-slate-400 font-normal">· ' + pilesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + pilesPct + '%"></div></div></div>' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(project.tablesInstalled || 0) + ' / ' + formatNumber(project.totalTables || 0) + ' <span class="text-slate-400 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
-                  '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(project.modulesInstalled || 0) + ' / ' + formatNumber(project.totalModules || 0) + ' <span class="text-slate-400 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
-                (!project.totalTables && !project.totalModules ? '<p class="text-xs text-slate-400 pt-1">Set planned Tables/Modules totals for this project in Settings to see progress here.</p>' : '') +
-                '</div>' +
-              '</div>' +
-              // Refusal Remediation - tracks refusals from logged to
-              // resolved. Deliberately separate from the Piles/Tables/
-              // Modules progress above: this is rework on piles already
-              // installed, not a new construction phase, so it doesn't
-              // belong blended into that completion math.
-              (totalRefusalsCount > 0 ? '<div class="card rounded-xl p-5">' +
-                '<div class="flex items-center justify-between mb-1"><h3 class="font-display font-semibold text-white">Refusal Remediation</h3><button onclick="navigateTo(\\'refusalList\\')" class="text-xs text-amber-400 hover:text-amber-300 font-medium">View List →</button></div>' +
-                '<div class="flex justify-between text-sm mb-1.5 mt-3"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-green-400">●</span> Resolved</span><span class="text-white font-medium">' + resolvedRefusalsCount + ' / ' + totalRefusalsCount + ' <span class="text-slate-400 font-normal">· ' + resolvedRefusalsPct + '%</span></span></div>' +
-                '<div class="h-2 bg-slate-700 rounded-full overflow-hidden mb-4"><div class="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full" style="width: ' + resolvedRefusalsPct + '%"></div></div>' +
-                '<div class="grid grid-cols-3 gap-2 text-center">' +
-                  '<div class="bg-slate-800/50 rounded-lg p-2"><p class="text-lg font-bold text-red-400">' + openRefusalsCount + '</p><p class="text-[10px] text-slate-400 uppercase">Open</p></div>' +
-                  '<div class="bg-slate-800/50 rounded-lg p-2"><p class="text-lg font-bold text-green-400">' + resolvedRefusalsCount + '</p><p class="text-[10px] text-slate-400 uppercase">Resolved</p></div>' +
-                  '<div class="bg-slate-800/50 rounded-lg p-2"><p class="text-lg font-bold text-purple-400">' + redesignRefusalsCount + '</p><p class="text-[10px] text-slate-400 uppercase">Redesign</p></div>' +
-                '</div>' +
-              '</div>' : '') +
-              '<div class="grid lg:grid-cols-3 gap-4">' +
+                  '<div class="card rounded-xl p-5 flex flex-col justify-center gap-3">' +
+                    '<button onclick="navigateTo(\\'inspection\\')" class="w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('clipboard-check', 'w-5 h-5') + ' Start QC</button>' +
+                    '<button onclick="navigateTo(\\'refusal\\')" class="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('alert-triangle', 'w-5 h-5') + ' Log Refusal</button>' +
+                    '<button onclick="navigateTo(\\'dailylog\\')" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('truck', 'w-5 h-5') + ' Daily Log</button>' +
+                    '<button onclick="navigateTo(\\'heatmap\\')" class="w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors">' + icon('map', 'w-5 h-5') + ' View Map</button>' +
+                  '</div>' +
+                '</div>'
+              },
+              {
+                id: 'installProgress', title: 'Installation Progress',
+                html: '<div class="card rounded-xl p-5">' +
+                  '<h3 class="font-display font-semibold text-white mb-3">Installation Progress</h3>' +
+                  '<div class="space-y-4">' +
+                    '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-amber-400">●</span> Piles</span><span class="text-white font-medium">' + formatNumber(project.installedPiles) + ' / ' + formatNumber(project.totalPiles) + ' <span class="text-slate-400 font-normal">· ' + pilesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full" style="width: ' + pilesPct + '%"></div></div></div>' +
+                    '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-sky-400">●</span> Tables</span><span class="text-white font-medium">' + formatNumber(project.tablesInstalled || 0) + ' / ' + formatNumber(project.totalTables || 0) + ' <span class="text-slate-400 font-normal">· ' + tablesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full" style="width: ' + tablesPct + '%"></div></div></div>' +
+                    '<div><div class="flex justify-between text-sm mb-1.5"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-purple-400">●</span> Modules</span><span class="text-white font-medium">' + formatNumber(project.modulesInstalled || 0) + ' / ' + formatNumber(project.totalModules || 0) + ' <span class="text-slate-400 font-normal">· ' + modulesPct + '%</span></span></div><div class="h-2 bg-slate-700 rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full" style="width: ' + modulesPct + '%"></div></div></div>' +
+                  (!project.totalTables && !project.totalModules ? '<p class="text-xs text-slate-400 pt-1">Set planned Tables/Modules totals for this project in Settings to see progress here.</p>' : '') +
+                  '</div>' +
+                '</div>'
+              }
+            ];
+            // Refusal Remediation - tracks refusals from logged to
+            // resolved. Deliberately separate from the Piles/Tables/
+            // Modules progress above: this is rework on piles already
+            // installed, not a new construction phase, so it doesn't
+            // belong blended into that completion math. Left out of the
+            // list entirely when there are no refusals yet, same as the
+            // conditional rendering this replaced.
+            if (totalRefusalsCount > 0) {
+              widgets.push({
+                id: 'refusalRemediation', title: 'Refusal Remediation',
+                html: '<div class="card rounded-xl p-5">' +
+                  '<div class="flex items-center justify-between mb-1"><h3 class="font-display font-semibold text-white">Refusal Remediation</h3><button onclick="navigateTo(\\'refusalList\\')" class="text-xs text-amber-400 hover:text-amber-300 font-medium">View List →</button></div>' +
+                  '<div class="flex justify-between text-sm mb-1.5 mt-3"><span class="text-slate-300 flex items-center gap-1.5"><span class="text-green-400">●</span> Resolved</span><span class="text-white font-medium">' + resolvedRefusalsCount + ' / ' + totalRefusalsCount + ' <span class="text-slate-400 font-normal">· ' + resolvedRefusalsPct + '%</span></span></div>' +
+                  '<div class="h-2 bg-slate-700 rounded-full overflow-hidden mb-4"><div class="h-full bg-gradient-to-r from-green-500 to-green-400 rounded-full" style="width: ' + resolvedRefusalsPct + '%"></div></div>' +
+                  '<div class="grid grid-cols-3 gap-2 text-center">' +
+                    '<div class="bg-slate-800/50 rounded-lg p-2"><p class="text-lg font-bold text-red-400">' + openRefusalsCount + '</p><p class="text-[10px] text-slate-400 uppercase">Open</p></div>' +
+                    '<div class="bg-slate-800/50 rounded-lg p-2"><p class="text-lg font-bold text-green-400">' + resolvedRefusalsCount + '</p><p class="text-[10px] text-slate-400 uppercase">Resolved</p></div>' +
+                    '<div class="bg-slate-800/50 rounded-lg p-2"><p class="text-lg font-bold text-purple-400">' + redesignRefusalsCount + '</p><p class="text-[10px] text-slate-400 uppercase">Redesign</p></div>' +
+                  '</div>' +
+                '</div>'
+              });
+            }
+            widgets.push({
+              id: 'qualityAndActivity', title: 'Quality & Activity',
+              html: '<div class="grid lg:grid-cols-3 gap-4">' +
                 '<div class="space-y-3">' +
                   '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-400">Pass Rate</p><p class="font-display text-xl font-bold text-white">' + passRate + '%</p><p class="text-[11px] text-slate-400 mt-0.5"><span class="text-green-400">' + (project.passedInspections || 0) + ' pass</span> · <span class="text-red-400">' + (project.failedInspections || 0) + ' fail</span></p></div><div class="w-12 h-12 rounded-full border-4 border-green-500 flex items-center justify-center text-green-400 font-bold">' + passRate + '</div></div>' +
                   '<div class="card rounded-xl p-4 flex items-center justify-between"><div><p class="text-xs text-slate-400">Open Issues</p><p class="font-display text-xl font-bold text-white">' + openIssues + '</p></div><div class="w-12 h-12 rounded-full border-4 border-red-500 flex items-center justify-center text-red-400 font-bold">' + openIssues + '</div></div>' +
@@ -1613,8 +1843,9 @@ export default async function SolTrendApp() {
                 '</div>' +
                 '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3 flex items-center justify-between">Needs Attention <span class="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400">' + openIssues + '</span></h3><div class="space-y-2 max-h-48 overflow-y-auto">' + state.inspections.filter(i => i.status === 'fail').slice(0, 3).map(i => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + i.pileId + '</span><span class="text-red-400">Failed</span></div>').join('') + state.refusals.filter(function(r) { return r.status === 'open'; }).slice(0, 2).map(r => '<div class="flex items-center justify-between p-2 bg-slate-800/50 rounded-lg text-xs"><span class="text-slate-300">' + r.pileId + '</span><span class="text-orange-400">Refusal</span></div>').join('') + '</div></div>' +
                 '<div class="card rounded-xl p-5"><h3 class="font-display font-semibold text-white mb-3">Recent Activity</h3><div class="space-y-3 max-h-48 overflow-y-auto">' + (function() { const feed = computeRecentActivity(); return feed.length > 0 ? feed.map(a => '<div class="activity-item ' + a.type + ' pl-4 py-1"><p class="text-sm text-slate-300">' + a.message + '</p><p class="text-xs text-slate-400">' + a.user + ' · ' + a.time + '</p></div>').join('') : '<p class="text-sm text-slate-400">No activity logged yet.</p>'; })() + '</div></div>' +
-              '</div>' +
-            '</div>';
+              '</div>'
+            });
+            return widgets;
           }
 
           // ANALYTICS - FULL IMPLEMENTATION
