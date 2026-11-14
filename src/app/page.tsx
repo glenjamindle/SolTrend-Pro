@@ -4025,20 +4025,22 @@ export default async function SolTrendApp() {
             ];
             if (unaccounted > 0) reconSegments.push({ label: 'Unaccounted', value: unaccounted, color: REPORT_STATUS_COLORS.pending });
 
-            const rowTableBody = rows.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:#94a3b8;">No rows set up yet</td></tr>' : rows.map(function(r) {
+            const rowTableBody = rows.length === 0 ? '<tr><td colspan="5" style="text-align:center;color:#94a3b8;">No rows set up yet</td></tr>' : rows.map(function(r) {
               const scanned = (r.slots || []).length;
               const hasExpected = r.expectedCount != null;
               const incomplete = hasExpected && scanned < r.expectedCount;
               const statusLabel = !hasExpected ? '-' : (incomplete ? 'Incomplete' : 'Complete');
-              return '<tr' + (incomplete ? ' style="background:#fffbeb;"' : '') + '><td>' + r.rowId + '</td><td>' + scanned + '</td><td>' + (hasExpected ? r.expectedCount : '-') + '</td><td' + (incomplete ? ' style="color:#b45309;font-weight:600;"' : '') + '>' + statusLabel + '</td></tr>';
+              // Difference = Expected - Scanned: a positive shortfall shows
+              // as "-N" (N modules still missing from this row), and
+              // scanning MORE than expected (a likely double-scan, or a
+              // stale expected count) shows as "+N" rather than being
+              // hidden - both are worth a glance at a row level.
+              const diff = hasExpected ? r.expectedCount - scanned : null;
+              const diffLabel = diff === null ? '-' : (diff > 0 ? ('-' + diff) : (diff < 0 ? ('+' + Math.abs(diff)) : '0'));
+              const diffStyle = diff ? ' style="color:#b45309;font-weight:600;"' : '';
+              return '<tr' + (incomplete ? ' style="background:#fffbeb;"' : '') + '><td>' + r.rowId + '</td><td>' + scanned + '</td><td>' + (hasExpected ? r.expectedCount : '-') + '</td><td' + diffStyle + '>' + diffLabel + '</td><td' + (incomplete ? ' style="color:#b45309;font-weight:600;"' : '') + '>' + statusLabel + '</td></tr>';
             }).join('');
 
-            const brokenRowsHtml = broken.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:#94a3b8;">None logged</td></tr>' : broken.slice(0, 25).map(function(b) {
-              return '<tr><td>' + b.barcode + '</td><td>' + (b.reason || '') + '</td><td>' + (b.loggedBy || '') + '</td><td>' + formatDate(b.loggedAt) + '</td></tr>';
-            }).join('');
-            const sparesRowsHtml = spares.length === 0 ? '<tr><td colspan="3" style="text-align:center;color:#94a3b8;">None logged</td></tr>' : spares.slice(0, 25).map(function(s) {
-              return '<tr><td>' + s.barcode + '</td><td>' + (s.loggedBy || '') + '</td><td>' + formatDate(s.loggedAt) + '</td></tr>';
-            }).join('');
             const flaggedRowsHtml = flagged.length === 0 ? '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">None currently flagged</td></tr>' : flagged.slice(0, 25).map(function(f) {
               return '<tr><td>' + f.row.rowId + '</td><td>' + f.slot.position + '</td><td>' + (f.slot.barcode || '') + '</td><td>' + (f.slot.flaggedReason || '') + '</td><td>' + (f.slot.flaggedBy || '') + '</td><td>' + formatDate(f.slot.flaggedAt) + '</td></tr>';
             }).join('');
@@ -4096,7 +4098,7 @@ export default async function SolTrendApp() {
                 <div class="section">
                   <h2>Rows (\${rows.length})</h2>
                   <table>
-                    <thead><tr><th>Row</th><th>Scanned</th><th>Expected</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Row</th><th>Scanned</th><th>Expected</th><th>Difference</th><th>Status</th></tr></thead>
                     <tbody>\${rowTableBody}</tbody>
                   </table>
                   <p class="note">For every individual module's row and serial number, use the Module Serials CSV export instead.</p>
@@ -4109,22 +4111,6 @@ export default async function SolTrendApp() {
                   </table>
                   <p class="note">Found broken after install, still counted as Installed above until replaced or resolved &mdash; see the Module Map for the live list.</p>
                   \${flagged.length > 25 ? '<p class="note">+ ' + (flagged.length - 25) + ' more not shown - see the Module Map in the app for the full list.</p>' : ''}
-                </div>
-                <div class="section">
-                  <h2>Broken (\${broken.length})</h2>
-                  <table>
-                    <thead><tr><th>Barcode</th><th>Reason</th><th>Logged By</th><th>Date</th></tr></thead>
-                    <tbody>\${brokenRowsHtml}</tbody>
-                  </table>
-                  \${broken.length > 25 ? '<p class="note">+ ' + (broken.length - 25) + ' more not shown - see Module Scan &gt; Broken &amp; Spares in the app for the full list.</p>' : ''}
-                </div>
-                <div class="section">
-                  <h2>Spares (\${spares.length})</h2>
-                  <table>
-                    <thead><tr><th>Barcode</th><th>Logged By</th><th>Date</th></tr></thead>
-                    <tbody>\${sparesRowsHtml}</tbody>
-                  </table>
-                  \${spares.length > 25 ? '<p class="note">+ ' + (spares.length - 25) + ' more not shown - see Module Scan &gt; Broken &amp; Spares in the app for the full list.</p>' : ''}
                 </div>
                 <div class="footer">
                   <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
