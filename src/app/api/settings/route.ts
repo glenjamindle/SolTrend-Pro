@@ -269,6 +269,15 @@ export async function POST(request: NextRequest) {
             longitude: data.longitude ?? null,
           }
           if (data.totalPiles !== undefined) projectUpdateData.totalPiles = data.totalPiles
+          // Same "only touch it when this save actually sent it" guard as
+          // totalPiles above - modulesProcured is nullable and most saves
+          // of this form (applyStandardGridLayout, a plain rename, etc.)
+          // never include it, so defaulting it like totalTables/totalModules
+          // do would silently wipe out a real procured count on every
+          // unrelated save. undefined here means "leave it alone"; an
+          // explicit null (the modal's field left blank) means "go back to
+          // falling back on totalModules".
+          if (data.modulesProcured !== undefined) projectUpdateData.modulesProcured = data.modulesProcured
           if (data.totalRows !== undefined && data.pilesPerRow !== undefined) {
             projectUpdateData.totalRows = data.totalRows
             projectUpdateData.pilesPerRow = data.pilesPerRow
@@ -303,6 +312,7 @@ export async function POST(request: NextRequest) {
               totalPiles: data.totalPiles || (data.totalRows || 50) * (data.pilesPerRow || 30),
               totalTables: data.totalTables || 0,
               totalModules: data.totalModules || 0,
+              modulesProcured: data.modulesProcured ?? null,
               rackingProfileId: data.rackingProfileId,
               status: data.status || 'active',
               latitude: data.latitude ?? null,

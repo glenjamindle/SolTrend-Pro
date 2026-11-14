@@ -4008,7 +4008,13 @@ export default async function SolTrendApp() {
           // PDF with what could be thousands of rows.
           function generateModuleReport() {
             const project = state.currentProject;
-            const procured = (project && project.totalModules) || 0;
+            // Procured (ordered, incl. breakage margin/spares) is a
+            // separate field from totalModules (the design/to-install
+            // count) - see the schema comment on modulesProcured. Falls
+            // back to totalModules when unset so a project nobody's filled
+            // this in for yet reconciles exactly as it did before this
+            // field existed.
+            const procured = project ? (project.modulesProcured ?? project.totalModules ?? 0) : 0;
             const rows = state.moduleRows.slice().sort(function(a, b) { return (a.rowId + '').localeCompare(b.rowId + '', undefined, { numeric: true }); });
             let installed = 0;
             rows.forEach(function(row) { installed += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
@@ -4043,7 +4049,7 @@ export default async function SolTrendApp() {
 
             const moduleNarrative = procured > 0
               ? (formatNumber(installed) + ' of ' + formatNumber(procured) + ' procured modules installed (' + pct + '%) across ' + rows.length + ' row' + (rows.length === 1 ? '' : 's') + ', ' + spares.length + ' spare' + (spares.length === 1 ? '' : 's') + ' and ' + broken.length + ' broken logged.')
-              : (formatNumber(installed) + ' modules installed across ' + rows.length + ' row' + (rows.length === 1 ? '' : 's') + ', ' + spares.length + ' spare' + (spares.length === 1 ? '' : 's') + ' and ' + broken.length + ' broken logged. Set this project\\'s total procured module count in Settings to see Unaccounted here.');
+              : (formatNumber(installed) + ' modules installed across ' + rows.length + ' row' + (rows.length === 1 ? '' : 's') + ', ' + spares.length + ' spare' + (spares.length === 1 ? '' : 's') + ' and ' + broken.length + ' broken logged. Set Modules Procured (or Planned Modules) for this project in Settings to see Unaccounted here.');
 
             const reconSegments = [
               { label: 'Installed', value: installed, color: '#a855f7' },
@@ -4120,7 +4126,7 @@ export default async function SolTrendApp() {
                     <div class="stat-box"><div class="value">\${formatNumber(broken.length)}</div><div class="label">Broken</div></div>
                     <div class="stat-box"><div class="value\${unaccounted !== 0 ? ' warn' : ''}">\${formatNumber(unaccounted)}</div><div class="label">Unaccounted</div></div>
                   </div>
-                  \${procured > 0 ? reportStackedBar(reconSegments) : '<p class="note">Set this project\\'s total procured module count in Settings to see a reconciliation breakdown here.</p>'}
+                  \${procured > 0 ? reportStackedBar(reconSegments) : '<p class="note">Set Modules Procured (or Planned Modules) for this project in Settings to see a reconciliation breakdown here.</p>'}
                 </div>
                 <div class="section">
                   <h2>Rows (\${rows.length})</h2>
@@ -5621,7 +5627,10 @@ export default async function SolTrendApp() {
             '</div>';
           }
           function renderModuleReconcileTab() {
-            const procured = (state.currentProject && state.currentProject.totalModules) || 0;
+            // Same procured-vs-planned distinction as generateModuleReport()
+            // above - falls back to totalModules when modulesProcured isn't
+            // set yet.
+            const procured = state.currentProject ? (state.currentProject.modulesProcured ?? state.currentProject.totalModules ?? 0) : 0;
             let installed = 0;
             state.moduleRows.forEach(function(row) { installed += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
             const spares = state.moduleSpares.length;
@@ -5639,7 +5648,7 @@ export default async function SolTrendApp() {
             return '<div class="space-y-4">' +
               '<div class="grid grid-cols-2 lg:grid-cols-6 gap-3">' + stat('Procured', procured) + stat('Installed', installed) + stat('Flagged', flagged, flagged > 0) + stat('Spares', spares) + stat('Broken', broken) + stat('Unaccounted', unaccounted, unaccounted !== 0) + '</div>' +
               '<div class="card rounded-xl p-4"><div class="flex items-center gap-3 text-sm"><span class="text-slate-400 whitespace-nowrap">Installed</span><div class="flex-1 h-2 rounded-full bg-slate-700 overflow-hidden"><div class="h-full bg-amber-500" style="width:' + Math.max(0, Math.min(100, pct)) + '%"></div></div><span class="text-white font-mono">' + pct + '%</span></div></div>' +
-              (procured === 0 ? '<p class="text-xs text-slate-400">Set this project\\'s total procured module count in Settings to see Unaccounted here.</p>' : '') +
+              (procured === 0 ? '<p class="text-xs text-slate-400">Set Modules Procured (or Planned Modules) for this project in Settings to see Unaccounted here.</p>' : '') +
             '</div>';
           }
           function renderModuleInventoryTab() {
@@ -10155,6 +10164,17 @@ export default async function SolTrendApp() {
                   '<div><label class="text-xs text-slate-400 mb-2 block">Planned Modules</label>' +
                   '<input type="number" id="modalTotalModules" value="' + (p.totalModules || 0) + '" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white"></div>' +
                 '</div>' +
+                // Deliberately separate from Planned Modules above - that's
+                // the design count progress bars/velocity rates are keyed
+                // to everywhere else in the app. Procurement is almost
+                // always higher (breakage margin + spares to keep on hand),
+                // and conflating the two made the Module Map reconciliation
+                // compare installed counts against the wrong number. Left
+                // blank, reconciliation just falls back to Planned Modules,
+                // same as before this field existed.
+                '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Modules Procured <span class="normal-case text-slate-500">(optional - for Module Map reconciliation only)</span></label>' +
+                '<input type="number" id="modalModulesProcured" value="' + (p.modulesProcured ?? '') + '" placeholder="Defaults to Planned Modules (' + (p.totalModules || 0) + ') if left blank" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
+                '<p class="text-xs text-slate-400 mt-1">Total modules actually ordered, including breakage margin and spares - usually higher than Planned Modules. Used only for the Procured/Installed/Spares/Broken reconciliation on the Module Map; progress bars and velocity rates always use Planned Modules.</p></div>' +
                 '<div><label class="text-xs text-slate-400 uppercase mb-2 block">Racking Profile</label>' +
                 '<select id="modalRackingProfileId" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">' +
                   '<option value="">None</option>' +
@@ -10346,6 +10366,11 @@ export default async function SolTrendApp() {
               data.latitude = latVal ? parseFloat(latVal) : null;
               data.longitude = lngVal ? parseFloat(lngVal) : null;
               data.rackingProfileId = document.getElementById('modalRackingProfileId')?.value || null;
+              // Blank means "no override" - null, not 0, so the server
+              // falls back to Planned Modules (totalModules) rather than
+              // reconciling against a procured count of zero.
+              const procuredVal = document.getElementById('modalModulesProcured')?.value;
+              data.modulesProcured = (procuredVal === '' || procuredVal == null) ? null : parseInt(procuredVal) || 0;
               // totalRows/pilesPerRow are deliberately NOT sent from this
               // form - see the comment above the modal's Total Piles field.
               // They're only ever set via applyStandardGridLayout() in the
