@@ -1981,7 +1981,7 @@ export default async function SolTrendApp() {
                   '<button onclick="generateMonthlyReport()" class="w-full py-2.5 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
               '</div>' +
-              '<div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4">' +
+              '<div class="grid md:grid-cols-3 gap-4">' +
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('clipboard-check', 'w-8 h-8 text-purple-400') + '<div><h3 class="font-display font-semibold text-white">QC Report</h3><p class="text-xs text-slate-400">Inspection summary</p></div></div>' +
                   '<div class="grid grid-cols-2 gap-2 mb-3">' +
@@ -2002,10 +2002,10 @@ export default async function SolTrendApp() {
                   '</div>' +
                   '<button onclick="generateRefusalReport()" class="w-full py-2.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
-                '<div class="card rounded-xl p-5">' +
-                  '<div class="flex items-center gap-3 mb-4">' + icon('layout-grid', 'w-8 h-8 text-purple-400') + '<div><h3 class="font-display font-semibold text-white">Module Report</h3><p class="text-xs text-slate-400">Reconciliation + row status</p></div></div>' +
-                  '<button onclick="generateModuleReport()" class="w-full py-2.5 bg-purple-500 hover:bg-purple-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
-                '</div>' +
+              '</div>' +
+              '<div class="card rounded-xl p-5">' +
+                '<div class="flex items-center gap-3 mb-4">' + icon('layout-grid', 'w-8 h-8 text-purple-400') + '<div><h3 class="font-display font-semibold text-white">Module Report</h3><p class="text-xs text-slate-400">Reconciliation + row status</p></div></div>' +
+                '<button onclick="generateModuleReport()" class="w-full py-2.5 bg-purple-500 hover:bg-purple-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
               '</div>' +
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-center gap-3 mb-4">' + icon('list-checks', 'w-8 h-8 text-teal-400') + '<div><h3 class="font-display font-semibold text-white">Punch List Report</h3><p class="text-xs text-slate-400">Every item, fully detailed and numbered</p></div></div>' +
