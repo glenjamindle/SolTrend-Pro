@@ -91,7 +91,8 @@ export default async function SolTrendApp() {
         .module-cell:hover { transform: scale(1.6); z-index: 10; box-shadow: 0 0 8px rgba(255,255,255,0.3); border-color: white; }
         .module-cell.dimmed { opacity: 0.15; }
         .module-cell.good { background: #35d399; }
-        .module-cell.good.selected { outline: 2px solid #f6a723; outline-offset: 1px; }
+        .module-cell.flagged { background: #ef4444; }
+        .module-cell.good.selected, .module-cell.flagged.selected { outline: 2px solid #f6a723; outline-offset: 1px; }
         .module-cell-gap, .module-cell.unscanned { flex-shrink: 0; border-radius: 3px; }
         .module-cell-gap { background: transparent; }
         .module-cell.unscanned { background: #141d2e; border: 1px solid #2d3b52; cursor: default; }
@@ -411,7 +412,7 @@ export default async function SolTrendApp() {
             // renderModuleMap). moduleTab only switches between Module
             // Map's three sub-tabs (map/reconcile/inventory); Scan has no
             // tab of its own since it's reached as its own nav item.
-            moduleRows: [], moduleSpares: [], moduleBroken: [],
+            moduleRows: [], moduleSpares: [], moduleBroken: [], moduleFlagHistory: [],
             moduleTab: 'map',
             // 'module' | 'spare' | 'broken' - which inventory a scanned
             // barcode is filed into while Scan Mode is open.
@@ -448,6 +449,16 @@ export default async function SolTrendApp() {
             moduleMapSearch: '', moduleMapZoom: 1,
             // Clicked Module Map cell - { rowId, position, slot } - or null.
             moduleDetailCell: null,
+            // Flagging/replacing a module straight from its Module Map
+            // cell (see MODULE_FLAG_REASONS, showModuleCellDetail's detail
+            // panel). moduleFlaggingCell/moduleReplacingCell are which of
+            // the two inline forms is open for the current moduleDetailCell;
+            // moduleFlagReasonDraft is the reason picker's current choice.
+            // moduleConflict (above) is reused for a 'replace' kind too.
+            moduleFlaggingCell: false,
+            moduleFlagReasonDraft: '',
+            moduleReplacingCell: false,
+            moduleReplaceSubmitting: false,
             // id of the ModuleRow whose offset/expectedCount edit form is
             // open (manager+ only, mirrors Pile Layout's edit gate), or null.
             moduleRowSettingsId: null,
@@ -3745,6 +3756,15 @@ export default async function SolTrendApp() {
             rows.forEach(function(row) { installed += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
             const spares = state.moduleSpares.slice().sort(function(a, b) { return new Date(b.loggedAt) - new Date(a.loggedAt); });
             const broken = state.moduleBroken.slice().sort(function(a, b) { return new Date(b.loggedAt) - new Date(a.loggedAt); });
+            // Found broken AFTER install - still counts toward Installed
+            // above (the barcode's still in its slot), so this never
+            // touches the reconciliation math, it's purely a "needs a
+            // swap crew" work list. See ModuleSlot.flaggedBroken.
+            const flagged = [];
+            rows.forEach(function(row) {
+              (row.slots || []).forEach(function(s) { if (s.flaggedBroken) flagged.push({ row: row, slot: s }); });
+            });
+            flagged.sort(function(a, b) { return new Date(b.slot.flaggedAt) - new Date(a.slot.flaggedAt); });
             const unaccounted = procured - installed - spares.length - broken.length;
             const pct = procured > 0 ? Math.min(100, Math.round((installed / procured) * 1000) / 10) : 0;
             const incompleteRows = rows.filter(function(r) { return r.expectedCount != null && (r.slots || []).length < r.expectedCount; });
@@ -3758,6 +3778,9 @@ export default async function SolTrendApp() {
             if (incompleteRows.length > 0) {
               const names = incompleteRows.slice(0, 8).map(function(r) { return r.rowId; }).join(', ') + (incompleteRows.length > 8 ? ', &hellip;' : '');
               moduleAttentionItems.push(incompleteRows.length + ' row' + (incompleteRows.length === 1 ? '' : 's') + ' below its expected module count: ' + names + '.');
+            }
+            if (flagged.length > 0) {
+              moduleAttentionItems.push(flagged.length + ' module' + (flagged.length === 1 ? '' : 's') + ' flagged broken in the field and still waiting on a replacement scan.');
             }
 
             const moduleNarrative = procured > 0
@@ -3785,6 +3808,9 @@ export default async function SolTrendApp() {
             const sparesRowsHtml = spares.length === 0 ? '<tr><td colspan="3" style="text-align:center;color:#94a3b8;">None logged</td></tr>' : spares.slice(0, 25).map(function(s) {
               return '<tr><td>' + s.barcode + '</td><td>' + (s.loggedBy || '') + '</td><td>' + formatDate(s.loggedAt) + '</td></tr>';
             }).join('');
+            const flaggedRowsHtml = flagged.length === 0 ? '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">None currently flagged</td></tr>' : flagged.slice(0, 25).map(function(f) {
+              return '<tr><td>' + f.row.rowId + '</td><td>' + f.slot.position + '</td><td>' + (f.slot.barcode || '') + '</td><td>' + (f.slot.flaggedReason || '') + '</td><td>' + (f.slot.flaggedBy || '') + '</td><td>' + formatDate(f.slot.flaggedAt) + '</td></tr>';
+            }).join('');
 
             const reportContent = \`
               <!DOCTYPE html>
@@ -3798,7 +3824,7 @@ export default async function SolTrendApp() {
                   .header p { color: #64748b; margin: 5px 0; }
                   .section { margin-bottom: 25px; }
                   .section h2 { color: #a855f7; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
-                  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin: 15px 0; }
+                  .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 15px; margin: 15px 0; }
                   .stat-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; text-align: center; }
                   .stat-box .value { font-size: 28px; font-weight: bold; color: #a855f7; }
                   .stat-box .value.warn { color: #d97706; }
@@ -3829,6 +3855,7 @@ export default async function SolTrendApp() {
                   <div class="stats">
                     <div class="stat-box"><div class="value">\${formatNumber(procured)}</div><div class="label">Procured</div></div>
                     <div class="stat-box"><div class="value">\${formatNumber(installed)}</div><div class="label">Installed</div></div>
+                    <div class="stat-box"><div class="value\${flagged.length > 0 ? ' warn' : ''}">\${formatNumber(flagged.length)}</div><div class="label">Flagged</div></div>
                     <div class="stat-box"><div class="value">\${formatNumber(spares.length)}</div><div class="label">Spares</div></div>
                     <div class="stat-box"><div class="value">\${formatNumber(broken.length)}</div><div class="label">Broken</div></div>
                     <div class="stat-box"><div class="value\${unaccounted !== 0 ? ' warn' : ''}">\${formatNumber(unaccounted)}</div><div class="label">Unaccounted</div></div>
@@ -3842,6 +3869,15 @@ export default async function SolTrendApp() {
                     <tbody>\${rowTableBody}</tbody>
                   </table>
                   <p class="note">For every individual module's row and serial number, use the Module Serials CSV export instead.</p>
+                </div>
+                <div class="section">
+                  <h2>Flagged Broken (\${flagged.length})</h2>
+                  <table>
+                    <thead><tr><th>Row</th><th>Position</th><th>Barcode</th><th>Reason</th><th>Flagged By</th><th>Date</th></tr></thead>
+                    <tbody>\${flaggedRowsHtml}</tbody>
+                  </table>
+                  <p class="note">Found broken after install, still counted as Installed above until replaced or resolved &mdash; see the Module Map for the live list.</p>
+                  \${flagged.length > 25 ? '<p class="note">+ ' + (flagged.length - 25) + ' more not shown - see the Module Map in the app for the full list.</p>' : ''}
                 </div>
                 <div class="section">
                   <h2>Broken (\${broken.length})</h2>
@@ -4885,6 +4921,19 @@ export default async function SolTrendApp() {
           async function moveModuleConflict() {
             const pending = state.moduleConflict;
             if (!pending) return;
+            // 'replace' comes from the Module Map's "Scan replacement"
+            // flow, not Scan Mode - its own submitting flag/focus target,
+            // never the Scan Mode ones below.
+            if (pending.kind === 'replace') {
+              state.moduleConflict = null;
+              state.moduleReplaceSubmitting = true; render();
+              try {
+                await submitReplaceModuleCell(pending.barcode, true);
+              } finally {
+                state.moduleReplaceSubmitting = false; render(); focusModuleReplaceInput();
+              }
+              return;
+            }
             state.moduleConflict = null;
             state.moduleScanSubmitting = true; render();
             try {
@@ -4894,6 +4943,10 @@ export default async function SolTrendApp() {
             } finally {
               state.moduleScanSubmitting = false; render(); focusModuleScanInput();
             }
+          }
+          function skipModuleReplaceConflict() {
+            state.moduleConflict = null;
+            render(); focusModuleReplaceInput();
           }
           // Admin-only corrections - same delete policy as every other
           // destructive action in this app. A deleted slot leaves its
@@ -4927,6 +4980,151 @@ export default async function SolTrendApp() {
               state.moduleBroken = state.moduleBroken.filter(function(b) { return b.id !== id; });
               render();
             } catch (e) { console.error('Delete broken module error:', e); alert('Failed to delete. Please try again.'); }
+          }
+
+          // MODULE MAP cell flagging - a module found broken AFTER it's
+          // already installed (hail, a forklift strike, whatever turns up
+          // on a walk-through weeks later). Deliberately separate from the
+          // Broken inventory above, which is "never made it into a row" -
+          // see the comment on ModuleSlot.flaggedBroken in schema.prisma.
+          // Open to any field user, same as every other field-logging
+          // action in this app - flagging/resolving doesn't create or
+          // delete a record, just annotates one that already exists.
+          var MODULE_FLAG_REASONS = ['Physical damage', 'Hot spot', 'Cracked glass', 'Junction box/wiring', 'Other'];
+          function startFlagModuleCell() {
+            state.moduleFlagReasonDraft = MODULE_FLAG_REASONS[0];
+            state.moduleFlaggingCell = true;
+            render();
+          }
+          function cancelFlagModuleCell() { state.moduleFlaggingCell = false; render(); }
+          function setModuleFlagReasonDraft(reason) { state.moduleFlagReasonDraft = reason; render(); }
+          async function submitFlagModuleCell() {
+            const cell = state.moduleDetailCell;
+            if (!cell) return;
+            const row = state.moduleRows.find(function(r) { return r.id === cell.rowId; });
+            const slot = row && (row.slots || []).find(function(s) { return s.position === cell.position; });
+            if (!row || !slot) return;
+            const reason = state.moduleFlagReasonDraft || MODULE_FLAG_REASONS[0];
+            const flaggedBy = state.currentUser.name || null;
+            const flaggedAt = new Date().toISOString();
+            slot.flaggedBroken = true; slot.flaggedReason = reason; slot.flaggedBy = flaggedBy; slot.flaggedAt = flaggedAt;
+            state.moduleFlaggingCell = false;
+            render();
+            try {
+              const res = await fetch('/api/module-slots', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: slot.id, action: 'flag', reason: reason, flaggedBy: flaggedBy }) });
+              if (res.status === 202) return;
+              const data = await res.json();
+              if (!res.ok) {
+                slot.flaggedBroken = false; slot.flaggedReason = null; slot.flaggedBy = null; slot.flaggedAt = null;
+                alert(data.error || 'Failed to flag this module. Please try again.');
+                render();
+                return;
+              }
+              Object.assign(slot, data);
+              render();
+            } catch (e) { console.error('Flag module error:', e); }
+          }
+          function focusModuleReplaceInput() {
+            const el = document.getElementById('moduleReplaceInput');
+            if (el) el.focus();
+          }
+          function startReplaceModuleCell() {
+            state.moduleReplacingCell = true;
+            render();
+            setTimeout(focusModuleReplaceInput, 60);
+          }
+          function cancelReplaceModuleCell() {
+            state.moduleReplacingCell = false;
+            state.moduleConflict = null;
+            render();
+          }
+          function moduleReplaceInputKeydown(event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            const val = (event.target.value || '').trim();
+            event.target.value = '';
+            if (!val) { focusModuleReplaceInput(); return; }
+            if (state.moduleConflict || state.moduleReplaceSubmitting) { focusModuleReplaceInput(); return; }
+            submitReplaceModuleCell(val, false);
+          }
+          // Same "never silently duplicate a barcode" conflict check every
+          // other scan goes through (findLocalModuleBarcodeConflict here,
+          // findBarcodeConflict server-side) - a replacement scan is still
+          // a scan, it just targets this one specific row/position instead
+          // of appending.
+          async function submitReplaceModuleCell(barcode, force) {
+            const cell = state.moduleDetailCell;
+            if (!cell) return;
+            const row = state.moduleRows.find(function(r) { return r.id === cell.rowId; });
+            const slot = row && (row.slots || []).find(function(s) { return s.position === cell.position; });
+            if (!row || !slot) return;
+            if (!force) {
+              const localConflict = findLocalModuleBarcodeConflict(barcode);
+              if (localConflict) {
+                state.moduleConflict = { kind: 'replace', barcode: barcode, conflict: localConflict };
+                render();
+                return;
+              }
+            } else {
+              clearLocalModuleBarcode(barcode);
+            }
+            const oldBarcode = slot.barcode, reason = slot.flaggedReason, flaggedBy = slot.flaggedBy, flaggedAt = slot.flaggedAt;
+            const replacedBy = state.currentUser.name || null;
+            const resolvedAt = new Date().toISOString();
+            slot.barcode = barcode; slot.scannedAt = resolvedAt; slot.scannedBy = replacedBy;
+            slot.flaggedBroken = false; slot.flaggedReason = null; slot.flaggedBy = null; slot.flaggedAt = null;
+            const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            state.moduleFlagHistory.unshift({ id: tempId, projectId: state.currentProject.id, rowId: row.rowId, position: slot.position, oldBarcode: oldBarcode, reason: reason, flaggedBy: flaggedBy, flaggedAt: flaggedAt, resolution: 'replaced', newBarcode: barcode, resolvedBy: replacedBy, resolvedAt: resolvedAt });
+            state.moduleReplacingCell = false;
+            render();
+            try {
+              const res = await fetch('/api/module-slots', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: slot.id, action: 'replace', newBarcode: barcode, replacedBy: replacedBy, force: !!force }) });
+              if (res.status === 202) return;
+              const data = await res.json();
+              if (!res.ok) {
+                slot.barcode = oldBarcode; slot.scannedBy = null; slot.flaggedBroken = true; slot.flaggedReason = reason; slot.flaggedBy = flaggedBy; slot.flaggedAt = flaggedAt;
+                state.moduleFlagHistory = state.moduleFlagHistory.filter(function(h) { return h.id !== tempId; });
+                if (res.status === 409 && data.conflict) {
+                  state.moduleConflict = { kind: 'replace', barcode: barcode, conflict: data.conflict };
+                  state.moduleReplacingCell = true;
+                } else {
+                  alert(data.error || 'Failed to save the replacement. Please try again.');
+                }
+                render();
+                return;
+              }
+              Object.assign(slot, data);
+              render();
+            } catch (e) { console.error('Replace module error:', e); }
+          }
+          async function resolveModuleCellWithoutReplacement() {
+            const cell = state.moduleDetailCell;
+            if (!cell) return;
+            const row = state.moduleRows.find(function(r) { return r.id === cell.rowId; });
+            const slot = row && (row.slots || []).find(function(s) { return s.position === cell.position; });
+            if (!row || !slot) return;
+            if (!confirm('Mark this flag resolved with no replacement scan?')) return;
+            const reason = slot.flaggedReason, flaggedBy = slot.flaggedBy, flaggedAt = slot.flaggedAt;
+            const resolvedBy = state.currentUser.name || null;
+            const resolvedAt = new Date().toISOString();
+            slot.flaggedBroken = false; slot.flaggedReason = null; slot.flaggedBy = null; slot.flaggedAt = null;
+            const tempId = 'temp_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            state.moduleFlagHistory.unshift({ id: tempId, projectId: state.currentProject.id, rowId: row.rowId, position: slot.position, oldBarcode: slot.barcode, reason: reason, flaggedBy: flaggedBy, flaggedAt: flaggedAt, resolution: 'cleared', newBarcode: null, resolvedBy: resolvedBy, resolvedAt: resolvedAt });
+            render();
+            try {
+              const res = await fetch('/api/module-slots', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: slot.id, action: 'resolve', resolvedBy: resolvedBy }) });
+              if (res.status === 202) return;
+              const data = await res.json();
+              if (!res.ok) {
+                slot.flaggedBroken = true; slot.flaggedReason = reason; slot.flaggedBy = flaggedBy; slot.flaggedAt = flaggedAt;
+                state.moduleFlagHistory = state.moduleFlagHistory.filter(function(h) { return h.id !== tempId; });
+                alert(data.error || 'Failed to save. Please try again.');
+                render();
+                return;
+              }
+              Object.assign(slot, data);
+              render();
+            } catch (e) { console.error('Resolve module flag error:', e); }
           }
 
           // MODULE MAP
@@ -5092,7 +5290,9 @@ export default async function SolTrendApp() {
                   const isMatch = !term || slot.barcode.toLowerCase().indexOf(term) !== -1;
                   if (term && isMatch) matchCount++;
                   const isSelected = state.moduleDetailCell && state.moduleDetailCell.rowId === row.id && state.moduleDetailCell.position === pos;
-                  cells += '<button onclick="showModuleCellDetail(\\'' + row.id + '\\',' + pos + ')" class="module-cell good' + (term && !isMatch ? ' dimmed' : '') + (isSelected ? ' selected' : '') + '" style="width:' + cellSize + 'px;height:' + cellSize + 'px" title="Row ' + row.rowId + ' pos ' + pos + ': ' + slot.barcode + '"></button>';
+                  const cellCls = slot.flaggedBroken ? 'flagged' : 'good';
+                  const titleSuffix = slot.flaggedBroken ? ' - FLAGGED BROKEN (' + slot.flaggedReason + ')' : '';
+                  cells += '<button onclick="showModuleCellDetail(\\'' + row.id + '\\',' + pos + ')" class="module-cell ' + cellCls + (term && !isMatch ? ' dimmed' : '') + (isSelected ? ' selected' : '') + '" style="width:' + cellSize + 'px;height:' + cellSize + 'px" title="Row ' + row.rowId + ' pos ' + pos + ': ' + slot.barcode + titleSuffix + '"></button>';
                 } else {
                   cells += '<span class="module-cell unscanned" style="width:' + cellSize + 'px;height:' + cellSize + 'px" title="Row ' + row.rowId + ' pos ' + pos + ': not yet scanned"></span>';
                 }
@@ -5111,13 +5311,56 @@ export default async function SolTrendApp() {
               const row = state.moduleRows.find(function(r) { return r.id === state.moduleDetailCell.rowId; });
               const slot = row && (row.slots || []).find(function(s) { return s.position === state.moduleDetailCell.position; });
               if (!row || !slot) return '';
-              return '<div class="flex flex-wrap items-center gap-4 bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-sm mt-3"><span class="text-slate-400">Row <span class="text-white font-mono">' + row.rowId + '</span> &middot; pos <span class="text-white font-mono">' + slot.position + '</span></span><span class="text-slate-400">Barcode <span class="text-white font-mono">' + slot.barcode + '</span></span>' + (slot.scannedBy ? ('<span class="text-slate-400">Scanned by <span class="text-white">' + slot.scannedBy + '</span></span>') : '') + (slot.scannedAt ? ('<span class="text-slate-400">Date <span class="text-white">' + formatDate(slot.scannedAt) + '</span></span>') : '') + (hasRole('admin') ? ('<button onclick="deleteModuleSlot(\\'' + slot.id + '\\',\\'' + row.id + '\\')" class="ml-auto text-red-400 hover:text-red-300">' + icon('trash-2', 'w-4 h-4') + '</button>') : '') + '</div>';
+              const baseInfo = '<span class="text-slate-400">Row <span class="text-white font-mono">' + row.rowId + '</span> &middot; pos <span class="text-white font-mono">' + slot.position + '</span></span><span class="text-slate-400">Barcode <span class="text-white font-mono">' + slot.barcode + '</span></span>' + (slot.scannedBy ? ('<span class="text-slate-400">Scanned by <span class="text-white">' + slot.scannedBy + '</span></span>') : '') + (slot.scannedAt ? ('<span class="text-slate-400">Date <span class="text-white">' + formatDate(slot.scannedAt) + '</span></span>') : '');
+              const deleteBtn = hasRole('admin') ? ('<button onclick="deleteModuleSlot(\\'' + slot.id + '\\',\\'' + row.id + '\\')" class="ml-auto text-red-400 hover:text-red-300" title="Delete this scan">' + icon('trash-2', 'w-4 h-4') + '</button>') : '';
+
+              // Replacing - inline barcode input scoped to this exact
+              // row/position (never an append, see submitReplaceModuleCell).
+              if (state.moduleReplacingCell) {
+                const conflict = (state.moduleConflict && state.moduleConflict.kind === 'replace') ? state.moduleConflict : null;
+                const conflictHtml = conflict ? (function() {
+                  const c = conflict.conflict;
+                  const where = c.type === 'slot' ? ('Row ' + c.rowId + ', position ' + c.position) : c.type === 'spare' ? 'the Spares list' : ('the Broken list (' + c.reason + ')');
+                  const when = formatDate(c.scannedAt || c.loggedAt);
+                  return '<div class="rounded-lg border p-3 space-y-2 mt-2" style="background: rgba(246,195,67,0.08); border-color: rgba(246,195,67,0.4);"><p class="text-xs font-bold text-amber-400">' + icon('alert-triangle', 'w-3.5 h-3.5 inline -mt-0.5') + ' Already recorded elsewhere</p><p class="text-xs text-slate-200">Barcode <span class="font-mono">' + conflict.barcode + '</span> is already saved at ' + where + (when ? ' (' + when + ')' : '') + '.</p><div class="flex gap-2"><button onclick="skipModuleReplaceConflict()" class="flex-1 py-2 text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg">Skip</button><button onclick="moveModuleConflict()" class="flex-1 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black rounded-lg">Move it here</button></div></div>';
+                })() : '';
+                return '<div class="bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-sm mt-3 space-y-3">' +
+                  '<div class="flex flex-wrap items-center gap-4">' + baseInfo + '</div>' +
+                  '<div class="pt-2 border-t border-slate-700/50"><p class="text-xs text-slate-300 font-medium mb-2">Scan the replacement module\\'s barcode</p>' +
+                  '<input id="moduleReplaceInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Ready - scan the replacement" onkeydown="moduleReplaceInputKeydown(event)" ' + (conflict ? 'disabled' : 'autofocus') + ' class="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded-lg px-4 py-3 text-white text-sm font-mono"/>' +
+                  conflictHtml +
+                  '<button onclick="cancelReplaceModuleCell()" class="mt-2 text-xs text-slate-400 hover:text-white">Cancel</button></div></div>';
+              }
+
+              // Flagging - a short reason picker, same segmented-button
+              // pattern Scan Mode uses for the pre-install Broken reasons,
+              // but with the field-relevant post-install reasons instead.
+              if (state.moduleFlaggingCell) {
+                return '<div class="bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-sm mt-3 space-y-3">' +
+                  '<div class="flex flex-wrap items-center gap-4">' + baseInfo + '</div>' +
+                  '<div class="pt-2 border-t border-slate-700/50"><p class="text-xs text-slate-300 font-medium mb-2">Why is it being flagged?</p><div class="flex gap-2 flex-wrap mb-3">' + MODULE_FLAG_REASONS.map(function(r) { return '<button onclick="setModuleFlagReasonDraft(\\'' + r + '\\')" class="text-xs font-bold px-3 py-1.5 rounded-full border ' + (state.moduleFlagReasonDraft === r ? 'bg-red-500 text-white border-red-500' : 'bg-slate-800 text-slate-300 border-slate-700') + '">' + r + '</button>'; }).join('') + '</div>' +
+                  '<div class="flex gap-2"><button onclick="cancelFlagModuleCell()" class="flex-1 py-2 text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg">Cancel</button><button onclick="submitFlagModuleCell()" class="flex-1 py-2 text-xs font-bold bg-red-500 hover:bg-red-400 text-white rounded-lg">Flag as broken</button></div></div></div>';
+              }
+
+              // Already flagged - show why/who/when, offer the two ways to
+              // resolve it (see submitReplaceModuleCell/resolveModuleCellWithoutReplacement).
+              if (slot.flaggedBroken) {
+                return '<div class="bg-red-500/10 border border-red-500/40 rounded-xl p-3 text-sm mt-3 space-y-3">' +
+                  '<div class="flex flex-wrap items-center gap-4">' + baseInfo + deleteBtn + '</div>' +
+                  '<div class="pt-2 border-t border-red-500/20 flex flex-wrap items-center gap-4"><span class="text-red-400 font-bold text-xs uppercase">' + icon('alert-triangle', 'w-3.5 h-3.5 inline -mt-0.5') + ' Flagged broken</span><span class="text-slate-300">' + slot.flaggedReason + '</span>' + (slot.flaggedBy ? ('<span class="text-slate-400">by <span class="text-white">' + slot.flaggedBy + '</span></span>') : '') + (slot.flaggedAt ? ('<span class="text-slate-400">' + formatDate(slot.flaggedAt) + '</span>') : '') + '</div>' +
+                  '<div class="flex gap-2"><button onclick="startReplaceModuleCell()" class="flex-1 py-2 text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black rounded-lg">Scan replacement</button><button onclick="resolveModuleCellWithoutReplacement()" class="flex-1 py-2 text-xs font-bold bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg">Mark resolved</button></div></div>';
+              }
+
+              // Normal, unflagged cell - the original info line, plus the
+              // new entry point into flagging.
+              return '<div class="flex flex-wrap items-center gap-4 bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-sm mt-3">' + baseInfo + '<button onclick="startFlagModuleCell()" class="text-red-400 hover:text-red-300 font-bold text-xs flex items-center gap-1">' + icon('flag', 'w-3.5 h-3.5') + ' Flag as broken</button>' + deleteBtn + '</div>';
             })() : '';
 
             return '<div class="space-y-3">' +
               '<div class="flex flex-wrap items-center gap-3 bg-slate-800/50 border border-slate-700 rounded-xl p-3">' +
                 '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded module-cell unscanned" style="width:12px;height:12px"></div><span class="text-xs text-slate-300">Unscanned</span></div>' +
                 '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded module-cell good" style="width:12px;height:12px"></div><span class="text-xs text-slate-300">Installed</span></div>' +
+                '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded module-cell flagged" style="width:12px;height:12px"></div><span class="text-xs text-slate-300">Flagged broken</span></div>' +
                 '<div class="flex items-center gap-2 ml-auto"><button onclick="zoomModuleMapOut()" class="p-1.5 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-out', 'w-3.5 h-3.5') + '</button><span class="text-xs text-slate-400 w-10 text-center">' + Math.round(zoom * 100) + '%</span><button onclick="zoomModuleMapIn()" class="p-1.5 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-in', 'w-3.5 h-3.5') + '</button></div>' +
                 '<input type="text" value="' + (state.moduleMapSearch || '') + '" oninput="filterModuleMap(this.value)" placeholder="Search barcode" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-40">' +
                 (term ? ('<span class="text-xs text-slate-400">' + matchCount + ' match' + (matchCount === 1 ? '' : 'es') + '</span>') : '') +
@@ -5135,13 +5378,18 @@ export default async function SolTrendApp() {
             state.moduleRows.forEach(function(row) { installed += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
             const spares = state.moduleSpares.length;
             const broken = state.moduleBroken.length;
+            // Flagged modules are still installed (barcode's still in its
+            // slot) so this is purely informational - it never touches the
+            // Unaccounted math, which only cares about what's NOT installed.
+            let flagged = 0;
+            state.moduleRows.forEach(function(row) { flagged += (row.slots || []).filter(function(s) { return s.flaggedBroken; }).length; });
             const unaccounted = procured - installed - spares - broken;
             const pct = procured > 0 ? Math.min(100, Math.round((installed / procured) * 1000) / 10) : 0;
             const stat = function(label, value, warn) {
               return '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">' + label + '</p><p class="text-2xl font-display font-bold ' + (warn ? 'text-amber-400' : 'text-white') + '">' + value.toLocaleString() + '</p></div>';
             };
             return '<div class="space-y-4">' +
-              '<div class="grid grid-cols-2 lg:grid-cols-5 gap-3">' + stat('Procured', procured) + stat('Installed', installed) + stat('Spares', spares) + stat('Broken', broken) + stat('Unaccounted', unaccounted, unaccounted !== 0) + '</div>' +
+              '<div class="grid grid-cols-2 lg:grid-cols-6 gap-3">' + stat('Procured', procured) + stat('Installed', installed) + stat('Flagged', flagged, flagged > 0) + stat('Spares', spares) + stat('Broken', broken) + stat('Unaccounted', unaccounted, unaccounted !== 0) + '</div>' +
               '<div class="card rounded-xl p-4"><div class="flex items-center gap-3 text-sm"><span class="text-slate-400 whitespace-nowrap">Installed</span><div class="flex-1 h-2 rounded-full bg-slate-700 overflow-hidden"><div class="h-full bg-amber-500" style="width:' + Math.max(0, Math.min(100, pct)) + '%"></div></div><span class="text-white font-mono">' + pct + '%</span></div></div>' +
               (procured === 0 ? '<p class="text-xs text-slate-400">Set this project\\'s total procured module count in Settings to see Unaccounted here.</p>' : '') +
             '</div>';
@@ -5151,13 +5399,27 @@ export default async function SolTrendApp() {
             const broken = state.moduleBroken.slice().sort(function(a, b) { return new Date(b.loggedAt) - new Date(a.loggedAt); });
             const spares = state.moduleSpares.slice().sort(function(a, b) { return new Date(b.loggedAt) - new Date(a.loggedAt); });
             const canDelete = hasRole('admin');
+            // Currently-open post-install flags (see ModuleSlot.flaggedBroken)
+            // pulled straight out of moduleRows rather than a separate
+            // fetch - the slot itself is the single source of truth for
+            // "is this flagged right now," same as everywhere else this
+            // feature touches.
+            const flagged = [];
+            state.moduleRows.forEach(function(row) {
+              (row.slots || []).forEach(function(s) { if (s.flaggedBroken) flagged.push({ row: row, slot: s }); });
+            });
+            flagged.sort(function(a, b) { return new Date(b.slot.flaggedAt) - new Date(a.slot.flaggedAt); });
+            const flaggedRows = flagged.length === 0 ? '<p class="text-sm text-slate-400 py-3">No modules currently flagged.</p>' : flagged.map(function(f) {
+              return '<div class="flex items-center justify-between gap-2 py-2 border-b border-slate-700/50 last:border-0"><div class="min-w-0"><span class="font-mono text-xs text-slate-200 break-all">' + f.slot.barcode + '</span><p class="text-[11px] text-slate-400 truncate">Row ' + f.row.rowId + ' &middot; pos ' + f.slot.position + ' &middot; ' + f.slot.flaggedReason + '</p></div><button onclick="setModuleTab(\\'map\\'); showModuleCellDetail(\\'' + f.row.id + '\\',' + f.slot.position + ')" class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-red-500/10 text-red-400 flex-shrink-0 whitespace-nowrap hover:bg-red-500/20">View</button></div>';
+            }).join('');
             const brokenRows = broken.length === 0 ? '<p class="text-sm text-slate-400 py-3">No broken modules logged.</p>' : broken.map(function(b) {
               return '<div class="flex items-center justify-between gap-2 py-2 border-b border-slate-700/50 last:border-0"><span class="font-mono text-xs text-slate-200 break-all">' + b.barcode + '</span><div class="flex items-center gap-2 flex-shrink-0"><span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full whitespace-nowrap ' + (reasonClass[b.reason] || 'text-slate-300 bg-slate-500/10') + '">' + b.reason + '</span>' + (canDelete ? ('<button onclick="deleteModuleBroken(\\'' + b.id + '\\')" class="text-slate-500 hover:text-red-400">' + icon('trash-2', 'w-3.5 h-3.5') + '</button>') : '') + '</div></div>';
             }).join('');
             const spareRows = spares.length === 0 ? '<p class="text-sm text-slate-400 py-3">No spare modules logged.</p>' : spares.map(function(s) {
               return '<div class="flex items-center justify-between gap-2 py-2 border-b border-slate-700/50 last:border-0"><span class="font-mono text-xs text-slate-200 break-all">' + s.barcode + '</span><div class="flex items-center gap-2 flex-shrink-0"><span class="text-[11px] text-slate-400 whitespace-nowrap">' + (s.loggedBy || 'Unknown') + ' &middot; ' + formatDate(s.loggedAt) + '</span>' + (canDelete ? ('<button onclick="deleteModuleSpare(\\'' + s.id + '\\')" class="text-slate-500 hover:text-red-400">' + icon('trash-2', 'w-3.5 h-3.5') + '</button>') : '') + '</div></div>';
             }).join('');
-            return '<div class="grid lg:grid-cols-2 gap-4">' +
+            return '<div class="grid lg:grid-cols-3 gap-4">' +
+              '<div class="card rounded-xl p-4"><div class="flex items-center justify-between mb-1"><h3 class="font-bold text-white text-sm">Flagged</h3><span class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-red-500/10 text-red-400">' + flagged.length + ' open</span></div>' + flaggedRows + '<button onclick="setModuleTab(\\'map\\')" class="w-full mt-2 text-xs font-bold text-amber-400 text-center py-2 border border-dashed border-slate-700 rounded-lg hover:border-amber-500/50">View on Map</button></div>' +
               '<div class="card rounded-xl p-4"><div class="flex items-center justify-between mb-1"><h3 class="font-bold text-white text-sm">Broken</h3><span class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-red-500/10 text-red-400">' + broken.length + ' logged</span></div>' + brokenRows + '<button onclick="navigateTo(\\'moduleScan\\'); setModuleScanKind(\\'broken\\')" class="w-full mt-2 text-xs font-bold text-amber-400 text-center py-2 border border-dashed border-slate-700 rounded-lg hover:border-amber-500/50">+ Scan broken module</button></div>' +
               '<div class="card rounded-xl p-4"><div class="flex items-center justify-between mb-1"><h3 class="font-bold text-white text-sm">Spares</h3><span class="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400">' + spares.length + ' logged</span></div>' + spareRows + '<button onclick="navigateTo(\\'moduleScan\\'); setModuleScanKind(\\'spare\\')" class="w-full mt-2 text-xs font-bold text-amber-400 text-center py-2 border border-dashed border-slate-700 rounded-lg hover:border-amber-500/50">+ Scan spare module</button></div>' +
             '</div>';
@@ -6769,6 +7031,7 @@ export default async function SolTrendApp() {
             state.moduleRows = [];
             state.moduleSpares = [];
             state.moduleBroken = [];
+            state.moduleFlagHistory = [];
             // Every one of these 18 loaders calls render() on its own as
             // soon as its own fetch resolves (see loadInspections etc.
             // below) - each independently useful when a loader runs on its
@@ -6793,7 +7056,7 @@ export default async function SolTrendApp() {
                 loadToolboxTalks(), loadSafetyObservations(), loadSafetyIncidents(),
                 loadMilestones(), loadDocuments(), loadCois(), loadMaterials(), loadDeliveries(),
                 loadRfis(), loadSubmittals(), loadPiles(), loadGalleryPhotos(), loadDailyLogs(),
-                loadModuleRows(), loadModuleSpares(), loadModuleBroken()
+                loadModuleRows(), loadModuleSpares(), loadModuleBroken(), loadModuleFlagHistory()
               ]);
             } finally {
               renderSuppressCount--;
@@ -6847,6 +7110,14 @@ export default async function SolTrendApp() {
               const data = await res.json();
               if (Array.isArray(data)) { state.moduleBroken = data; render(); }
             } catch (e) { console.error('Load module broken error:', e); }
+          }
+          async function loadModuleFlagHistory() {
+            try {
+              const projectId = state.currentProject?.id || 'proj_001';
+              const res = await fetch('/api/module-flag-history?projectId=' + projectId);
+              const data = await res.json();
+              if (Array.isArray(data)) { state.moduleFlagHistory = data; render(); }
+            } catch (e) { console.error('Load module flag history error:', e); }
           }
 
           async function loadToolboxTalks() {

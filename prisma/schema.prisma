@@ -139,6 +139,7 @@ model Project {
   moduleRows         ModuleRow[]
   spareModules       SpareModule[]
   brokenModules      BrokenModule[]
+  moduleFlagHistory  ModuleFlagHistory[]
 }
 
 // Crew - Work crews
@@ -377,9 +378,47 @@ model ModuleSlot {
   scannedBy   String?   // free text name, same convention as PunchItem.assignedTo
   notes       String?
 
+  // Found broken AFTER install (hail, a forklift strike, whatever shows up
+  // weeks later on a walk-through) - deliberately NOT the same thing as
+  // BrokenModule below, which is "never made it into a row" inventory.
+  // This stays on the slot itself (same row/position it's always had) so
+  // it shows up right on the Module Map where the field already looks,
+  // instead of flag tape that falls off or a note on a clipboard. Cleared
+  // either by scanning a replacement into this same slot (see action
+  // 'replace' in /api/module-slots, which also writes a ModuleFlagHistory
+  // row) or by an explicit "mark resolved" with no swap.
+  flaggedBroken Boolean   @default(false)
+  flaggedReason String?
+  flaggedBy     String?
+  flaggedAt     DateTime?
+
   moduleRow ModuleRow @relation(fields: [moduleRowId], references: [id])
 
   @@unique([moduleRowId, position])
+}
+
+// One row per resolved post-install flag (see ModuleSlot.flaggedBroken) -
+// written only at resolution time, carrying both halves of the story
+// (what was flagged and why, what it got resolved as) in a single record.
+// rowId is the row's display id (ModuleRow.rowId), not its internal id,
+// so this stays meaningful even if the row record itself ever changes.
+// Kept for warranty/backcharge paper trail purposes, same spirit as
+// SpareModule/BrokenModule below.
+model ModuleFlagHistory {
+  id          String   @id @default(cuid())
+  projectId   String
+  rowId       String
+  position    Int
+  oldBarcode  String
+  reason      String
+  flaggedBy   String?
+  flaggedAt   DateTime
+  resolution  String   // "replaced" | "cleared" (cleared = resolved with no barcode swap)
+  newBarcode  String?  // set only when resolution = "replaced"
+  resolvedBy  String?
+  resolvedAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
 }
 
 // Flat inventory logs - Glen: "I don't need tracking of them in the
