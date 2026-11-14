@@ -1981,7 +1981,7 @@ export default async function SolTrendApp() {
                   '<button onclick="generateMonthlyReport()" class="w-full py-2.5 bg-green-500 hover:bg-green-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
               '</div>' +
-              '<div class="grid md:grid-cols-3 gap-4">' +
+              '<div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4">' +
                 '<div class="card rounded-xl p-5">' +
                   '<div class="flex items-center gap-3 mb-4">' + icon('clipboard-check', 'w-8 h-8 text-purple-400') + '<div><h3 class="font-display font-semibold text-white">QC Report</h3><p class="text-xs text-slate-400">Inspection summary</p></div></div>' +
                   '<div class="grid grid-cols-2 gap-2 mb-3">' +
@@ -2002,6 +2002,10 @@ export default async function SolTrendApp() {
                   '</div>' +
                   '<button onclick="generateRefusalReport()" class="w-full py-2.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
                 '</div>' +
+                '<div class="card rounded-xl p-5">' +
+                  '<div class="flex items-center gap-3 mb-4">' + icon('layout-grid', 'w-8 h-8 text-purple-400') + '<div><h3 class="font-display font-semibold text-white">Module Report</h3><p class="text-xs text-slate-400">Reconciliation + row status</p></div></div>' +
+                  '<button onclick="generateModuleReport()" class="w-full py-2.5 bg-purple-500 hover:bg-purple-400 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Export PDF</button>' +
+                '</div>' +
               '</div>' +
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-center gap-3 mb-4">' + icon('list-checks', 'w-8 h-8 text-teal-400') + '<div><h3 class="font-display font-semibold text-white">Punch List Report</h3><p class="text-xs text-slate-400">Every item, fully detailed and numbered</p></div></div>' +
@@ -2011,10 +2015,11 @@ export default async function SolTrendApp() {
               '</div>' +
               '<div class="card rounded-xl p-5">' +
                 '<div class="flex items-center gap-3 mb-4">' + icon('table', 'w-8 h-8 text-slate-400') + '<div><h3 class="font-display font-semibold text-white">Data Export</h3><p class="text-xs text-slate-400">Raw data as CSV, for Excel or Sheets</p></div></div>' +
-                '<div class="grid md:grid-cols-3 gap-3">' +
+                '<div class="grid md:grid-cols-2 lg:grid-cols-4 gap-3">' +
                   '<button onclick="exportProductionCSV()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Production Log</button>' +
                   '<button onclick="exportInspectionsCSV()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Inspections</button>' +
                   '<button onclick="exportRefusalsCSV()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Refusals</button>' +
+                  '<button onclick="exportModuleSerialsCSV()" class="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium text-sm flex items-center justify-center gap-2">' + icon('download', 'w-4 h-4') + ' Module Serials</button>' +
                 '</div>' +
               '</div>' +
             '</div>';
@@ -2102,6 +2107,23 @@ export default async function SolTrendApp() {
               };
             });
             downloadCSV(exportFilePrefix() + '-refusals.csv', toCSV(rows, ['pileId', 'reason', 'date', 'user', 'targetDepth', 'achievedDepth', 'stickupHeightIn', 'plumbNS', 'plumbEW', 'finalIntervalIn', 'driveTime', 'predrilledDepthFt', 'comments']));
+          }
+          // Just row + serial, one line per installed module, in scan
+          // position order within each row - deliberately NOT the same
+          // shape as the Module Report PDF (which stays at the row/count
+          // level): this is the raw list for whoever wants to pivot/filter
+          // every individual barcode in Excel or Sheets, same as the three
+          // CSV exports above.
+          function exportModuleSerialsCSV() {
+            const rows = state.moduleRows.slice().sort(function(a, b) { return (a.rowId + '').localeCompare(b.rowId + '', undefined, { numeric: true }); });
+            const out = [];
+            rows.forEach(function(r) {
+              (r.slots || []).slice().sort(function(a, b) { return (a.position || 0) - (b.position || 0); }).forEach(function(s) {
+                if (!s.barcode) return;
+                out.push({ row: r.rowId, serial: s.barcode });
+              });
+            });
+            downloadCSV(exportFilePrefix() + '-module-serials.csv', toCSV(out, ['row', 'serial']));
           }
 
           // WEATHER API INTEGRATION
@@ -3696,6 +3718,147 @@ export default async function SolTrendApp() {
                   <p style="color:#94a3b8;font-size:11px;margin-top:10px;">Green = passed, red = failed, orange = refusal, gray = not started.</p>
                 </div>
                 \` : ''}
+                <div class="footer">
+                  <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
+                </div>
+              </body>
+              </html>
+            \`;
+            openReportWindow(reportContent);
+          }
+
+          // Module Report - the reconciliation math (Procured/Installed/
+          // Spares/Broken/Unaccounted, same as the Reconciliation tab) plus
+          // enough per-row and serial-level detail to actually act on it:
+          // a full per-row scanned/expected/status table (rows run tens,
+          // not thousands, so unlike Refusals/barcodes there's no need to
+          // cap and point at a CSV), and the Broken/Spares lists capped at
+          // 25 each the same way the Refusal Report caps its table - full
+          // barcode-level detail for every installed module belongs in the
+          // separate Module Serials CSV export instead of bloating this
+          // PDF with what could be thousands of rows.
+          function generateModuleReport() {
+            const project = state.currentProject;
+            const procured = (project && project.totalModules) || 0;
+            const rows = state.moduleRows.slice().sort(function(a, b) { return (a.rowId + '').localeCompare(b.rowId + '', undefined, { numeric: true }); });
+            let installed = 0;
+            rows.forEach(function(row) { installed += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
+            const spares = state.moduleSpares.slice().sort(function(a, b) { return new Date(b.loggedAt) - new Date(a.loggedAt); });
+            const broken = state.moduleBroken.slice().sort(function(a, b) { return new Date(b.loggedAt) - new Date(a.loggedAt); });
+            const unaccounted = procured - installed - spares.length - broken.length;
+            const pct = procured > 0 ? Math.min(100, Math.round((installed / procured) * 1000) / 10) : 0;
+            const incompleteRows = rows.filter(function(r) { return r.expectedCount != null && (r.slots || []).length < r.expectedCount; });
+
+            const moduleAttentionItems = [];
+            if (procured > 0 && unaccounted !== 0) {
+              moduleAttentionItems.push(unaccounted > 0
+                ? (unaccounted + ' module' + (unaccounted === 1 ? '' : 's') + ' unaccounted for &mdash; procured ' + procured + ' vs. ' + (installed + spares.length + broken.length) + ' tracked (installed + spares + broken).')
+                : ('Installed + Spares + Broken exceeds the procured count by ' + Math.abs(unaccounted) + ' module' + (Math.abs(unaccounted) === 1 ? '' : 's') + ' &mdash; check for a double-scanned barcode or an outdated procured count.'));
+            }
+            if (incompleteRows.length > 0) {
+              const names = incompleteRows.slice(0, 8).map(function(r) { return r.rowId; }).join(', ') + (incompleteRows.length > 8 ? ', &hellip;' : '');
+              moduleAttentionItems.push(incompleteRows.length + ' row' + (incompleteRows.length === 1 ? '' : 's') + ' below its expected module count: ' + names + '.');
+            }
+
+            const moduleNarrative = procured > 0
+              ? (formatNumber(installed) + ' of ' + formatNumber(procured) + ' procured modules installed (' + pct + '%) across ' + rows.length + ' row' + (rows.length === 1 ? '' : 's') + ', ' + spares.length + ' spare' + (spares.length === 1 ? '' : 's') + ' and ' + broken.length + ' broken logged.')
+              : (formatNumber(installed) + ' modules installed across ' + rows.length + ' row' + (rows.length === 1 ? '' : 's') + ', ' + spares.length + ' spare' + (spares.length === 1 ? '' : 's') + ' and ' + broken.length + ' broken logged. Set this project\\'s total procured module count in Settings to see Unaccounted here.');
+
+            const reconSegments = [
+              { label: 'Installed', value: installed, color: '#a855f7' },
+              { label: 'Spares', value: spares.length, color: reportColorFor(1) },
+              { label: 'Broken', value: broken.length, color: REPORT_STATUS_COLORS.fail },
+            ];
+            if (unaccounted > 0) reconSegments.push({ label: 'Unaccounted', value: unaccounted, color: REPORT_STATUS_COLORS.pending });
+
+            const rowTableBody = rows.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:#94a3b8;">No rows set up yet</td></tr>' : rows.map(function(r) {
+              const scanned = (r.slots || []).length;
+              const hasExpected = r.expectedCount != null;
+              const incomplete = hasExpected && scanned < r.expectedCount;
+              const statusLabel = !hasExpected ? '-' : (incomplete ? 'Incomplete' : 'Complete');
+              return '<tr' + (incomplete ? ' style="background:#fffbeb;"' : '') + '><td>' + r.rowId + '</td><td>' + scanned + '</td><td>' + (hasExpected ? r.expectedCount : '-') + '</td><td' + (incomplete ? ' style="color:#b45309;font-weight:600;"' : '') + '>' + statusLabel + '</td></tr>';
+            }).join('');
+
+            const brokenRowsHtml = broken.length === 0 ? '<tr><td colspan="4" style="text-align:center;color:#94a3b8;">None logged</td></tr>' : broken.slice(0, 25).map(function(b) {
+              return '<tr><td>' + b.barcode + '</td><td>' + (b.reason || '') + '</td><td>' + (b.loggedBy || '') + '</td><td>' + formatDate(b.loggedAt) + '</td></tr>';
+            }).join('');
+            const sparesRowsHtml = spares.length === 0 ? '<tr><td colspan="3" style="text-align:center;color:#94a3b8;">None logged</td></tr>' : spares.slice(0, 25).map(function(s) {
+              return '<tr><td>' + s.barcode + '</td><td>' + (s.loggedBy || '') + '</td><td>' + formatDate(s.loggedAt) + '</td></tr>';
+            }).join('');
+
+            const reportContent = \`
+              <!DOCTYPE html>
+              <html>
+              <head>
+                <title>\${project?.name || 'Project'} - Module Report - \${localDateStr(Date.now())}</title>
+                <style>
+                  body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
+                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #a855f7; padding-bottom: 20px; }
+                  .header h1 { color: #0f172a; margin: 0; font-size: 28px; }
+                  .header p { color: #64748b; margin: 5px 0; }
+                  .section { margin-bottom: 25px; }
+                  .section h2 { color: #a855f7; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+                  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin: 15px 0; }
+                  .stat-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; text-align: center; }
+                  .stat-box .value { font-size: 28px; font-weight: bold; color: #a855f7; }
+                  .stat-box .value.warn { color: #d97706; }
+                  .stat-box .label { font-size: 11px; color: #64748b; text-transform: uppercase; }
+                  table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+                  th, td { padding: 10px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+                  th { background: #f1f5f9; font-weight: 600; }
+                  .note { color: #94a3b8; font-size: 11px; margin-top: 8px; }
+                  .footer { margin-top: 40px; text-align: center; color: #94a3b8; font-size: 12px; }
+                  .notes-section { background: #faf5ff; border: 2px dashed #a855f7; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
+                  .notes-section h3 { font-size: 14px; font-weight: 700; color: #6b21a8; margin-bottom: 10px; }
+                  .notes-content { font-size: 13px; color: #581c87; line-height: 1.6; }
+                </style>
+              </head>
+              <body>
+                <div class="header">
+                  <h1>Module Report</h1>
+                  <p>\${project?.name || 'SolTrend Pro'} | \${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+                  <p style="font-size:12px;color:#a855f7;font-weight:600;">\${reportScheduleLineText(project)}</p>
+                </div>
+                \${reportAttentionHtml(moduleAttentionItems)}
+                <div class="notes-section">
+                  <h3>Summary</h3>
+                  <div class="notes-content">\${moduleNarrative}</div>
+                </div>
+                <div class="section">
+                  <h2>Reconciliation</h2>
+                  <div class="stats">
+                    <div class="stat-box"><div class="value">\${formatNumber(procured)}</div><div class="label">Procured</div></div>
+                    <div class="stat-box"><div class="value">\${formatNumber(installed)}</div><div class="label">Installed</div></div>
+                    <div class="stat-box"><div class="value">\${formatNumber(spares.length)}</div><div class="label">Spares</div></div>
+                    <div class="stat-box"><div class="value">\${formatNumber(broken.length)}</div><div class="label">Broken</div></div>
+                    <div class="stat-box"><div class="value\${unaccounted !== 0 ? ' warn' : ''}">\${formatNumber(unaccounted)}</div><div class="label">Unaccounted</div></div>
+                  </div>
+                  \${procured > 0 ? reportStackedBar(reconSegments) : '<p class="note">Set this project\\'s total procured module count in Settings to see a reconciliation breakdown here.</p>'}
+                </div>
+                <div class="section">
+                  <h2>Rows (\${rows.length})</h2>
+                  <table>
+                    <thead><tr><th>Row</th><th>Scanned</th><th>Expected</th><th>Status</th></tr></thead>
+                    <tbody>\${rowTableBody}</tbody>
+                  </table>
+                  <p class="note">For every individual module's row and serial number, use the Module Serials CSV export instead.</p>
+                </div>
+                <div class="section">
+                  <h2>Broken (\${broken.length})</h2>
+                  <table>
+                    <thead><tr><th>Barcode</th><th>Reason</th><th>Logged By</th><th>Date</th></tr></thead>
+                    <tbody>\${brokenRowsHtml}</tbody>
+                  </table>
+                  \${broken.length > 25 ? '<p class="note">+ ' + (broken.length - 25) + ' more not shown - see Module Scan &gt; Broken &amp; Spares in the app for the full list.</p>' : ''}
+                </div>
+                <div class="section">
+                  <h2>Spares (\${spares.length})</h2>
+                  <table>
+                    <thead><tr><th>Barcode</th><th>Logged By</th><th>Date</th></tr></thead>
+                    <tbody>\${sparesRowsHtml}</tbody>
+                  </table>
+                  \${spares.length > 25 ? '<p class="note">+ ' + (spares.length - 25) + ' more not shown - see Module Scan &gt; Broken &amp; Spares in the app for the full list.</p>' : ''}
+                </div>
                 <div class="footer">
                   <p>Generated by SolTrend Pro | \${new Date().toLocaleString()}</p>
                 </div>
