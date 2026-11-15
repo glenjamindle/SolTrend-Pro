@@ -7633,7 +7633,15 @@ export default async function SolTrendApp() {
           // directly.
           function renderSchedule() {
             const milestones = state.milestones.slice().sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
-            const statusHex = { on_track: '#22c55e', at_risk: '#eab308', delayed: '#ef4444', complete: '#22c55e', not_started: '#64748b' };
+            // complete used to share on_track's green, which made a
+            // finished phase and a healthy-in-progress one look
+            // identical at a glance in both the Gantt bars and the
+            // status column - exactly how Glen read right past three
+            // still-open milestones on Bhatti. Blue matches the
+            // existing "Completed" project-status color elsewhere in
+            // the app (renderProjectsSettings/sidebar), so "done" reads
+            // the same way everywhere.
+            const statusHex = { on_track: '#22c55e', at_risk: '#eab308', delayed: '#ef4444', complete: '#3b82f6', not_started: '#64748b' };
             const statusLabel = { on_track: 'On Track', at_risk: 'At Risk', delayed: 'Delayed', complete: 'Complete', not_started: 'Not Started' };
 
             function effectivePercent(m) {
@@ -8261,7 +8269,11 @@ export default async function SolTrendApp() {
           function renderMaterials() {
             const canDelete = hasRole('admin');
             function materialStatus(m) {
-              if (m.orderedQty > 0 && m.deliveredQty >= m.orderedQty) return statusBadge('Complete', '#22c55e');
+              // Complete and On Track were both '#22c55e' here too - same
+              // collision just fixed on the Schedule tab (see statusHex
+              // in renderSchedule). Blue for Complete, matching that fix
+              // and the existing "Completed" project-status color.
+              if (m.orderedQty > 0 && m.deliveredQty >= m.orderedQty) return statusBadge('Complete', '#3b82f6');
               if (m.expectedDate && parseLocalDate(m.expectedDate).getTime() < Date.now() && m.deliveredQty < m.orderedQty) return statusBadge('Behind', '#ef4444');
               if (m.deliveredQty > 0) return statusBadge('On Track', '#22c55e');
               return statusBadge('Not Started', '#64748b');
