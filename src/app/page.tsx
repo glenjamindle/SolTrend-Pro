@@ -2713,16 +2713,34 @@ export default async function SolTrendApp() {
                 'var imgs = Array.prototype.slice.call(document.querySelectorAll(".photo-gallery img"));' +
                 'var pending = imgs.filter(function(img) { return !img.complete; });' +
                 'if (pending.length === 0) { window.print(); return; }' +
-                'if (btn) { btn.disabled = true; btn.textContent = "Loading photos\\u2026"; }' +
-                'var remaining = pending.length, finished = false;' +
+                'var total = pending.length, remaining = total, finished = false;' +
+                'if (btn) { btn.disabled = true; btn.textContent = "Loading photos (0/" + total + ")\\u2026"; }' +
                 'function done() {' +
                   'if (finished) return; finished = true;' +
                   'if (btn) { btn.disabled = false; btn.textContent = "Print / Save PDF"; }' +
                   'window.print();' +
                 '}' +
-                'function onOne() { remaining--; if (remaining <= 0) done(); }' +
+                'function onOne() {' +
+                  'remaining--;' +
+                  'if (btn && remaining > 0) { btn.textContent = "Loading photos (" + (total - remaining) + "/" + total + ")\\u2026"; }' +
+                  'if (remaining <= 0) done();' +
+                '}' +
                 'pending.forEach(function(img) { img.addEventListener("load", onOne); img.addEventListener("error", onOne); });' +
-                'setTimeout(done, 8000);' +
+                // Used to be a flat 8s cap regardless of how many photos
+                // were still loading - fine for one or two, but a report
+                // with 15-20 photos on a weak cell connection (a real field
+                // report, not a desktop view) routinely needs longer than
+                // that to pull every /api/photos/<key> round-trip down, so
+                // the cap fired first and print() fired with photos still
+                // mid-fetch - each one baked into the printed/saved PDF as a
+                // permanent broken-image placeholder, with no way to retry
+                // after the fact since a saved PDF has no network access at
+                // all. Scaling the cap with the photo count (and starting
+                // from a higher floor) gives a slow connection room to
+                // actually finish before print() captures the page, while a
+                // report with only a couple of photos still prints almost
+                // immediately once they load.
+                'setTimeout(done, Math.min(45000, 10000 + total * 1500));' +
               '}' +
             '</script>';
           }
