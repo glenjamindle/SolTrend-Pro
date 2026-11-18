@@ -1069,16 +1069,46 @@ export default async function SolTrendApp() {
             const placeholders = files.map(function() { return { id: 'pending_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8), pending: true }; });
             if (arr) arr.push(...placeholders);
             render();
-            const maxW = 1280, maxH = 720;
+            // maxW/maxH used to be a fixed 1280x720 - a 16:9 LANDSCAPE
+            // frame applied to every photo regardless of orientation. Most
+            // phone photos are portrait (taller than wide), and
+            // Math.min(maxW/w, maxH/h) picks whichever ratio is smaller -
+            // for a portrait shot that's almost always the 720/height
+            // ratio, so a stock 3024x4032 iPhone photo came out a mere
+            // 540x720. That's what Glen was seeing as "crap quality" in
+            // the Gallery: every photo, inspection/refusal/production/
+            // gallery alike, goes through this exact same resize before
+            // it's ever uploaded (see uploadPendingPhotos below), so
+            // there's no separate full-res original anywhere to fall back
+            // to - this canvas output IS what gets stored and what the
+            // Gallery lightbox later zooms into.
+            // Capping the LONGER edge instead (and scaling both dimensions
+            // by that one ratio) fixes the orientation bug and roughly
+            // triples the usable resolution for a typical portrait photo
+            // (3024x4032 now comes out 1920x2560 instead of 540x720) -
+            // still well short of the original capture, but enough to
+            // actually hold up when someone zooms in, while staying far
+            // short of uploading multi-MB originals over a field
+            // connection. Quality bumped 0.8->0.85 too; the resolution
+            // jump is most of the visible improvement, but recompressing
+            // a now-larger canvas at the old quality would have given
+            // back a chunk of it.
+            // 1920 was the first pass at this; Glen asked for one more
+            // step up (2560) as a quick, no-architecture-change bump
+            // while a proper "keep the true original, generate a small
+            // copy for everyday viewing" version stays on the table as a
+            // separate, bigger project if the quality still isn't enough.
+            const maxEdge = 2560;
             const processOne = (file) => new Promise((resolve) => {
               const img = new Image(); const reader = new FileReader();
               reader.onload = (e) => {
                 img.src = e.target.result;
                 img.onload = async () => {
                   const canvas = document.createElement('canvas'); let w = img.width, h = img.height;
-                  if (w > maxW || h > maxH) { const ratio = Math.min(maxW / w, maxH / h); w = Math.round(w * ratio); h = Math.round(h * ratio); }
+                  const longEdge = Math.max(w, h);
+                  if (longEdge > maxEdge) { const ratio = maxEdge / longEdge; w = Math.round(w * ratio); h = Math.round(h * ratio); }
                   canvas.width = w; canvas.height = h; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
-                  const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
                   let gps = null;
                   if (navigator.geolocation) { try { gps = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 2000 })); gps = { lat: gps.coords.latitude, lng: gps.coords.longitude }; } catch(e) {} }
                   resolve({ id: 'photo_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8), url: dataUrl, timestamp: new Date().toISOString(), gps: gps });
@@ -2740,7 +2770,12 @@ export default async function SolTrendApp() {
                 // actually finish before print() captures the page, while a
                 // report with only a couple of photos still prints almost
                 // immediately once they load.
-                'setTimeout(done, Math.min(45000, 10000 + total * 1500));' +
+                // Per-photo budget bumped alongside the capture resize fix
+                // above, twice now: once when photos went from a 720px-tall
+                // sliver to a 1920px long edge, and again here now that the
+                // cap is 2560px - each step up in resolution means the same
+                // weak connection needs more time per photo to pull it down.
+                'setTimeout(done, Math.min(75000, 14000 + total * 4500));' +
               '}' +
             '</script>';
           }
