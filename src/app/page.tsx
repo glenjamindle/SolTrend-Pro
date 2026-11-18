@@ -2713,6 +2713,26 @@ export default async function SolTrendApp() {
             if (timing) parts.push(timing.text);
             return parts.join(' &middot; ');
           }
+          // Kruger Energy header lockup for the four reports that use the
+          // two-column report-header (Daily/Weekly/Monthly/Portfolio - the
+          // other five use a simpler centered header, untouched here).
+          // Option A from the branding review Glen picked: one plain mark
+          // (not the full wordmark - a second full logo right next to a
+          // text company name just repeats the same name twice) paired
+          // with ONE title, "Kruger Energy" as a quiet subhead underneath
+          // rather than a separate eyebrow label. Every report that used
+          // to hand-roll its own company-name-then-h1 block now calls this
+          // instead, so this fix lands once instead of four times with
+          // four chances to drift apart later.
+          function reportBrandHtml(title) {
+            return '<div class="company-brand">' +
+              '<img class="company-mark" src="/kruger-mark.png" alt="Kruger Energy">' +
+              '<div class="company-info">' +
+                '<h1>' + title + '</h1>' +
+                '<div class="company-name">Kruger Energy</div>' +
+              '</div>' +
+            '</div>';
+          }
           // A small in-report control bar (Print + Close, plus a guaranteed
           // link back to the app) injected into every generated report by
           // openReportWindow below. "no-print" so it never shows up in the
@@ -3092,16 +3112,18 @@ export default async function SolTrendApp() {
                 <style>
                   * { margin: 0; padding: 0; box-sizing: border-box; }
                   body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
-                  .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #f59e0b; padding-bottom: 20px; margin-bottom: 25px; }
+                  .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #007852; padding-bottom: 20px; margin-bottom: 25px; }
+                  .company-brand { display: flex; align-items: center; gap: 14px; }
+                  .company-mark { width: 40px; height: 40px; object-fit: contain; flex-shrink: 0; }
                   .company-info h1 { font-size: 28px; font-weight: 800; color: #1e293b; }
-                  .company-info .company-name { font-size: 14px; color: #f59e0b; font-weight: 600; text-transform: uppercase; }
+                  .company-info .company-name { font-size: 14px; color: #007852; font-weight: 600; text-transform: uppercase; }
                   .report-meta { text-align: right; }
                   .report-meta .report-type { font-size: 12px; color: #64748b; text-transform: uppercase; }
                   .report-meta .report-date { font-size: 20px; font-weight: 700; color: #1e293b; }
                   .project-banner { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 12px; padding: 20px 25px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; }
                   .project-info h2 { font-size: 22px; font-weight: 700; color: white; }
                   .project-info .project-details { font-size: 13px; color: #94a3b8; }
-                  .project-badge { background: #f59e0b; color: #1e293b; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+                  .project-badge { background: #007852; color: white; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
                   .weather-section { background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); border-radius: 12px; padding: 15px 20px; margin-bottom: 25px; display: flex; align-items: center; gap: 20px; }
                   .weather-icon { font-size: 48px; }
                   .weather-info h3 { font-size: 14px; color: rgba(255,255,255,0.8); text-transform: uppercase; }
@@ -3116,7 +3138,7 @@ export default async function SolTrendApp() {
                   .summary-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; text-align: center; }
                   .summary-card .value { font-size: 28px; font-weight: 800; color: #1e293b; }
                   .summary-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; }
-                  .summary-card.highlight { background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%); border: none; }
+                  .summary-card.highlight { background: linear-gradient(135deg, #1fa87d 0%, #007852 100%); border: none; }
                   .summary-card.highlight .value, .summary-card.highlight .label { color: white; }
                   .progress-container { background: #f8fafc; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
                   .progress-bar { height: 24px; background: #e2e8f0; border-radius: 12px; overflow: hidden; }
@@ -3145,12 +3167,8 @@ export default async function SolTrendApp() {
               </head>
               <body>
                 <div class="report-header">
-                  <div class="company-info">
-                    <div class="company-name">\${state.company?.name || 'Apex Solar Construction'}</div>
-                    <h1>Daily Field Report</h1>
-                  </div>
+                  \${reportBrandHtml('Daily Field Report')}
                   <div class="report-meta">
-                    <div class="report-type">Daily Production Report</div>
                     <div class="report-date">\${parseLocalDate(date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
                   </div>
                 </div>
@@ -3210,7 +3228,7 @@ export default async function SolTrendApp() {
                 <div class="photo-gallery">\${dayPhotos.length > 0 ? dayPhotos.map(function(p) { return '<div class="photo-item"><img src="' + p.url + '" alt="' + p.label + '" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured</div>'}</div>
                 \${dayPhotos.length > 0 ? '<p style="font-size:11px;color:#94a3b8;margin-top:8px;">' + dayPhotos.length + ' photo' + (dayPhotos.length === 1 ? '' : 's') + ' for this date</p>' : ''}
                 <div class="report-footer">
-                  <div>Generated by SolTrend Pro • Report verified by: \${state.currentUser?.name || 'Field Supervisor'}</div>
+                  <div>Kruger Energy &middot; via SolTrend Pro • Report verified by: \${state.currentUser?.name || 'Field Supervisor'}</div>
                   <div>Page 1 of 1</div>
                 </div>
               </body>
@@ -3288,16 +3306,18 @@ export default async function SolTrendApp() {
                 <style>
                   * { margin: 0; padding: 0; box-sizing: border-box; }
                   body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
-                  .report-header { display: flex; justify-content: space-between; border-bottom: 3px solid #3b82f6; padding-bottom: 20px; margin-bottom: 25px; }
+                  .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #007852; padding-bottom: 20px; margin-bottom: 25px; }
+                  .company-brand { display: flex; align-items: center; gap: 14px; }
+                  .company-mark { width: 40px; height: 40px; object-fit: contain; flex-shrink: 0; }
                   .company-info h1 { font-size: 28px; font-weight: 800; color: #1e293b; }
-                  .company-info .company-name { font-size: 14px; color: #3b82f6; font-weight: 600; text-transform: uppercase; }
+                  .company-info .company-name { font-size: 14px; color: #007852; font-weight: 600; text-transform: uppercase; }
                   .report-meta { text-align: right; }
                   .report-meta .report-type { font-size: 12px; color: #64748b; text-transform: uppercase; }
                   .report-meta .report-date { font-size: 20px; font-weight: 700; color: #1e293b; }
                   .project-banner { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 12px; padding: 20px 25px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; }
                   .project-info h2 { font-size: 22px; font-weight: 700; color: white; }
                   .project-info .project-details { font-size: 13px; color: #94a3b8; }
-                  .project-badge { background: #3b82f6; color: white; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+                  .project-badge { background: #007852; color: white; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
                   .weather-week { display: flex; gap: 8px; margin-bottom: 25px; }
                   .weather-day { flex: 1; text-align: center; padding: 12px 8px; border-radius: 10px; }
                   .weather-day.sunny { background: linear-gradient(135deg, #fef3c7, #fde68a); }
@@ -3355,12 +3375,8 @@ export default async function SolTrendApp() {
               </head>
               <body>
                 <div class="report-header">
-                  <div class="company-info">
-                    <div class="company-name">\${state.company?.name || 'Apex Solar Construction'}</div>
-                    <h1>Weekly Progress Report</h1>
-                  </div>
+                  \${reportBrandHtml('Weekly Progress Report')}
                   <div class="report-meta">
-                    <div class="report-type">Weekly Progress Report</div>
                     <div class="report-date">\${new Date(startStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${new Date(endStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
                   </div>
                 </div>
@@ -3443,7 +3459,7 @@ export default async function SolTrendApp() {
                 \${state.reportOptions.weeklyPhotos ? '<div class="section-title">Photo Documentation</div><div class="photo-gallery">' + (weekPhotos.length > 0 ? weekPhotos.map(function(p) { return '<div class="photo-item"><img src="' + p.url + '" alt="' + p.label + '" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured this week</div>') + '</div>' : ''}
                 <div class="report-footer">
                   <div>Report prepared by: Project Management Team | Next report: \${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-                  <div>\${state.company?.name || 'Apex Solar Construction'} • Confidential</div>
+                  <div>\${state.company?.name || 'Kruger Energy'} • Confidential</div>
                 </div>
               </body>
               </html>
@@ -3540,23 +3556,25 @@ export default async function SolTrendApp() {
                 <style>
                   * { margin: 0; padding: 0; box-sizing: border-box; }
                   body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
-                  .report-header { display: flex; justify-content: space-between; border-bottom: 3px solid #22c55e; padding-bottom: 20px; margin-bottom: 30px; }
+                  .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #007852; padding-bottom: 20px; margin-bottom: 30px; }
+                  .company-brand { display: flex; align-items: center; gap: 14px; }
+                  .company-mark { width: 40px; height: 40px; object-fit: contain; flex-shrink: 0; }
                   .company-info h1 { font-size: 32px; font-weight: 800; color: #1e293b; }
-                  .company-info .company-name { font-size: 14px; color: #22c55e; font-weight: 600; text-transform: uppercase; }
+                  .company-info .company-name { font-size: 14px; color: #007852; font-weight: 600; text-transform: uppercase; }
                   .report-meta { text-align: right; }
                   .report-meta .report-type { font-size: 12px; color: #64748b; text-transform: uppercase; }
                   .report-meta .report-date { font-size: 24px; font-weight: 700; color: #1e293b; }
                   .project-banner { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 12px; padding: 20px 25px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; }
                   .project-info h2 { font-size: 22px; font-weight: 700; color: white; }
                   .project-info .project-details { font-size: 13px; color: #94a3b8; }
-                  .project-badge { background: #22c55e; color: white; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+                  .project-badge { background: #007852; color: white; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
                   .section-title { font-size: 16px; font-weight: 700; color: #1e293b; margin-bottom: 15px; }
                   .kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 30px; }
                   .kpi-card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; text-align: center; }
                   .kpi-card .value { font-size: 24px; font-weight: 800; color: #1e293b; }
                   .kpi-card .label { font-size: 10px; color: #64748b; text-transform: uppercase; margin-top: 4px; }
-                  .kpi-card.highlight { background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); border: 2px solid #22c55e; }
-                  .kpi-card.highlight .value { color: #166534; }
+                  .kpi-card.highlight { background: linear-gradient(135deg, #e3f3ef 0%, #cde9e1 100%); border: 2px solid #007852; }
+                  .kpi-card.highlight .value { color: #06432f; }
                   .progress-container { background: #f8fafc; border-radius: 10px; padding: 20px; margin-bottom: 25px; }
                   .progress-bar { height: 24px; background: #e2e8f0; border-radius: 12px; overflow: hidden; }
                   .progress-fill { height: 100%; background: linear-gradient(90deg, #22c55e 0%, #4ade80 100%); border-radius: 12px; }
@@ -3598,10 +3616,7 @@ export default async function SolTrendApp() {
               </head>
               <body>
                 <div class="report-header">
-                  <div class="company-info">
-                    <div class="company-name">\${state.company?.name || 'Apex Solar Construction'}</div>
-                    <h1>Monthly Project Report</h1>
-                  </div>
+                  \${reportBrandHtml('Monthly Project Report')}
                   <div class="report-meta">
                     <div class="report-type">Executive Summary</div>
                     <div class="report-date">\${monthLabel}</div>
@@ -3685,7 +3700,7 @@ export default async function SolTrendApp() {
                 </div>
                 \${state.reportOptions.monthlyPhotos ? '<div class="section-title">Photo Documentation</div><div class="photo-gallery">' + (monthPhotos.length > 0 ? monthPhotos.map(function(p) { return '<div class="photo-item"><img src="' + p.url + '" alt="' + p.label + '" title="' + p.label + '"></div>'; }).join('') : '<div class="photo-item">No photos captured this month</div>') + '</div>' : ''}
                 <div class="report-footer">
-                  <div>Report prepared for: \${project?.client || 'NextEra Energy'} | Submitted by: \${state.company?.name || 'Apex Solar'} Project Management</div>
+                  <div>Report prepared for: \${project?.client || 'NextEra Energy'} | Submitted by: \${state.company?.name || 'Kruger Energy'} Project Management</div>
                   <div>Distribution: Client, PM, Field Supervisors</div>
                 </div>
               </body>
@@ -4625,13 +4640,15 @@ export default async function SolTrendApp() {
               <!DOCTYPE html>
               <html>
               <head>
-                <title>\${state.company?.name || 'Apex Solar Construction'} - Portfolio Report - \${localDateStr(now)}</title>
+                <title>\${state.company?.name || 'Kruger Energy'} - Portfolio Report - \${localDateStr(now)}</title>
                 <style>
                   * { margin: 0; padding: 0; box-sizing: border-box; }
                   body { font-family: 'Segoe UI', Arial, sans-serif; padding: 40px; color: #1e293b; background: white; }
-                  .report-header { display: flex; justify-content: space-between; border-bottom: 3px solid #6366f1; padding-bottom: 20px; margin-bottom: 25px; }
+                  .report-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #007852; padding-bottom: 20px; margin-bottom: 25px; }
+                  .company-brand { display: flex; align-items: center; gap: 14px; }
+                  .company-mark { width: 40px; height: 40px; object-fit: contain; flex-shrink: 0; }
                   .company-info h1 { font-size: 28px; font-weight: 800; color: #1e293b; }
-                  .company-info .company-name { font-size: 14px; color: #6366f1; font-weight: 600; text-transform: uppercase; }
+                  .company-info .company-name { font-size: 14px; color: #007852; font-weight: 600; text-transform: uppercase; }
                   .report-meta { text-align: right; }
                   .report-meta .report-type { font-size: 12px; color: #64748b; text-transform: uppercase; }
                   .report-meta .report-date { font-size: 20px; font-weight: 700; color: #1e293b; }
@@ -4640,8 +4657,8 @@ export default async function SolTrendApp() {
                   .kpi-card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 15px; text-align: center; }
                   .kpi-card .value { font-size: 24px; font-weight: 800; color: #1e293b; }
                   .kpi-card .label { font-size: 10px; color: #64748b; text-transform: uppercase; margin-top: 4px; }
-                  .kpi-card.highlight { background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); border: 2px solid #6366f1; }
-                  .kpi-card.highlight .value { color: #4338ca; }
+                  .kpi-card.highlight { background: linear-gradient(135deg, #e3f3ef 0%, #cde9e1 100%); border: 2px solid #007852; }
+                  .kpi-card.highlight .value { color: #06432f; }
                   table { width: 100%; border-collapse: collapse; margin: 15px 0; }
                   th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
                   th { background: #1e293b; color: white; font-size: 10px; font-weight: 600; text-transform: uppercase; }
@@ -4654,10 +4671,7 @@ export default async function SolTrendApp() {
               </head>
               <body>
                 <div class="report-header">
-                  <div class="company-info">
-                    <div class="company-name">\${state.company?.name || 'Apex Solar Construction'}</div>
-                    <h1>Portfolio Report</h1>
-                  </div>
+                  \${reportBrandHtml('Portfolio Report')}
                   <div class="report-meta">
                     <div class="report-type">Company-Wide Snapshot</div>
                     <div class="report-date">\${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
@@ -4696,7 +4710,7 @@ export default async function SolTrendApp() {
                   </tbody>
                 </table>
                 <div class="report-footer">
-                  <div>Generated by SolTrend Pro | \${new Date().toLocaleString()}</div>
+                  <div>Kruger Energy &middot; via SolTrend Pro | \${new Date().toLocaleString()}</div>
                   <div>\${projects.length} project\${projects.length === 1 ? '' : 's'}</div>
                 </div>
               </body>
