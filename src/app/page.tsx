@@ -2960,48 +2960,70 @@ export default async function SolTrendApp() {
           // Rotated 90deg clockwise from the field-row layout (Glen's
           // request - his boss wanted the printed map turned to match the
           // site orientation, on the QC/Pile Status/Refusal reports, which
-          // all share this one function). The un-rotated picture has field
-          // rows stacked top-to-bottom and piles within a row running
-          // left-to-right; turning that whole picture 90deg clockwise
-          // means each printed strip is now one PILE POSITION (not a field
-          // row), stacked top-to-bottom in ascending position order, with
-          // the field rows running left-to-right INSIDE that strip, bottom
-          // field row first (leftmost) through top field row last
-          // (rightmost) - that's what "rotate the picture clockwise"
-          // actually works out to for a row-major grid. A field row
-          // shorter than a given position just has no cell there, same as
-          // the un-rotated version never padded a short row out to
-          // maxInRow either. The left-hand label is therefore now the
-          // pile's position-in-row, not its field row number - the one
-          // meaningful index left once rows run sideways instead of down.
+          // all share this one function).
+          //
+          // An earlier version of this function did the rotation by
+          // TRANSPOSING the data - iterating by position-in-row across all
+          // rows to build new strips, each strip one pile position instead
+          // of one field row. That's a correct 90deg matrix rotation *if*
+          // every row's position index lines up with the same physical
+          // spot across rows. It shipped, and Glen reported the printed
+          // map as "completely fucked... moving piles around and adding
+          // rows." Pulling Hogan Solar's real layout (project.pileLayoutMode
+          // === 'custom') showed why: a custom layout packs several real
+          // field rows into one visual grid row, padded with skip:true
+          // placeholders at an offset that's different on every row (e.g.
+          // one visual row has real piles starting at position 37 of 45,
+          // the next at position 39 of 56). Position index isn't a
+          // physical coordinate there, so transposing by position welded
+          // together piles from unrelated real-world locations into
+          // fictitious new rows.
+          //
+          // The fix rotates the PICTURE, not the data. Render each row's
+          // cells in the exact original left-to-right order (the same
+          // .map() a non-rotated grid would use - no transpose, no
+          // position indexing, no row reversal), then turn the whole
+          // rendered block 90deg clockwise with a CSS transform on a
+          // correctly-sized wrapper. Every row's cell adjacency is
+          // untouched by construction, so nothing can be reshuffled -
+          // it's the same picture, just turned.
           function reportPileGrid(rows, cellStatus, legend) {
             if (rows.length === 0) return '<p style="color:#94a3b8;font-size:12px;">No pile layout data yet.</p>';
             const maxInRow = rows.reduce(function(m, r) { return Math.max(m, r.piles.length); }, 0) || 1;
             const usableWidth = 650; // print body is ~40px padding each side on a ~816px page
+            // After rotation, the axis that must fit the printable page width is
+            // the original ROW-COUNT axis (each row becomes one column once
+            // turned), so size cells against rows.length rather than maxInRow.
             const cellSize = Math.max(3, Math.min(9, Math.floor(usableWidth / rows.length) - 1));
-            const strips = [];
-            for (let pos = 0; pos < maxInRow; pos++) {
-              let cells = '';
-              for (let ri = rows.length - 1; ri >= 0; ri--) {
-                const p = rows[ri].piles[pos];
-                if (!p) continue;
+            const gridHtml = rows.map(function(r) {
+              const cells = r.piles.map(function(p) {
                 const info = cellStatus(p);
-                cells += info.skip
+                return info.skip
                   ? '<span style="display:inline-block;width:' + cellSize + 'px;height:' + cellSize + 'px;margin:1px;"></span>'
                   : '<span style="display:inline-block;width:' + cellSize + 'px;height:' + cellSize + 'px;margin:1px;border-radius:1px;background:' + info.color + ';"></span>';
-              }
-              strips.push('<div style="white-space:nowrap;line-height:0;">' +
-                (cellSize >= 6 ? '<span style="display:inline-block;width:22px;font-size:7px;color:#94a3b8;vertical-align:top;">' + (pos + 1) + '</span>' : '') +
+              }).join('');
+              return '<div style="white-space:nowrap;line-height:0;">' +
+                (cellSize >= 6 ? '<span style="display:inline-block;width:22px;font-size:7px;color:#94a3b8;vertical-align:top;">' + r.row + '</span>' : '') +
                 cells +
-              '</div>');
-            }
-            const gridHtml = strips.join('');
+              '</div>';
+            }).join('');
+            // Bounding box of the un-rotated picture, so the rotated wrapper
+            // can be sized to its post-rotation (width/height swapped) box and
+            // the inner block centered inside it - rotating a box 90deg about
+            // its own center lines up naturally with a same-area, swapped-
+            // dimension outer container, no corner-anchored transform-origin
+            // math needed.
+            const labelW = cellSize >= 6 ? 22 : 0;
+            const origW = labelW + maxInRow * (cellSize + 2);
+            const origH = rows.length * (cellSize + 2);
             const legendHtml = '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:10px;">' +
               legend.map(function(l) {
                 return '<div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#475569;"><span style="width:10px;height:10px;border-radius:2px;background:' + l.color + ';display:inline-block;"></span>' + l.label + '</div>';
               }).join('') +
             '</div>';
-            return '<div>' + gridHtml + '</div>' + legendHtml;
+            return '<div style="width:' + origH + 'px;height:' + origW + 'px;display:flex;align-items:center;justify-content:center;">' +
+              '<div style="width:' + origW + 'px;height:' + origH + 'px;transform:rotate(90deg);">' + gridHtml + '</div>' +
+            '</div>' + legendHtml;
           }
 
           // PDF GENERATION FUNCTIONS
