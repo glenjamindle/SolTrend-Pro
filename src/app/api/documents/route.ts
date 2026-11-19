@@ -41,16 +41,19 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/documents
-// body: { projectId, title, category, fileKey, fileUrl, fileType?, fileSize?, uploadedBy }
+// body: { projectId, title, category?, fileKey, fileUrl, fileType?, fileSize?, uploadedBy }
 // The file itself is uploaded separately via /api/upload-document first;
-// this just records the resulting key/url against the project.
+// this just records the resulting key/url against the project. category is
+// optional - a bulk upload leaves it out (there's no reliable way to guess
+// one from a file name), and that's stored as null rather than forced into
+// one of the six real categories.
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { projectId, title, category, fileKey, fileUrl, fileType, fileSize, uploadedBy } = body
 
-    if (!projectId || !title || !category || !fileKey || !fileUrl) {
-      return NextResponse.json({ error: 'projectId, title, category, fileKey, and fileUrl are required' }, { status: 400 })
+    if (!projectId || !title || !fileKey || !fileUrl) {
+      return NextResponse.json({ error: 'projectId, title, fileKey, and fileUrl are required' }, { status: 400 })
     }
 
     const project = await prisma.project.findUnique({ where: { id: projectId } })
@@ -72,7 +75,7 @@ export async function POST(request: NextRequest) {
       data: {
         projectId,
         title,
-        category,
+        category: category || null,
         fileKey,
         fileUrl,
         fileType: fileType || undefined,

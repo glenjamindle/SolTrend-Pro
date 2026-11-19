@@ -572,7 +572,9 @@ model Milestone {
 model Document {
   id       String  @id @default(cuid())
   title    String
-  category String  // site_plans, ifc_drawings, as_builts, permits, specs, other
+  category String? // site_plans, ifc_drawings, as_builts, permits, specs, other - null on a
+                    // bulk upload, since there's no reliable way to guess a category from a
+                    // file name alone; shown as "Uncategorized" and left for someone to set by hand
   fileKey  String
   fileUrl  String
   fileType String? // original MIME type

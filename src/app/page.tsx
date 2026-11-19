@@ -501,7 +501,7 @@ export default async function SolTrendApp() {
             milestonePhase: '', milestonePlannedStart: '', milestonePlannedEnd: '', milestoneActualStart: '', milestoneActualEnd: '', milestoneStatus: 'not_started', milestonePercent: '',
             // DOCUMENTS & COI
             documents: [], cois: [], documentsTab: 'library',
-            docFormOpen: false, docTitle: '', docCategory: 'site_plans', docPendingFile: null, docSubmitting: false,
+            docFormOpen: false, docTitle: '', docCategory: 'site_plans', docPendingFile: null, docPendingFiles: [], docBulkProgress: null, docSubmitting: false,
             coiFormOpen: false, coiSubcontractorId: '', coiCoverageType: 'general_liability', coiExpiresAt: '', coiPendingFile: null, coiSubmitting: false,
             // MATERIALS
             materials: [], deliveries: [],
@@ -7919,17 +7919,42 @@ export default async function SolTrendApp() {
 
           // DOCUMENTS & COI
           function triggerDocFileInput(kind) { document.getElementById('docFileInput-' + kind).click(); }
+          // Document Library's file input accepts multiple files at once
+          // (COI and Submittal attachments don't - each of those belongs to
+          // one record with its own required fields a batch can't fill in
+          // for you, so they stay single-file). Picking more than one file
+          // there switches renderDocumentLibrary() into bulk mode: read
+          // every file into a fixed-size array by index rather than
+          // push()-ing as each FileReader finishes, since reads of
+          // different-sized files don't finish in selection order.
           function handleDocFileSelect(event, kind) {
-            const file = event.target.files[0]; if (!file) return;
-            const reader = new FileReader();
-            reader.onload = function(e) {
-              const fileInfo = { name: file.name, type: file.type, size: file.size, dataUrl: e.target.result };
-              if (kind === 'document') state.docPendingFile = fileInfo;
-              else if (kind === 'coi') state.coiPendingFile = fileInfo;
-              else if (kind === 'submittal') state.subPendingFile = fileInfo;
-              render();
-            };
-            reader.readAsDataURL(file);
+            const files = Array.from(event.target.files || []);
+            if (files.length === 0) return;
+            if (kind === 'document' && files.length > 1) {
+              state.docPendingFile = null;
+              const pending = new Array(files.length);
+              let remaining = files.length;
+              files.forEach(function(file, idx) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                  pending[idx] = { name: file.name, type: file.type, size: file.size, dataUrl: e.target.result };
+                  remaining--;
+                  if (remaining === 0) { state.docPendingFiles = pending; render(); }
+                };
+                reader.readAsDataURL(file);
+              });
+            } else {
+              const file = files[0];
+              const reader = new FileReader();
+              reader.onload = function(e) {
+                const fileInfo = { name: file.name, type: file.type, size: file.size, dataUrl: e.target.result };
+                if (kind === 'document') { state.docPendingFile = fileInfo; state.docPendingFiles = []; }
+                else if (kind === 'coi') state.coiPendingFile = fileInfo;
+                else if (kind === 'submittal') state.subPendingFile = fileInfo;
+                render();
+              };
+              reader.readAsDataURL(file);
+            }
             event.target.value = '';
           }
           function renderDocuments() {
@@ -7950,16 +7975,46 @@ export default async function SolTrendApp() {
             ];
             const catLabel = {}; categories.forEach(function(c) { catLabel[c.id] = c.label; });
             const canDelete = hasRole('admin');
-            const form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
-              '<h3 class="font-display font-semibold text-white text-sm">Upload a Document</h3>' +
-              '<div><label class="text-xs text-slate-400 mb-1 block">Title</label><input type="text" value="' + (state.docTitle || '') + '" oninput="state.docTitle=this.value" placeholder="e.g. IFC Drawing Set Rev 4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
-              '<div><label class="text-xs text-slate-400 mb-1 block">Category</label><select oninput="state.docCategory=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + categories.map(function(c) { return '<option value="' + c.id + '"' + (state.docCategory === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
-              '<input type="file" id="docFileInput-document" class="hidden" onchange="handleDocFileSelect(event, \\'document\\')">' +
-              '<button onclick="triggerDocFileInput(\\'document\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.docPendingFile ? state.docPendingFile.name : 'Choose File') + '</span></button>' +
-              '<button onclick="submitDocument()" ' + (state.docSubmitting ? 'disabled' : '') + ' class="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold flex items-center justify-center gap-2">' + (state.docSubmitting ? '<span class="spinner"></span><span>Uploading...</span>' : '<span>Upload</span>') + '</button>' +
-            '</div>';
+            // The file input always allows multiple selection for this tab.
+            // Picking 2+ files switches the form below into bulk mode; picking
+            // exactly 1 falls through to the classic single-file form (see
+            // handleDocFileSelect), since that one file can still get a real
+            // title and category.
+            const fileInput = '<input type="file" id="docFileInput-document" class="hidden" multiple onchange="handleDocFileSelect(event, \\'document\\')">';
+            const bulkMode = state.docPendingFiles && state.docPendingFiles.length > 1;
+            let form;
+            if (bulkMode) {
+              const progress = state.docBulkProgress;
+              const fileRows = state.docPendingFiles.map(function(f, idx) {
+                return '<div class="flex items-center justify-between gap-2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2">' +
+                  '<div class="flex items-center gap-2 min-w-0">' + icon('file-text', 'w-4 h-4 text-slate-400 flex-shrink-0') + '<span class="text-sm text-white truncate">' + f.name + '</span></div>' +
+                  (state.docSubmitting ? '' : '<button onclick="removeBulkDocFile(' + idx + ')" class="text-slate-400 hover:text-red-400 p-1 flex-shrink-0">' + icon('x', 'w-4 h-4') + '</button>') +
+                '</div>';
+              }).join('');
+              form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+                '<h3 class="font-display font-semibold text-white text-sm">Bulk Upload - ' + state.docPendingFiles.length + ' Files</h3>' +
+                '<p class="text-xs text-slate-400">Each file\\'s title will be its file name, and category will be left blank for you to set later.</p>' +
+                '<div class="space-y-2">' + fileRows + '</div>' +
+                (progress ? '<p class="text-xs text-amber-400">Uploading ' + progress.current + ' of ' + progress.total + '...</p>' : '') +
+                fileInput +
+                '<div class="flex gap-2">' +
+                  '<button onclick="clearBulkDocFiles()" ' + (state.docSubmitting ? 'disabled' : '') + ' class="flex-1 py-3 bg-slate-700 hover:bg-slate-600 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl font-bold">Cancel</button>' +
+                  '<button onclick="submitBulkDocuments()" ' + (state.docSubmitting ? 'disabled' : '') + ' class="flex-1 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold flex items-center justify-center gap-2">' + (state.docSubmitting ? '<span class="spinner"></span><span>Uploading...</span>' : '<span>Upload ' + state.docPendingFiles.length + ' Files</span>') + '</button>' +
+                '</div>' +
+              '</div>';
+            } else {
+              form = '<div class="card rounded-xl p-5 space-y-3 mb-4">' +
+                '<h3 class="font-display font-semibold text-white text-sm">Upload a Document</h3>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Title</label><input type="text" value="' + (state.docTitle || '') + '" oninput="state.docTitle=this.value" placeholder="e.g. IFC Drawing Set Rev 4" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm"></div>' +
+                '<div><label class="text-xs text-slate-400 mb-1 block">Category</label><select oninput="state.docCategory=this.value" class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm">' + categories.map(function(c) { return '<option value="' + c.id + '"' + (state.docCategory === c.id ? ' selected' : '') + '>' + c.label + '</option>'; }).join('') + '</select></div>' +
+                fileInput +
+                '<button onclick="triggerDocFileInput(\\'document\\')" class="capture-btn w-full py-3 rounded-xl flex items-center justify-center gap-2 text-slate-400 hover:text-white">' + icon('upload', 'w-5 h-5') + '<span class="font-medium text-sm">' + (state.docPendingFile ? state.docPendingFile.name : 'Choose File(s)') + '</span></button>' +
+                '<p class="text-xs text-slate-500">Selecting more than one file switches to a bulk upload - each one is saved using its file name as the title, with no category.</p>' +
+                '<button onclick="submitDocument()" ' + (state.docSubmitting ? 'disabled' : '') + ' class="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed text-black rounded-xl font-bold flex items-center justify-center gap-2">' + (state.docSubmitting ? '<span class="spinner"></span><span>Uploading...</span>' : '<span>Upload</span>') + '</button>' +
+              '</div>';
+            }
             const list = state.documents.length > 0 ? '<div class="space-y-2">' + state.documents.map(function(d) {
-              return '<div class="card rounded-xl p-4 flex items-center justify-between gap-3"><a href="' + d.fileUrl + '" target="_blank" rel="noopener" class="flex items-center gap-3 flex-1 min-w-0">' + icon('file-text', 'w-5 h-5 text-slate-400 flex-shrink-0') + '<div class="min-w-0"><p class="text-sm font-medium text-white truncate">' + d.title + '</p><p class="text-xs text-slate-400">' + (catLabel[d.category] || d.category) + ' · ' + d.uploadedBy + ' · ' + formatDate(d.createdAt) + '</p></div></a>' + (canDelete ? '<button onclick="deleteDocument(\\'' + d.id + '\\')" class="text-slate-400 hover:text-red-400 p-1 flex-shrink-0">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') + '</div>';
+              return '<div class="card rounded-xl p-4 flex items-center justify-between gap-3"><a href="' + d.fileUrl + '" target="_blank" rel="noopener" class="flex items-center gap-3 flex-1 min-w-0">' + icon('file-text', 'w-5 h-5 text-slate-400 flex-shrink-0') + '<div class="min-w-0"><p class="text-sm font-medium text-white truncate">' + d.title + '</p><p class="text-xs text-slate-400">' + (catLabel[d.category] || d.category || 'Uncategorized') + ' · ' + d.uploadedBy + ' · ' + formatDate(d.createdAt) + '</p></div></a>' + (canDelete ? '<button onclick="deleteDocument(\\'' + d.id + '\\')" class="text-slate-400 hover:text-red-400 p-1 flex-shrink-0">' + icon('trash-2', 'w-4 h-4') + '</button>' : '') + '</div>';
             }).join('') + '</div>' : '<p class="text-sm text-slate-400">No documents uploaded yet.</p>';
             return form + list;
           }
@@ -7983,21 +8038,27 @@ export default async function SolTrendApp() {
             render();
             saveDocument(state.docTitle.trim(), state.docCategory, state.docPendingFile);
           }
+          // Shared by the classic single-file form (saveDocument) and bulk
+          // upload (submitBulkDocuments): stages the file to the bucket, then
+          // records it against the project. Throws on either step's failure
+          // so each caller decides how to report it (one alert vs. a per-file
+          // tally across a batch).
+          async function uploadAndCreateDocument(title, category, file) {
+            const projectId = state.currentProject?.id || 'proj_001';
+            const upRes = await fetch('/api/upload-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: file.dataUrl, context: 'document' }) });
+            const upData = await upRes.json();
+            if (!upData.url) throw new Error('Document upload failed');
+            const res = await fetch('/api/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, title, category: category || undefined, fileKey: upData.key, fileUrl: upData.url, fileType: upData.contentType, fileSize: upData.size, uploadedBy: state.currentUser.id, filePendingUpload: !!upData.pendingUpload, fileUploadContext: 'document' }) });
+            const created = await res.json();
+            if (!created || !created.id) throw new Error('Document create failed');
+            return created;
+          }
           async function saveDocument(title, category, file) {
             try {
-              const projectId = state.currentProject?.id || 'proj_001';
-              const upRes = await fetch('/api/upload-document', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl: file.dataUrl, context: 'document' }) });
-              const upData = await upRes.json();
-              if (!upData.url) throw new Error('Document upload failed');
-              const res = await fetch('/api/documents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, title, category, fileKey: upData.key, fileUrl: upData.url, fileType: upData.contentType, fileSize: upData.size, uploadedBy: state.currentUser.id, filePendingUpload: !!upData.pendingUpload, fileUploadContext: 'document' }) });
-              const created = await res.json();
-              if (created && created.id) {
-                state.documents.unshift({ id: created.id, title: created.title, category: created.category, fileUrl: created.fileUrl, fileType: created.fileType, fileSize: created.fileSize, uploadedBy: state.currentUser.name, createdAt: created.createdAt });
-                state.docTitle = ''; state.docPendingFile = null;
-                showToast('Document uploaded.', 'success');
-              } else {
-                throw new Error('Document create failed');
-              }
+              const created = await uploadAndCreateDocument(title, category, file);
+              state.documents.unshift({ id: created.id, title: created.title, category: created.category, fileUrl: created.fileUrl, fileType: created.fileType, fileSize: created.fileSize, uploadedBy: state.currentUser.name, createdAt: created.createdAt });
+              state.docTitle = ''; state.docPendingFile = null;
+              showToast('Document uploaded.', 'success');
             } catch (e) {
               console.error('Save document error:', e);
               showToast('Failed to upload document - check your connection and try again.', 'error');
@@ -8005,6 +8066,54 @@ export default async function SolTrendApp() {
               state.docSubmitting = false;
               render();
             }
+          }
+          // Bulk path for the Document Library: titles default to each
+          // file's own name and category is left blank (null), per Glen's
+          // request - there's no reliable way to guess a category from a
+          // file name. Uploads go one at a time (not in parallel, matching
+          // how uploadPendingPhotos works elsewhere) with live progress, and
+          // one file failing doesn't stop the rest of the batch.
+          async function submitBulkDocuments() {
+            if (state.docSubmitting) return;
+            const files = state.docPendingFiles.slice();
+            if (files.length === 0) return;
+            hapticFeedback();
+            state.docSubmitting = true;
+            state.docBulkProgress = { current: 0, total: files.length };
+            render();
+            let succeeded = 0; const failed = [];
+            for (let i = 0; i < files.length; i++) {
+              const file = files[i];
+              state.docBulkProgress = { current: i + 1, total: files.length };
+              render();
+              try {
+                const created = await uploadAndCreateDocument(file.name, '', file);
+                state.documents.unshift({ id: created.id, title: created.title, category: created.category, fileUrl: created.fileUrl, fileType: created.fileType, fileSize: created.fileSize, uploadedBy: state.currentUser.name, createdAt: created.createdAt });
+                succeeded++;
+              } catch (e) {
+                console.error('Bulk document upload error:', e);
+                failed.push(file.name);
+              }
+            }
+            state.docSubmitting = false;
+            state.docBulkProgress = null;
+            state.docPendingFiles = [];
+            if (failed.length === 0) {
+              showToast('Uploaded ' + succeeded + ' document' + (succeeded === 1 ? '' : 's') + '.', 'success');
+            } else if (succeeded === 0) {
+              showToast('Failed to upload ' + failed.length + ' document' + (failed.length === 1 ? '' : 's') + ' - check your connection and try again.', 'error');
+            } else {
+              showToast('Uploaded ' + succeeded + ' of ' + files.length + ' documents - ' + failed.length + ' failed.', 'error');
+            }
+            render();
+          }
+          function removeBulkDocFile(idx) {
+            state.docPendingFiles = state.docPendingFiles.filter(function(f, i) { return i !== idx; });
+            render();
+          }
+          function clearBulkDocFiles() {
+            state.docPendingFiles = [];
+            render();
           }
           function deleteDocument(id) {
             if (!confirm('Delete this document?')) return;
