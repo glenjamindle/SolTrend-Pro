@@ -2714,8 +2714,7 @@ export default async function SolTrendApp() {
             return parts.join(' &middot; ');
           }
           // Kruger Energy header lockup for the four reports that use the
-          // two-column report-header (Daily/Weekly/Monthly/Portfolio - the
-          // other five use a simpler centered header, untouched here).
+          // two-column report-header (Daily/Weekly/Monthly/Portfolio).
           // Option A from the branding review Glen picked: one plain mark
           // (not the full wordmark - a second full logo right next to a
           // text company name just repeats the same name twice) paired
@@ -2732,6 +2731,21 @@ export default async function SolTrendApp() {
                 '<div class="company-name">Kruger Energy</div>' +
               '</div>' +
             '</div>';
+          }
+          // Same lockup, re-flowed for the other five reports (QC, Pile
+          // Status, Module, Refusal, Punch List), which use a single
+          // centered masthead instead of the two-column report-header -
+          // these never had any company branding at all (just a bare
+          // title + subtitle), not the duplicate-name problem Option A
+          // above was fixing, but going out branded on four reports and
+          // unbranded on five looks worse than the thing Option A fixed.
+          // Mark and "Kruger Energy" subhead both just stack and center
+          // via the existing .header{text-align:center}, no flex wrapper
+          // needed the way the two-column version needs one.
+          function reportBrandHtmlCentered(title) {
+            return '<img class="company-mark-centered" src="/kruger-mark.png" alt="Kruger Energy">' +
+              '<h1>' + title + '</h1>' +
+              '<div class="company-name-centered">Kruger Energy</div>';
           }
           // A small in-report control bar (Print + Close, plus a guaranteed
           // link back to the app) injected into every generated report by
@@ -3818,9 +3832,11 @@ export default async function SolTrendApp() {
                 <title>\${project?.name || 'Project'} - QC Report - \${startDate} to \${endDate}</title>
                 <style>
                   body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
-                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #a855f7; padding-bottom: 20px; }
+                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #007852; padding-bottom: 20px; }
                   .header h1 { color: #0f172a; margin: 0; font-size: 28px; }
                   .header p { color: #64748b; margin: 5px 0; }
+                  .company-mark-centered { width: 40px; height: 40px; object-fit: contain; margin: 0 auto 8px; display: block; }
+                  .company-name-centered { font-size: 14px; color: #007852; font-weight: 600; text-transform: uppercase; margin-top: 4px; }
                   .section { margin-bottom: 25px; }
                   .section h2 { color: #a855f7; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
                   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 15px 0; }
@@ -3844,7 +3860,7 @@ export default async function SolTrendApp() {
               </head>
               <body>
                 <div class="header">
-                  <h1>Quality Control Report</h1>
+                  \${reportBrandHtmlCentered('Quality Control Report')}
                   <p>\${project?.name || 'SolTrend Pro'} | \${parseLocalDate(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${parseLocalDate(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                   <p style="font-size:12px;color:#a855f7;font-weight:600;">\${reportScheduleLineText(project)}</p>
                 </div>
@@ -3977,9 +3993,11 @@ export default async function SolTrendApp() {
                 <title>\${project?.name || 'Project'} - Pile Status Report - \${localDateStr(Date.now())}</title>
                 <style>
                   body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
-                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #06b6d4; padding-bottom: 20px; }
+                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #007852; padding-bottom: 20px; }
                   .header h1 { color: #0f172a; margin: 0; font-size: 28px; }
                   .header p { color: #64748b; margin: 5px 0; }
+                  .company-mark-centered { width: 40px; height: 40px; object-fit: contain; margin: 0 auto 8px; display: block; }
+                  .company-name-centered { font-size: 14px; color: #007852; font-weight: 600; text-transform: uppercase; margin-top: 4px; }
                   .section { margin-bottom: 25px; }
                   .section h2 { color: #06b6d4; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
                   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 15px 0; }
@@ -3998,7 +4016,7 @@ export default async function SolTrendApp() {
               </head>
               <body>
                 <div class="header">
-                  <h1>Pile Status Report</h1>
+                  \${reportBrandHtmlCentered('Pile Status Report')}
                   <p>\${project?.name || 'SolTrend Pro'} | \${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
                   <p style="font-size:12px;color:#06b6d4;font-weight:600;">\${reportScheduleLineText(project)}</p>
                 </div>
@@ -4153,9 +4171,11 @@ export default async function SolTrendApp() {
                 <title>\${project?.name || 'Project'} - Module Report - \${localDateStr(Date.now())}</title>
                 <style>
                   body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
-                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #a855f7; padding-bottom: 20px; }
+                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #007852; padding-bottom: 20px; }
                   .header h1 { color: #0f172a; margin: 0; font-size: 28px; }
                   .header p { color: #64748b; margin: 5px 0; }
+                  .company-mark-centered { width: 40px; height: 40px; object-fit: contain; margin: 0 auto 8px; display: block; }
+                  .company-name-centered { font-size: 14px; color: #007852; font-weight: 600; text-transform: uppercase; margin-top: 4px; }
                   .section { margin-bottom: 25px; }
                   .section h2 { color: #a855f7; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
                   .stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 15px; margin: 15px 0; }
@@ -4175,7 +4195,7 @@ export default async function SolTrendApp() {
               </head>
               <body>
                 <div class="header">
-                  <h1>Module Report</h1>
+                  \${reportBrandHtmlCentered('Module Report')}
                   <p>\${project?.name || 'SolTrend Pro'} | \${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
                   <p style="font-size:12px;color:#a855f7;font-weight:600;">\${reportScheduleLineText(project)}</p>
                 </div>
@@ -4333,9 +4353,11 @@ export default async function SolTrendApp() {
                 <title>\${project?.name || 'Project'} - Refusal Report - \${startDate} to \${endDate}</title>
                 <style>
                   body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
-                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #f97316; padding-bottom: 20px; }
+                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #007852; padding-bottom: 20px; }
                   .header h1 { color: #0f172a; margin: 0; font-size: 28px; }
                   .header p { color: #64748b; margin: 5px 0; }
+                  .company-mark-centered { width: 40px; height: 40px; object-fit: contain; margin: 0 auto 8px; display: block; }
+                  .company-name-centered { font-size: 14px; color: #007852; font-weight: 600; text-transform: uppercase; margin-top: 4px; }
                   .section { margin-bottom: 25px; }
                   .section h2 { color: #f97316; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
                   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 15px 0; }
@@ -4357,7 +4379,7 @@ export default async function SolTrendApp() {
               </head>
               <body>
                 <div class="header">
-                  <h1>Refusal Analysis Report</h1>
+                  \${reportBrandHtmlCentered('Refusal Analysis Report')}
                   <p>\${project?.name || 'SolTrend Pro'} | \${parseLocalDate(startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - \${parseLocalDate(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                   <p style="font-size:12px;color:#f97316;font-weight:600;">\${reportScheduleLineText(project)}</p>
                 </div>
@@ -4522,9 +4544,11 @@ export default async function SolTrendApp() {
                 <title>\${project?.name || 'Project'} - Punch List Report - \${localDateStr(Date.now())}</title>
                 <style>
                   body { font-family: Arial, sans-serif; padding: 40px; color: #1e293b; }
-                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #14b8a6; padding-bottom: 20px; }
+                  .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #007852; padding-bottom: 20px; }
                   .header h1 { color: #0f172a; margin: 0; font-size: 28px; }
                   .header p { color: #64748b; margin: 5px 0; }
+                  .company-mark-centered { width: 40px; height: 40px; object-fit: contain; margin: 0 auto 8px; display: block; }
+                  .company-name-centered { font-size: 14px; color: #007852; font-weight: 600; text-transform: uppercase; margin-top: 4px; }
                   .section { margin-bottom: 25px; }
                   .section h2 { color: #0d9488; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
                   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 15px 0; }
@@ -4552,7 +4576,7 @@ export default async function SolTrendApp() {
               </head>
               <body>
                 <div class="header">
-                  <h1>Punch List Report</h1>
+                  \${reportBrandHtmlCentered('Punch List Report')}
                   <p>\${project?.name || 'SolTrend Pro'} | \${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                   <p style="font-size:12px;color:#0d9488;font-weight:600;">Showing: \${scopeText}</p>
                 </div>
