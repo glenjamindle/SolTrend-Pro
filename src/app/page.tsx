@@ -5747,11 +5747,23 @@ export default async function SolTrendApp() {
               return '<div class="flex flex-wrap items-center gap-4 bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-sm mt-3">' + baseInfo + '<button onclick="startFlagModuleCell()" class="text-red-400 hover:text-red-300 font-bold text-xs flex items-center gap-1">' + icon('flag', 'w-3.5 h-3.5') + ' Flag as broken</button>' + deleteBtn + '</div>';
             })() : '';
 
+            // Installed vs Planned - the design/to-install count
+            // (project.totalModules, same field the progress bars and
+            // velocity rates use elsewhere), not the Procured count used
+            // for ordering reconciliation on the Reconciliation tab. The
+            // two numbers can legitimately differ (Procured includes a
+            // breakage margin/spares), so this sits right next to the
+            // status legend as its own, distinct metric.
+            let mapInstalled = 0;
+            state.moduleRows.forEach(function(row) { mapInstalled += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
+            const mapPlanned = state.currentProject ? (state.currentProject.totalModules ?? 0) : 0;
+            const installedVsPlannedHtml = '<div class="flex items-center gap-1.5 pl-3 border-l border-slate-700"><span class="text-xs text-slate-400">Installed</span><span class="text-sm font-mono font-bold text-white">' + mapInstalled.toLocaleString() + '</span><span class="text-xs text-slate-500">/</span><span class="text-sm font-mono text-slate-300">' + mapPlanned.toLocaleString() + '</span><span class="text-xs text-slate-500">planned</span></div>';
             return '<div class="space-y-3">' +
               '<div class="flex flex-wrap items-center gap-3 bg-slate-800/50 border border-slate-700 rounded-xl p-3">' +
                 '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded module-cell unscanned" style="width:12px;height:12px"></div><span class="text-xs text-slate-300">Unscanned</span></div>' +
                 '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded module-cell good" style="width:12px;height:12px"></div><span class="text-xs text-slate-300">Installed</span></div>' +
                 '<div class="flex items-center gap-2"><div class="w-3 h-3 rounded module-cell flagged" style="width:12px;height:12px"></div><span class="text-xs text-slate-300">Flagged broken</span></div>' +
+                installedVsPlannedHtml +
                 '<div class="flex items-center gap-2 ml-auto"><button onclick="zoomModuleMapOut()" class="p-1.5 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-out', 'w-3.5 h-3.5') + '</button><span class="text-xs text-slate-400 w-10 text-center">' + Math.round(zoom * 100) + '%</span><button onclick="zoomModuleMapIn()" class="p-1.5 bg-slate-700 rounded-lg text-slate-300">' + icon('zoom-in', 'w-3.5 h-3.5') + '</button></div>' +
                 '<input type="text" value="' + (state.moduleMapSearch || '') + '" oninput="filterModuleMap(this.value)" placeholder="Search barcode" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs w-40">' +
                 (term ? ('<span class="text-xs text-slate-400">' + matchCount + ' match' + (matchCount === 1 ? '' : 'es') + '</span>') : '') +
@@ -5766,7 +5778,12 @@ export default async function SolTrendApp() {
           function renderModuleReconcileTab() {
             // Same procured-vs-planned distinction as generateModuleReport()
             // above - falls back to totalModules when modulesProcured isn't
-            // set yet.
+            // set yet. Planned is shown as its own stat right next to
+            // Procured since the two numbers mean different things
+            // (Planned = the design/to-install count; Procured = what was
+            // actually ordered, including breakage margin/spares) and can
+            // legitimately differ.
+            const planned = state.currentProject ? (state.currentProject.totalModules ?? 0) : 0;
             const procured = state.currentProject ? (state.currentProject.modulesProcured ?? state.currentProject.totalModules ?? 0) : 0;
             let installed = 0;
             state.moduleRows.forEach(function(row) { installed += (row.slots || []).filter(function(s) { return s.barcode; }).length; });
@@ -5783,7 +5800,7 @@ export default async function SolTrendApp() {
               return '<div class="card rounded-xl p-4"><p class="text-xs text-slate-400 uppercase mb-1">' + label + '</p><p class="text-2xl font-display font-bold ' + (warn ? 'text-amber-400' : 'text-white') + '">' + value.toLocaleString() + '</p></div>';
             };
             return '<div class="space-y-4">' +
-              '<div class="grid grid-cols-2 lg:grid-cols-6 gap-3">' + stat('Procured', procured) + stat('Installed', installed) + stat('Flagged', flagged, flagged > 0) + stat('Spares', spares) + stat('Broken', broken) + stat('Unaccounted', unaccounted, unaccounted !== 0) + '</div>' +
+              '<div class="grid grid-cols-2 lg:grid-cols-7 gap-3">' + stat('Planned', planned) + stat('Procured', procured) + stat('Installed', installed) + stat('Flagged', flagged, flagged > 0) + stat('Spares', spares) + stat('Broken', broken) + stat('Unaccounted', unaccounted, unaccounted !== 0) + '</div>' +
               '<div class="card rounded-xl p-4"><div class="flex items-center gap-3 text-sm"><span class="text-slate-400 whitespace-nowrap">Installed</span><div class="flex-1 h-2 rounded-full bg-slate-700 overflow-hidden"><div class="h-full bg-amber-500" style="width:' + Math.max(0, Math.min(100, pct)) + '%"></div></div><span class="text-white font-mono">' + pct + '%</span></div></div>' +
               (procured === 0 ? '<p class="text-xs text-slate-400">Set Modules Procured (or Planned Modules) for this project in Settings to see Unaccounted here.</p>' : '') +
             '</div>';
